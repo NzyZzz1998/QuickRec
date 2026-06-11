@@ -65,38 +65,43 @@
   - [x] 单元测试 (7/7 通过)
 
 ### UI 模块
-- [ ] [区域选择模块 (area_selector.py)](tasks/task-area_selector.md)
-  - [ ] AreaSelector 类实现
-  - [ ] 交互逻辑
-  - [ ] 显示信息
+- [x] [区域选择模块 (area_selector.py)](tasks/task-area_selector.md)
+  - [x] AreaSelector 类实现
+  - [x] 交互逻辑 (鼠标拖拽、ESC取消)
+  - [x] 显示信息 (尺寸标签、边框高亮)
+  - [x] 单元测试 (6/6 通过)
 
-- [ ] [录制工具栏模块 (toolbar.py)](tasks/task-toolbar.md)
-  - [ ] RecordingToolbar 类实现
-  - [ ] UI 元素
-  - [ ] 交互功能
+- [x] [录制工具栏模块 (toolbar.py)](tasks/task-toolbar.md)
+  - [x] RecordingToolbar 类实现
+  - [x] UI 元素 (指示灯、计时器、按钮)
+  - [x] 交互功能 (暂停/恢复、拖拽)
+  - [x] 单元测试 (8/8 通过)
 
-- [ ] [设置对话框模块 (settings_dialog.py)](tasks/task-settings_dialog.md)
-  - [ ] SettingsDialog 类实现
-  - [ ] 控件定义
-  - [ ] 功能实现
+- [x] [设置对话框模块 (settings_dialog.py)](tasks/task-settings_dialog.md)
+  - [x] SettingsDialog 类实现
+  - [x] 控件定义 (路径、画质、帧率、快捷键)
+  - [x] 功能实现 (加载、保存、浏览)
+  - [x] 单元测试 (5/5 通过)
 
-- [ ] [系统托盘模块 (tray_icon.py)](tasks/task-tray_icon.md)
-  - [ ] TrayIcon 类实现
-  - [ ] 菜单项
-  - [ ] 功能实现
+- [x] [系统托盘模块 (tray_icon.py)](tasks/task-tray_icon.md)
+  - [x] TrayIcon 类实现
+  - [x] 菜单项 (录制、设置、打开文件夹、退出)
+  - [x] 功能实现 (显示、隐藏、通知)
+  - [x] 单元测试 (3/3 通过)
 
-- [ ] [全局快捷键模块 (hotkey_manager.py)](tasks/task-hotkey_manager.md)
-  - [ ] HotkeyManager 类实现
-  - [ ] 快捷键格式解析
-  - [ ] 单元测试
+- [x] [全局快捷键模块 (hotkey_manager.py)](tasks/task-hotkey_manager.md)
+  - [x] HotkeyManager 类实现
+  - [x] 快捷键格式解析
+  - [x] 重复注册防护
+  - [x] 单元测试 (7/7 通过)
 
 ### 入口和集成
-- [ ] [主程序入口 (main.py)](tasks/task-main.md)
-  - [ ] 初始化流程
-  - [ ] 快捷键绑定
-  - [ ] UI 流程
-  - [ ] 退出流程
-  - [ ] 异常处理
+- [x] [主程序入口 (main.py)](tasks/task-main.md)
+  - [x] 初始化流程
+  - [x] 快捷键绑定
+  - [x] UI 流程
+  - [x] 退出流程
+  - [x] 异常处理
 
 ## 依赖关系图
 
@@ -123,30 +128,30 @@ setup (最先)
   └─> main.py (依赖: 所有模块)
 ```
 
-## 建议开发顺序
+## 开发阶段
 
-### 第一阶段 (1-2 天)
+### 第一阶段 ✅
 1. ✅ **task-setup** - 安装依赖，创建目录
-2. ✅ **task-config** - 配置管理（无依赖，核心基础）
+2. ✅ **task-config** - 配置管理
 3. ✅ **task-file_namer** + **task-disk_checker** - 工具模块
 
-### 第二阶段 (2-3 天)
+### 第二阶段 ✅
 4. ✅ **task-screen_capturer** - 屏幕捕获
 5. ✅ **task-video_encoder** - 视频编码
-6. ✅ **task-recorder_manager** - 录制控制（集成 capturer + encoder）
+6. ✅ **task-recorder_manager** - 录制控制
 
-### 第三阶段 (2-3 天)
+### 第三阶段 ✅
 7. ✅ **task-area_selector** - 区域选择
 8. ✅ **task-toolbar** - 录制工具栏
 9. ✅ **task-settings_dialog** - 设置对话框
 
-### 第四阶段 (1-2 天)
+### 第四阶段 ✅
 10. ✅ **task-hotkey_manager** - 全局快捷键
 11. ✅ **task-tray_icon** - 系统托盘
 
-### 第五阶段 (1 天)
+### 第五阶段 ✅
 12. ✅ **task-main** - 主程序入口
-13. ✅ **测试+修复** - 完整功能测试
 
-### 第六阶段 (1 天)
-14. ✅ **打包** - PyInstaller 打包为 exe
+### 待完成
+- [ ] 完整功能测试
+- [ ] PyInstaller 打包为 exe
