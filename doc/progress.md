@@ -58,11 +58,11 @@
   - [x] 编码参数配置
   - [x] 单元测试 (5/5 通过)
 
-- [ ] [录制控制模块 (recorder_manager.py)](tasks/task-recorder_manager.md)
-  - [ ] RecorderState 枚举
-  - [ ] RecorderManager 类实现
-  - [ ] 录制循环
-  - [ ] 单元测试
+- [x] [录制控制模块 (recorder_manager.py)](tasks/task-recorder_manager.md)
+  - [x] RecorderState 枚举
+  - [x] RecorderManager 类实现
+  - [x] 录制循环
+  - [x] 单元测试 (7/7 通过)
 
 ### UI 模块
 - [ ] [区域选择模块 (area_selector.py)](tasks/task-area_selector.md)
