@@ -8,12 +8,12 @@
 |-----|------|------|------|
 | Python | ✅ 已安装 | 3.12.8 | Anaconda base |
 | PyQt5 | ✅ 已安装 | 5.15.10 | |
-| numpy | ✅ 已安装 | 1.26.4 | |
-| mss | ❌ 待安装 | - | pip install mss |
-| opencv-python | ❌ 待安装 | - | pip install opencv-python |
-| keyboard | ❌ 待安装 | - | pip install keyboard |
-| pystray | ❌ 待安装 | - | pip install pystray |
-| pyinstaller | ❌ 待安装 | - | pip install pyinstaller |
+| numpy | ✅ 已安装 | 2.4.6 | opencv-python 依赖升级 |
+| mss | ✅ 已安装 | 10.2.0 | |
+| opencv-python | ✅ 已安装 | 4.13.0 | |
+| keyboard | ✅ 已安装 | 0.13.5 | |
+| pystray | ✅ 已安装 | 0.19.5 | |
+| pyinstaller | ✅ 已安装 | 6.20.0 | |
 
 ## 模块进度
 
@@ -41,10 +41,10 @@
   - [x] 目录处理
   - [x] 单元测试 (5/5 通过)
 
-- [ ] [磁盘空间检查模块 (disk_checker.py)](tasks/task-disk_checker.md)
-  - [ ] DiskChecker 类实现
-  - [ ] 空间估算逻辑
-  - [ ] 单元测试
+- [x] [磁盘空间检查模块 (disk_checker.py)](tasks/task-disk_checker.md)
+  - [x] DiskChecker 类实现
+  - [x] 空间估算逻辑
+  - [x] 单元测试 (6/6 通过)
 
 ### 录制引擎
 - [ ] [屏幕捕获模块 (screen_capturer.py)](tasks/task-screen_capturer.md)
