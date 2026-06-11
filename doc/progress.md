@@ -28,12 +28,12 @@
   - [x] 创建项目目录结构
 
 ### 核心模块 (无依赖，可独立开发)
-- [ ] [配置管理模块 (config.py)](tasks/task-config.md)
-  - [ ] ConfigManager 类实现
-  - [ ] 默认值定义
-  - [ ] 文件路径处理
-  - [ ] 异常处理
-  - [ ] 单元测试
+- [x] [配置管理模块 (config.py)](tasks/task-config.md)
+  - [x] ConfigManager 类实现
+  - [x] 默认值定义
+  - [x] 文件路径处理
+  - [x] 异常处理
+  - [x] 单元测试 (8/8 通过)
 
 - [ ] [文件命名模块 (file_namer.py)](tasks/task-file_namer.md)
   - [ ] FileNamer 类实现
