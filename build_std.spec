@@ -6,7 +6,10 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
-        'mss',
+        'dxcam',
+        'comtypes',
+        'comtypes.client',
+        'comtypes.server',
         'cv2',
         'pynput',
         'pynput.keyboard',

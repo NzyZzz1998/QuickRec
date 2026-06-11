@@ -187,42 +187,53 @@ class RecorderManager:
         return True
 
     def _record_loop(self):
-        """录制线程主循环"""
+        """录制线程主循环
+
+        使用绝对时间戳控制帧率，确保写入帧数与录制时长匹配。
+        dxcam 内部线程捕获帧，get_latest_frame() 取最新帧。
+        """
         fps = self._config.get("fps", 30)
         frame_interval = 1.0 / fps
-        next_frame_time = time.time()
+        rec_start = time.time()
+        frames_written = 0
 
         while not self._stop_event.is_set():
-            # 暂停等待：_resume_event 被 clear() 时线程在此阻塞
-            # resume() 调用 set() 唤醒线程继续录制
-            # stop() 调用 set() + _stop_event.set() 唤醒后外层 while 退出
+            # 暂停等待
             if not self._resume_event.wait(timeout=0.1):
-                # wait 返回 False 表示超时（仍处于暂停状态）
                 if self._stop_event.is_set():
                     break
-                # 暂停期间调整下次帧时间，避免恢复后一次性追赶
-                next_frame_time = time.time() + frame_interval
+                # 恢复后重置时间基准
+                rec_start = time.time()
+                frames_written = 0
                 continue
 
             if self._stop_event.is_set():
                 break
 
+            # 计算应该写到第几帧
+            target_frame = int((time.time() - rec_start) / frame_interval)
+
             try:
                 frame = self._capturer.capture_frame()
-                if not self._encoder.write_frame(frame):
-                    break
+                if frame is None:
+                    continue
             except Exception:
                 break
 
-            # 精确帧率控制：先 sleep 大部分间隔，最后忙等待补精度
-            next_frame_time += frame_interval
-            now = time.time()
-            remaining = next_frame_time - now
-            if remaining < -1.0:
-                # 落后超过1秒，重置时间基准避免追赶
-                next_frame_time = now + frame_interval
-            elif remaining > 0.002:
-                time.sleep(remaining - 0.001)
-                # 忙等待最后 ~1ms，确保精确对齐
-                while time.time() < next_frame_time:
-                    pass
+            # 补齐跳过的帧：用当前帧填充
+            while frames_written < target_frame:
+                if not self._encoder.write_frame(frame):
+                    return
+                frames_written += 1
+
+            if not self._encoder.write_frame(frame):
+                break
+            frames_written += 1
+
+            # 等待到下一帧时刻
+            next_time = rec_start + frames_written * frame_interval
+            wait = next_time - time.time()
+            if wait > 0.002:
+                time.sleep(wait - 0.001)
+            while time.time() < next_time:
+                pass

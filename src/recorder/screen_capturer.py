@@ -1,15 +1,14 @@
 """
 屏幕捕获模块
 
-使用 mss 捕获屏幕或指定区域的图像帧。
+使用 dxcam 通过 DirectX 快速捕获屏幕帧。
 """
 
-import numpy as np
-from mss import MSS
+import dxcam
 
 
 class ScreenCapturer:
-    """屏幕捕获器"""
+    """屏幕捕获器（基于 dxcam）"""
 
     def __init__(self, region: tuple = None):
         """
@@ -19,32 +18,32 @@ class ScreenCapturer:
             region: 捕获区域 (left, top, width, height)
                    None 表示全屏捕获
         """
-        self._sct = MSS()
         self._region = region
+        self._camera = dxcam.create(output_idx=0, output_color="BGR")
 
         if region:
             left, top, width, height = region
-            self._monitor = {
-                "left": left,
-                "top": top,
-                "width": width,
-                "height": height,
-            }
+            # dxcam 用 region=(left, top, right, bottom)
+            self._dxcam_region = (left, top, left + width, top + height)
         else:
-            # 全屏：使用主显示器
-            self._monitor = self._sct.monitors[1]
+            self._dxcam_region = None
 
-    def capture_frame(self) -> np.ndarray:
+        # 启动捕获（预加载，减少首帧延迟）
+        self._camera.start(target_fps=60, region=self._dxcam_region)
+
+    def capture_frame(self):
         """
         捕获一帧
 
         Returns:
             numpy ndarray，形状 (height, width, 3)，BGR 颜色空间
         """
-        screenshot = self._sct.grab(self._monitor)
-        # mss 返回 BGRA，转为 BGR
-        frame = np.array(screenshot, dtype=np.uint8)
-        frame = frame[:, :, :3]  # 去掉 alpha 通道
+        frame = self._camera.get_latest_frame()
+        if frame is None:
+            # 首帧可能为 None，重试一次
+            import time
+            time.sleep(0.01)
+            frame = self._camera.get_latest_frame()
         return frame
 
     def get_monitor_size(self) -> tuple:
@@ -54,11 +53,21 @@ class ScreenCapturer:
         Returns:
             (width, height)
         """
-        return (self._monitor["width"], self._monitor["height"])
+        if self._dxcam_region:
+            left, top, right, bottom = self._dxcam_region
+            return (right - left, bottom - top)
+        else:
+            # 全屏：从 dxcam 获取
+            import ctypes
+            user32 = ctypes.windll.user32
+            return (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
 
     def close(self):
         """释放资源"""
-        self._sct.close()
+        if self._camera:
+            self._camera.stop()
+            self._camera.release()
+            self._camera = None
 
     def __del__(self):
         try:
