@@ -61,4 +61,7 @@ class ScreenCapturer:
         self._sct.close()
 
     def __del__(self):
-        self.close()
+        try:
+            self.close()
+        except Exception:
+            pass

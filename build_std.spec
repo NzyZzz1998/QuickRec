@@ -1,0 +1,72 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+a = Analysis(
+    ['src/main.py'],
+    pathex=['src'],
+    binaries=[],
+    datas=[],
+    hiddenimports=[
+        'mss',
+        'cv2',
+        'pynput',
+        'pynput.keyboard',
+        'pynput.keyboard._win32',
+        'pystray',
+        'PIL',
+        'six',
+        'config',
+        'utils',
+        'utils.file_namer',
+        'utils.disk_checker',
+        'recorder',
+        'recorder.screen_capturer',
+        'recorder.video_encoder',
+        'recorder.recorder_manager',
+        'ui',
+        'ui.area_selector',
+        'ui.toolbar',
+        'ui.settings_dialog',
+        'ui.tray_icon',
+        'hotkey',
+        'hotkey.hotkey_manager',
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='QuickRec',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='QuickRec',
+)

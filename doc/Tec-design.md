@@ -9,7 +9,7 @@
 | 屏幕捕获 | mss | 9.0+ | 高性能屏幕截图 |
 | 视频编码 | OpenCV | 4.8+ | 将帧序列编码为 MP4 |
 | 数值计算 | NumPy | 1.24+ | 图像数据处理 |
-| 热键 | keyboard | 0.13+ | 全局快捷键监听 |
+| 热键 | pynput | 1.7+ | 全局快捷键监听（替代 keyboard，无需管理员权限） |
 | 系统托盘 | pystray | 0.19+ | 系统托盘图标 |
 | 打包 | PyInstaller | 6.0+ | 打包为单个 .exe |
 | 配置管理 | Python 内置 json | - | 读写 config.json |
@@ -25,7 +25,7 @@ Python 环境: D:\Work\Software\Anaconda
 
 ```bash
 conda activate quickrec
-pip install pyqt5 mss opencv-python numpy keyboard pystray pyinstaller
+pip install pyqt5 mss opencv-python numpy pynput pystray pyinstaller
 ```
 
 ---
@@ -78,12 +78,13 @@ main.py
 ├── config.py (配置管理)
 ├── ui/tray_icon.py (系统托盘)
 │   └── ui/toolbar.py (录制工具栏)
-│       ├── ui/area_selector.py (区域选择)
-│       ├── ui/settings_dialog.py (设置)
-│       └── hotkey/hotkey_manager.py (快捷键)
+│       └── ui/settings_dialog.py (设置)
+│       └── hotkey/hotkey_manager.py (快捷键 - pynput)
 └── recorder/recorder_manager.py (录制控制器)
     ├── recorder/screen_capturer.py (屏幕捕获)
     └── recorder/video_encoder.py (视频编码)
+
+注：area_selector.py 代码保留在仓库中，但 v1.0 未使用（推迟到 v1.1）
 ```
 
 模块之间通过接口通信，不直接依赖实现类。
@@ -451,28 +452,29 @@ class SettingsDialog(QDialog):
 
 ### 3.9 全局快捷键模块 (hotkey_manager.py)
 
-**职责**：注册和监听全局键盘快捷键。
+**职责**：注册和监听全局键盘快捷键。基于 pynput 库实现，无需管理员权限。
 
 **核心类**：
 
 ```
 class HotkeyManager:
-    """快捷键管理器"""
+    """快捷键管理器（基于 pynput）"""
 
-    - config: ConfigManager         # 配置管理器
-    - callbacks: dict               # {快捷键字符串: 回调函数}
+    - listener: Listener                # pynput 键盘监听器
+    - hotkeys: dict                    # {frozenset(键码): 回调函数}
+    - current_keys: set                # 当前按下的键集合
 
     + register(shortcut: str, callback) -> bool   # 注册快捷键
     + unregister(shortcut: str) -> bool           # 取消注册
-    + start_listening() -> None                   # 开始监听
-    + stop_listening() -> None                    # 停止监听
-    + parse_shortcut(shortcut: str) -> list       # 解析 "Ctrl+Shift+R" → ['ctrl', 'shift', 'r']
+    + unregister_all() -> None                    # 取消所有注册
+    + start_listening() -> None                   # 启动监听线程
+    + stop_listening() -> None                    # 停止监听线程
 ```
 
 **快捷键解析规则**：
 - 输入格式：`Ctrl+Shift+R`（不区分大小写）
-- 输出：`['ctrl', 'shift', 'r']`
-- 支持的修饰键：`Ctrl`, `Shift`, `Alt`
+- `_parse_to_pynput()` 将字符串转为 pynput 键码集合
+- Ctrl/Shift/Alt 支持左右键兼容匹配
 - 必须包含至少一个修饰键，不允许单键快捷键
 
 **独立测试点**：
@@ -557,9 +559,9 @@ class DiskChecker:
 ```
 
 **快捷键触发动作**：
-- `Ctrl+Shift+R` → 显示 AreaSelector → 选择区域后开始录制
-- `Ctrl+Shift+S` → 调用 RecorderManager.stop()
-- `Ctrl+Shift+P` → 调用 RecorderManager.pause()/resume()
+- `Ctrl+Shift+R` → 开始全屏录制（无区域选择，直接录制）
+- `Ctrl+Shift+S` → 停止录制，保存文件
+- `Ctrl+Shift+P` → 暂停/恢复录制
 
 **退出流程**：
 ```
@@ -600,7 +602,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['mss', 'cv2', 'keyboard'],
+    hiddenimports=['mss', 'cv2', 'pynput', 'pynput.keyboard', 'pynput.keyboard._win32', 'pystray', 'PIL', 'six'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -646,8 +648,8 @@ pyinstaller build.spec
 
 ### 6.3 打包注意事项
 
-- `console=False`：隐藏命令行窗口，用户只看到 GUI
-- `keyboard` 库需要管理员权限，打包后首次运行可能需要"以管理员身份运行"
+- `console=True`：开发期间显示控制台窗口便于调试，正式发布改为 `console=False`
+- `pynput` 库不需要管理员权限，可正常监听全局按键
 - `mss` 的 DLL 依赖会被 PyInstaller 自动处理
 
 ---
@@ -656,11 +658,13 @@ pyinstaller build.spec
 
 | 项目 | 说明 | 应对 |
 |-----|------|------|
-| keyboard 库需要管理员权限 | Windows 上全局键盘监听需要提升权限 | 打包后提示用户以管理员运行 |
+| pynput 全局快捷键 | pynput 无需管理员权限即可监听全局按键 | 已替代 keyboard 库 |
 | mp4v 编码质量 | OpenCV 内置 mp4v 不如 x264，但无需 FFmpeg | 可接受 MVP 质量，v1.1 可切换 x264 |
 | 高 DPI 缩放 | PyQt 在 4K 屏幕上可能缩放不正确 | 启动时设置 QApplication.setAttribute(AA_EnableHighDpiScaling) |
-| 多显示器 | MVP 只支持主显示器录制 | v2.0 添加显示器选择 |
-| 无音频 | MVP 不录制声音 | v1.1 添加 PyAudio |
+| 多显示器 | v1.0 只支持主显示器录制 | v2.0 添加显示器选择 |
+| 无音频 | v1.0 不录制声音 | v1.1 添加 PyAudio |
+| 区域录制兼容性 | Windows 11 上 Qt.Tool + WA_TranslucentBackground 导致点击穿透 | v1.0 去掉区域录制，v1.1 修复后启用 |
+| pystray 线程安全 | pystray 回调在独立线程，不能直接操作 Qt 组件 | 使用 pyqtSignal 信号桥转发到 Qt 主线程 |
 
 ---
 

@@ -109,6 +109,15 @@ class RecordingToolbar(QWidget):
         self._recording = True
         self._paused = False
         self._timer.start(1000)
+        # 将工具栏定位到屏幕顶部居中
+        from PyQt5.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        if screen:
+            screen_geo = screen.geometry()
+            self.move(
+                screen_geo.center().x() - self.width() // 2,
+                screen_geo.top() + 10
+            )
 
     def stop_countdown(self):
         """停止录制计时"""

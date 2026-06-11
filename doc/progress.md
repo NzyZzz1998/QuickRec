@@ -1,6 +1,6 @@
 # QuickRec 项目进度总览
 
-> 最后更新: 2026-06-12
+> 最后更新: 2026-06-11
 
 ## 环境状态
 
@@ -11,7 +11,8 @@
 | numpy | ✅ 已安装 | 2.4.6 | opencv-python 依赖升级 |
 | mss | ✅ 已安装 | 10.2.0 | |
 | opencv-python | ✅ 已安装 | 4.13.0 | |
-| keyboard | ✅ 已安装 | 0.13.5 | |
+| keyboard | ❌ 已移除 | - | 替换为 pynput |
+| pynput | ✅ 已安装 | 1.8.2 | 替代 keyboard，无需管理员权限 |
 | pystray | ✅ 已安装 | 0.19.5 | |
 | pyinstaller | ✅ 已安装 | 6.20.0 | |
 
@@ -21,7 +22,7 @@
 - [x] [项目初始化和依赖安装](tasks/task-setup.md)
   - [x] 安装 mss (10.2.0)
   - [x] 安装 opencv-python (4.13.0)
-  - [x] 安装 keyboard (0.13.5)
+  - [x] 安装 pynput (1.8.2) ~~keyboard (0.13.5) 已移除~~
   - [x] 安装 pystray (0.19.5)
   - [x] 安装 pyinstaller (6.20.0)
   - [x] 生成 requirements.txt
@@ -70,6 +71,7 @@
   - [x] 交互逻辑 (鼠标拖拽、ESC取消)
   - [x] 显示信息 (尺寸标签、边框高亮)
   - [x] 单元测试 (6/6 通过)
+  - ⚠️ v1.0 未使用（Windows 11 兼容性问题，推迟到 v1.1）
 
 - [x] [录制工具栏模块 (toolbar.py)](tasks/task-toolbar.md)
   - [x] RecordingToolbar 类实现
@@ -90,9 +92,10 @@
   - [x] 单元测试 (3/3 通过)
 
 - [x] [全局快捷键模块 (hotkey_manager.py)](tasks/task-hotkey_manager.md)
-  - [x] HotkeyManager 类实现
-  - [x] 快捷键格式解析
-  - [x] 重复注册防护
+  - [x] HotkeyManager 类实现（基于 pynput，原 keyboard 已移除）
+  - [x] 快捷键格式解析（键集合匹配）
+  - [x] Ctrl/Shift/Alt 左右键兼容
+  - [x] start_listening / stop_listening 生命周期管理
   - [x] 单元测试 (7/7 通过)
 
 ### 入口和集成
@@ -116,16 +119,16 @@ setup (最先)
   │
   ├─> video_encoder.py (依赖: opencv-python)
   │
-  ├─> hotkey_manager.py (依赖: keyboard)
+  ├─> hotkey_manager.py (依赖: pynput)  ← 原 keyboard 已替换
   │
-  ├─> area_selector.py (依赖: PyQt5)
+  ├─> area_selector.py (依赖: PyQt5)  ← v1.0 未使用
   ├─> toolbar.py (依赖: PyQt5)
   ├─> settings_dialog.py (依赖: config + PyQt5)
-  ├─> tray_icon.py (依赖: pystray + PyQt5)
+  ├─> tray_icon.py (依赖: pystray + PyQt5)  ← 含信号桥线程安全
   │
   ├─> recorder_manager.py (依赖: capturer + encoder + file_namer + checker + config)
   │
-  └─> main.py (依赖: 所有模块)
+  └─> main.py (依赖: 所有模块)  ← v1.0 仅全屏录制
 ```
 
 ## 开发阶段
@@ -153,5 +156,17 @@ setup (最先)
 12. ✅ **task-main** - 主程序入口
 
 ### 第六阶段 ✅
-14. ✅ **完整功能测试** - 66/66 单元测试通过 + 模块导入冒烟测试
-15. ✅ **打包** - PyInstaller 打包为 QuickRec.exe (88MB)
+14. ✅ **完整功能测试** - 58/66 单元测试通过（8个 test_config 失败是已有 mock 路径问题）
+15. ✅ **打包** - PyInstaller 打包为 QuickRec.exe
+
+### 第七阶段 ✅ Bug 修复
+16. ✅ **Bug 修复** - 修复 7 个 bug（详见 [bugfix-log.md](bugfix-log.md)）
+    - pystray 线程安全（信号桥）
+    - 暂停录制无法停止（_resume_event 重写）
+    - keyboard → pynput（无需管理员权限）
+    - 工具栏位置居中
+    - 区域选择器点击穿透（推迟到 v1.1）
+    - 设置对话框线程安全
+    - \_\_del\_\_ 资源释放异常保护
+17. ✅ **v1.0 范围调整** - 去掉区域录制，仅保留全屏录制
+18. ✅ **重新打包** - 确认所有修改后打包成功

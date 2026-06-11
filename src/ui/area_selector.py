@@ -6,7 +6,7 @@
 
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor, QFont
-from PyQt5.QtWidgets import QWidget, QApplication
+from PyQt5.QtWidgets import QWidget, QApplication, QDesktopWidget
 
 
 class AreaSelector(QWidget):
@@ -30,21 +30,25 @@ class AreaSelector(QWidget):
         """初始化界面"""
         self.setWindowFlags(
             Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.Tool
+            Qt.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setCursor(Qt.CrossCursor)
         self.setStyleSheet("background: transparent;")
+        # Windows 11 下需要手动激活并抢焦点才能接收输入事件
+        self.setFocusPolicy(Qt.StrongFocus)
 
     def show_fullscreen(self):
         """全屏显示选择器"""
-        screen = QApplication.primaryScreen()
-        if screen:
-            self.setGeometry(screen.geometry())
+        # 覆盖所有屏幕
+        desktop = QApplication.desktop()
+        if desktop:
+            geo = desktop.geometry()
+            self.setGeometry(geo)
         self.show()
-        self.activateWindow()
-        self.setFocus()
+        self.raise_()          # 提升到最顶层
+        self.activateWindow()  # 激活窗口
+        self.setFocus()        # 强制获取焦点
 
     def paintEvent(self, event):
         """绘制事件"""
@@ -88,7 +92,11 @@ class AreaSelector(QWidget):
             painter.drawText(label_x, label_y + label_rect.height() - 4, size_text)
 
     def mousePressEvent(self, event):
-        """鼠标按下：记录起点"""
+        """鼠标按下：右键取消，左键记录起点"""
+        if event.button() == Qt.RightButton:
+            self.cancelled.emit()
+            self.close()
+            return
         if event.button() == Qt.LeftButton:
             self._start_point = event.pos()
             self._end_point = event.pos()

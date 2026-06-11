@@ -8,11 +8,9 @@ import sys
 import logging
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
-from PyQt5.QtCore import Qt
 
 from config import ConfigManager
 from recorder.recorder_manager import RecorderManager, RecorderState
-from ui.area_selector import AreaSelector
 from ui.toolbar import RecordingToolbar
 from ui.settings_dialog import SettingsDialog
 from ui.tray_icon import TrayIcon
@@ -37,7 +35,6 @@ class QuickRecApp:
         self._recorder = RecorderManager(self._config)
         self._hotkey = HotkeyManager()
         self._toolbar = None
-        self._area_selector = None
 
         # 初始化托盘
         self._tray = TrayIcon(
@@ -51,6 +48,7 @@ class QuickRecApp:
 
         # 绑定快捷键
         self._setup_hotkeys()
+        self._hotkey.start_listening()
 
     def run(self):
         """启动应用"""
@@ -70,27 +68,13 @@ class QuickRecApp:
 
     def _on_start_recording(self):
         """开始全屏录制"""
-        state = self._recorder.get_state()
-        if state != RecorderState.IDLE:
+        if self._recorder.get_state() != RecorderState.IDLE:
             return
 
-        # 显示区域选择器
-        self._area_selector = AreaSelector()
-        self._area_selector.region_selected.connect(self._on_region_selected)
-        self._area_selector.cancelled.connect(self._on_area_cancelled)
-        self._area_selector.show_fullscreen()
-
-    def _on_region_selected(self, x, y, w, h):
-        """区域选择完成，开始录制"""
-        region = (x, y, w, h)
-        if not self._recorder.start_region(region):
-            logger.error("录制启动失败")
+        if not self._recorder.start_fullscreen():
+            logger.error("全屏录制启动失败")
             return
         self._show_toolbar()
-
-    def _on_area_cancelled(self):
-        """区域选择取消"""
-        logger.info("区域选择已取消")
 
     def _on_stop_recording(self):
         """停止录制"""
@@ -136,7 +120,8 @@ class QuickRecApp:
     def _on_cancel_recording(self):
         """取消录制"""
         if self._recorder.get_state() != RecorderState.IDLE:
-            self._recorder.stop()
+            self._recorder.stop(cancel=True)
+        self._tray.show_notification("录制已取消")
         self._hide_toolbar()
 
     def _show_settings(self):
@@ -149,15 +134,15 @@ class QuickRecApp:
         """配置保存后重新绑定快捷键"""
         self._hotkey.unregister_all()
         self._setup_hotkeys()
+        self._hotkey.start_listening()
 
     def _on_exit(self):
         """退出程序"""
-        # 如果正在录制，先停止
         if self._recorder.get_state() != RecorderState.IDLE:
             self._recorder.stop()
 
         self._hide_toolbar()
-        self._hotkey.unregister_all()
+        self._hotkey.stop_listening()
         self._tray.hide()
         self._app.quit()
         logger.info("QuickRec 已退出")
