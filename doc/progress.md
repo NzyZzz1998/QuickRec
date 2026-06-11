@@ -47,11 +47,11 @@
   - [x] 单元测试 (6/6 通过)
 
 ### 录制引擎
-- [ ] [屏幕捕获模块 (screen_capturer.py)](tasks/task-screen_capturer.md)
-  - [ ] ScreenCapturer 类实现
-  - [ ] 全屏/区域捕获
-  - [ ] 数据格式验证
-  - [ ] 单元测试
+- [x] [屏幕捕获模块 (screen_capturer.py)](tasks/task-screen_capturer.md)
+  - [x] ScreenCapturer 类实现
+  - [x] 全屏/区域捕获
+  - [x] 数据格式验证
+  - [x] 单元测试 (6/6 通过)
 
 - [ ] [视频编码模块 (video_encoder.py)](tasks/task-video_encoder.md)
   - [ ] VideoEncoder 类实现
