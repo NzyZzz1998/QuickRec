@@ -6,6 +6,7 @@ QuickRec 主程序入口
 
 import sys
 import logging
+import time
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
@@ -32,7 +33,7 @@ class QuickRecApp:
 
         # 初始化模块
         self._config = ConfigManager()
-        self._recorder = RecorderManager(self._config)
+        self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
         self._hotkey = HotkeyManager()
         self._toolbar = None
 
@@ -82,11 +83,14 @@ class QuickRecApp:
             return
 
         output_path = self._recorder.stop()
-        if output_path:
+        if self._recorder.is_saving():
+            # 正在后台编码，toolbar 显示"保存中..."
+            if self._toolbar:
+                self._toolbar.show_saving()
+        elif output_path:
             logger.info(f"录制已保存: {output_path}")
             self._tray.show_notification(f"录制已保存\n{output_path}")
-
-        self._hide_toolbar()
+            self._hide_toolbar()
 
     def _on_pause_resume(self):
         """暂停/恢复录制"""
@@ -124,6 +128,22 @@ class QuickRecApp:
         self._tray.show_notification("录制已取消")
         self._hide_toolbar()
 
+    def _on_saved(self, output_path: str):
+        """编码完成回调（从编码线程调用，需通过 QTimer 转到主线程）"""
+        # 使用 QTimer 在主线程中执行 UI 操作
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._handle_saved(output_path))
+
+    def _handle_saved(self, output_path: str):
+        """主线程中处理编码完成"""
+        if output_path:
+            logger.info(f"录制已保存: {output_path}")
+            self._tray.show_notification(f"录制已保存\n{output_path}")
+        else:
+            logger.error("编码保存失败")
+            self._tray.show_notification("保存失败")
+        self._hide_toolbar()
+
     def _show_settings(self):
         """显示设置对话框"""
         dialog = SettingsDialog(self._config)
@@ -140,6 +160,14 @@ class QuickRecApp:
         """退出程序"""
         if self._recorder.get_state() != RecorderState.IDLE:
             self._recorder.stop()
+
+        # 等待编码完成
+        for _ in range(50):  # 最多等 5 秒
+            if self._recorder.get_state() == RecorderState.IDLE:
+                break
+            from PyQt5.QtCore import QCoreApplication
+            QCoreApplication.processEvents()
+            time.sleep(0.1)
 
         self._hide_toolbar()
         self._hotkey.stop_listening()

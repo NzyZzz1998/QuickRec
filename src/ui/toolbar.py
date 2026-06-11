@@ -135,6 +135,16 @@ class RecordingToolbar(QWidget):
             self._btn_pause.setText("⏸ 暂停")
             self._indicator.setStyleSheet("color: #e74c3c; font-size: 16px;")
 
+    def show_saving(self):
+        """显示保存中状态，禁用所有按钮"""
+        self._recording = False
+        self._timer.stop()
+        self._label_timer.setText("保存中...")
+        self._indicator.setStyleSheet("color: #3498db; font-size: 16px;")
+        self._btn_pause.setEnabled(False)
+        self._btn_stop.setEnabled(False)
+        self._btn_cancel.setEnabled(False)
+
     def _update_timer(self):
         """更新计时器显示"""
         if not self._paused:

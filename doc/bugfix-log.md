@@ -137,16 +137,22 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 
 ### Bug #8: 长时间录制视频时长严重偏短 [严重]
 
-**症状**: 录制6分钟，生成的 MP4 视频只有约20秒
+**症状**: 录制6分钟，生成的 MP4 视频只有约20秒；60fps 录制5分钟，视频约1分50秒但内容为倍速播放
 
-**根因**: `_record_loop` 的帧率控制使用 `loop_start = time.time()` + `sleep(frame_interval - elapsed)` 的方式。当帧捕获+编码耗时超过 frame_interval 时，sleep 为 0（不等待），实际写入帧数远少于 fps * 秒数。由于 MP4 视频时长 = 帧数 / fps，帧数不足直接导致视频时长偏短。
+**根因**: `_record_loop` 使用 `sleep(frame_interval - elapsed)` 控制帧率。当帧捕获+编码耗时超过 frame_interval 时，实际写入帧数远少于 fps * 秒数。由于 MP4 视频时长 = 帧数 / fps，帧数不足直接导致视频时长偏短/倍速。
 
-此外，简单的 sleep 补偿会累积误差——每帧的小误差随时间叠加，6分钟录制后差距显著。
+即使改为绝对时间戳控制，`cv2.VideoWriter(mp4v)` 实时编码仍是瓶颈（~9ms/帧），加上截图（~22ms/帧），合计 ~31ms/帧仅达 ~32fps，60fps 配置下必然帧数不足。
 
-**修复** (`src/recorder/recorder_manager.py`):
-- 改用绝对时间戳 `next_frame_time` 控制帧率：每帧计算 `next_frame_time += frame_interval`
-- 如果系统落后超过1秒，重置 `next_frame_time = time.time()` 避免追赶积累
-- 暂停恢复后重置 `next_frame_time = time.time() + frame_interval`，避免恢复时一次性输出大量追赶帧
+**修复历程**:
+
+1. **方案1**: 切换截图库从 mss 到 dxcam，帧捕获耗时从 ~30ms 降到 ~22ms，加上 `timeBeginPeriod(1)` 提升定时器精度。帧率从 21fps 提升到 ~32fps，但60fps仍不足。
+
+2. **方案3（最终）**: 录制时帧缓存到内存 deque（无编码开销），停止后后台写入 VideoWriter。去掉编码开销后帧循环仅 ~5ms，足以支撑 60fps。内存超 2GB 时自动回退实时编码模式。
+
+   改动文件：
+   - `src/recorder/recorder_manager.py`: 新增 SAVING 状态，`_record_loop` 仅缓存帧到 deque，停止后启动 `_encode_loop` 后台编码；内存超限自动切换实时编码
+   - `src/main.py`: 新增 `_on_saved` 回调处理编码完成通知，`_on_stop_recording` 处理 SAVING 状态；退出时等待编码完成
+   - `src/ui/toolbar.py`: 新增 `show_saving()` 方法显示"保存中..."状态
 
 ---
 
