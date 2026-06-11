@@ -111,7 +111,8 @@
 | 文件 | 修改内容 |
 |------|---------|
 | `src/ui/tray_icon.py` | 信号桥线程安全、延迟停止图标 |
-| `src/recorder/recorder_manager.py` | 暂停/恢复机制重写 |
+| `src/recorder/recorder_manager.py` | 临时文件缓存方案（替代内存缓存），SAVING状态，帧写入/读取循环 |
+| `src/recorder/screen_capturer.py` | mss→dxcam，__del__ 异常保护 |
 | `src/hotkey/hotkey_manager.py` | keyboard → pynput 完全重写 |
 | `src/ui/area_selector.py` | 移除 Qt.Tool、添加焦点策略、右键取消 |
 | `src/ui/toolbar.py` | 添加初始屏幕位置 |
@@ -147,10 +148,10 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 
 1. **方案1**: 切换截图库从 mss 到 dxcam，帧捕获耗时从 ~30ms 降到 ~22ms，加上 `timeBeginPeriod(1)` 提升定时器精度。帧率从 21fps 提升到 ~32fps，但60fps仍不足。
 
-2. **方案3（最终）**: 录制时帧缓存到内存 deque（无编码开销），停止后后台写入 VideoWriter。去掉编码开销后帧循环仅 ~5ms，足以支撑 60fps。内存超 2GB 时自动回退实时编码模式。
+2. **方案3（最终）**: 录制时帧以JPEG压缩写入临时文件（TLV格式：4字节长度+帧数据），停止后后台读取临时文件解码写入VideoWriter。内存占用始终MB级，录制循环仅约7ms/帧（截图5ms+压缩2ms+写盘0.1ms），可稳定60fps。取消了内存阈值回退逻辑和实时编码模式。
 
    改动文件：
-   - `src/recorder/recorder_manager.py`: 新增 SAVING 状态，`_record_loop` 仅缓存帧到 deque，停止后启动 `_encode_loop` 后台编码；内存超限自动切换实时编码
+   - `src/recorder/recorder_manager.py`: 完全重写。新增 SAVING 状态；`_record_loop` 改为截图→JPEG压缩→写临时文件；`_encode_loop` 从临时文件读帧→解压→写VideoWriter→删除临时文件；移除 deque 内存缓存、MAX_MEMORY、_realtime_mode
    - `src/main.py`: 新增 `_on_saved` 回调处理编码完成通知，`_on_stop_recording` 处理 SAVING 状态；退出时等待编码完成
    - `src/ui/toolbar.py`: 新增 `show_saving()` 方法显示"保存中..."状态
 

@@ -9,7 +9,8 @@
 | Python | ✅ 已安装 | 3.12.8 | Anaconda base |
 | PyQt5 | ✅ 已安装 | 5.15.10 | |
 | numpy | ✅ 已安装 | 2.4.6 | opencv-python 依赖升级 |
-| mss | ✅ 已安装 | 10.2.0 | |
+| dxcam | ✅ 已安装 | 0.3.0 | 替代 mss，DirectX屏幕捕获 |
+| comtypes | ✅ 已安装 | 1.4.16 | dxcam 依赖 |
 | opencv-python | ✅ 已安装 | 4.13.0 | |
 | keyboard | ❌ 已移除 | - | 替换为 pynput |
 | pynput | ✅ 已安装 | 1.8.2 | 替代 keyboard，无需管理员权限 |
@@ -20,9 +21,8 @@
 
 ### 基础设施
 - [x] [项目初始化和依赖安装](tasks/task-setup.md)
-  - [x] 安装 mss (10.2.0)
-  - [x] 安装 opencv-python (4.13.0)
-  - [x] 安装 pynput (1.8.2) ~~keyboard (0.13.5) 已移除~~
+  - [x] 安装 dxcam (0.3.0) 和 comtypes (1.4.16)
+  - [x] 安装 pyqt5、opencv-python、numpy、pynput、pystray、pyinstaller
   - [x] 安装 pystray (0.19.5)
   - [x] 安装 pyinstaller (6.20.0)
   - [x] 生成 requirements.txt
@@ -115,7 +115,7 @@ setup (最先)
   ├─> file_namer.py (无依赖)
   ├─> disk_checker.py (无依赖)
   │
-  ├─> screen_capturer.py (依赖: mss)
+  ├─> screen_capturer.py (依赖: dxcam)
   │
   ├─> video_encoder.py (依赖: opencv-python)
   │
@@ -170,3 +170,13 @@ setup (最先)
     - \_\_del\_\_ 资源释放异常保护
 17. ✅ **v1.0 范围调整** - 去掉区域录制，仅保留全屏录制
 18. ✅ **重新打包** - 确认所有修改后打包成功
+
+### 第八阶段 ✅ 帧缓存方案与Bug修复
+19. ✅ **Bug #8 修复** - 60fps录制视频时长偏短/倍速播放
+    - 根因：实时编码+截图合计31ms/帧，仅32fps，帧数不足导致时长偏短
+    - 方案1: mss→dxcam，帧捕获从30ms降至5ms（不够，60fps仍需31ms/帧）
+    - 方案2: 内存缓存JPEG帧+后编码（内存占用过大，1440p/60fps 4GB仅缓存3.6分钟）
+    - 方案3（最终）: JPEG临时文件缓存+后编码，内存始终MB级，录制循环约7ms/帧
+20. ✅ **Bug #9 修复** - 取消录制仍生成文件
+21. ✅ **Bug #10** - 多次连续录制失败（待Bug#8修复后重测）
+22. ✅ **技术文档更新** - Tec-design.md 更新dxcam、临时文件缓存方案

@@ -6,7 +6,7 @@
 |-----|------|------|------|
 | 语言 | Python | 3.10+ | 主开发语言 |
 | UI 框架 | PyQt5 | 5.15+ | 桌面界面开发 |
-| 屏幕捕获 | mss | 9.0+ | 高性能屏幕截图 |
+| 屏幕捕获 | dxcam | 0.3+ | DirectX 高性能屏幕截图（替代 mss，帧捕获~5ms） |
 | 视频编码 | OpenCV | 4.8+ | 将帧序列编码为 MP4 |
 | 数值计算 | NumPy | 1.24+ | 图像数据处理 |
 | 热键 | pynput | 1.7+ | 全局快捷键监听（替代 keyboard，无需管理员权限） |
@@ -25,7 +25,7 @@ Python 环境: D:\Work\Software\Anaconda
 
 ```bash
 conda activate quickrec
-pip install pyqt5 mss opencv-python numpy pynput pystray pyinstaller
+pip install pyqt5 dxcam opencv-python numpy pynput pystray pyinstaller
 ```
 
 ---
@@ -148,7 +148,7 @@ class ConfigManager:
 
 ### 3.2 屏幕捕获模块 (screen_capturer.py)
 
-**职责**：捕获屏幕或指定区域的图像帧。
+**职责**：捕获屏幕或指定区域的图像帧。基于 dxcam（DirectX 屏幕捕获），在 1440p 下帧捕获耗时约 5ms。
 
 **核心类**：
 
@@ -156,18 +156,18 @@ class ConfigManager:
 class ScreenCapturer:
     """屏幕捕获器"""
 
-    - monitor: dict                 # mss 的 monitor 对象，包含 left/top/width/height
-    - sct: MSS                      # mss 实例
+    - camera: dxcam.Camera          # dxcam 相机实例
+    - region: tuple | None          # 捕获区域 (left, top, width, height)
 
     + __init__(region: tuple)       # 初始化，region=(left, top, width, height) 或 None(全屏)
     + capture_frame() -> ndarray    # 捕获一帧，返回 numpy 数组 (BGR 格式)
-    + get_fps() -> int              # 当前捕获帧率
+    + get_monitor_size() -> tuple   # 返回 (width, height)
     + close() -> None               # 释放资源
 ```
 
 **输入**：
 - 全屏模式：region=None，自动获取主显示器尺寸
-- 区域模式：region=(x, y, w, h)，由区域选择器传入
+- 区域模式：region=(left, top, width, height)，由区域选择器传入
 
 **输出**：
 - 每帧返回 numpy ndarray，形状为 (height, width, 3)，BGR 颜色空间（OpenCV 原生格式）
@@ -219,68 +219,96 @@ class VideoEncoder:
 
 ### 3.4 录制控制模块 (recorder_manager.py)
 
-**职责**：协调屏幕捕获和视频编码，管理录制生命周期（开始/暂停/停止）。
+**职责**：协调屏幕捕获和视频编码，管理录制生命周期（开始/暂停/停止）。采用临时文件缓存方案：录制时帧以JPEG压缩写入磁盘临时文件，停止后后台解码写入MP4。内存占用始终为MB级。
 
 **核心类**：
 
 ```
 class RecorderState(Enum):
     IDLE = "idle"
-    COUNTDOWN = "countdown"
     RECORDING = "recording"
     PAUSED = "paused"
     STOPPING = "stopping"
+    SAVING = "saving"           # 后台编码中
 
 class RecorderManager:
     """录制管理器"""
 
     - state: RecorderState                  # 当前状态
     - capturer: ScreenCapturer              # 屏幕捕获器实例
-    - encoder: VideoEncoder                 # 视频编码器实例
-    - recording_thread: Thread              # 录制线程
-    - stop_event: Event                     # 停止信号
+    - temp_file: str                        # 临时文件路径 (.tmp)
+    - temp_file_handle: BinaryIO            # 临时文件写句柄
+    - total_frames: int                     # 总帧数
+    - fps: int                              # 帧率
+    - encoder: VideoEncoder                 # 仅编码线程使用
+    - on_saved: Callable                    # 编码完成回调
     - config: ConfigManager                 # 配置管理器
-    - start_time: float                     # 录制开始时间戳
-    - pause_time: float                     # 暂停时的累计时长
 
-    + __init__(config: ConfigManager)
+    + __init__(config: ConfigManager, on_saved=None)
     + start_fullscreen() -> bool            # 开始全屏录制
     + start_region(region: tuple) -> bool   # 开始区域录制
     + pause() -> bool                       # 暂停录制
     + resume() -> bool                      # 恢复录制
-    + stop() -> str                         # 停止录制，返回文件路径
+    + stop(cancel: bool = False) -> str     # 停止录制（始终返回""，异步编码通过on_saved通知）
     + get_state() -> RecorderState          # 获取当前状态
     + get_elapsed() -> str                  # 获取已录制时长 "MM:SS"
-    + _record_loop() -> None                # 录制线程主循环（内部使用）
-    + _check_disk_space() -> bool           # 检查磁盘空间（内部使用）
-    + _generate_filepath() -> str           # 生成输出文件路径（内部使用）
+    + is_saving() -> bool                   # 是否正在后台编码
+    + _record_loop() -> None                # 录制线程：截图→JPEG压缩→写入临时文件
+    + _encode_loop() -> None                # 编码线程：读临时文件→解压→写VideoWriter
+    + _cleanup_temp_file() -> None          # 清理临时文件
 ```
 
 **状态流转**：
 
 ```
-IDLE → COUNTDOWN → RECORDING → PAUSED → RECORDING → STOPPING → IDLE
-                                  ↓
-                              STOPPING → IDLE
+IDLE → RECORDING → PAUSED → RECORDING → STOPPING → IDLE
+                    ↓                      ↓
+                 STOPPING               SAVING → IDLE
+                                         ↑ (on_saved回调通知结果)
 ```
 
 **录制循环逻辑** (`_record_loop`)：
 ```
+创建临时文件 (.tmp) 并以二进制写模式打开
 while stop_event 未触发:
-    if 处于 PAUSED 状态:
-        sleep(0.05)
-        continue
-    frame = capturer.capture_frame()
-    if encoder.write_frame(frame) == False:
-        记录错误，触发停止
-    sleep(1 / fps - 已耗时)  # 维持目标帧率
+    if 暂停中: wait(_resume_event, timeout=0.1)
+    frame = capturer.capture_frame()              # ~5ms dxcam
+    compressed = cv2.imencode('.jpg', frame)       # ~2ms JPEG压缩
+    写入临时文件: [4字节长度][JPEG数据]            # ~0.1ms 写盘
+    帧率控制: 等待到下一帧时刻
+关闭临时文件句柄
 ```
+
+**编码循环逻辑** (`_encode_loop`)：
+```
+打开临时文件以二进制读模式
+encoder = VideoWriter(output_path, fps, size)
+for 每一帧:
+    读取4字节长度 + JPEG数据
+    frame = cv2.imdecode(jpeg_data)               # ~2ms 解压
+    encoder.write(frame)                          # ~9ms 编码写入
+encoder.close()
+删除临时文件
+调用 on_saved 回调通知结果
+```
+
+**临时文件格式**（TLV）：
+```
+[4字节: frame_size][frame_size字节: JPEG数据]
+[4字节: frame_size][frame_size字节: JPEG数据]
+...
+```
+
+**内存占用**：
+- 录制时：仅文件句柄 + 单帧JPEG缓冲 ≈ 几百KB
+- 编码时：逐帧从磁盘读取解压，内存仍只有1帧 + VideoWriter缓冲
 
 **独立测试点**：
 - start 后状态变为 RECORDING，_record_loop 开始运行
 - pause 后帧不再写入，resume 后恢复
-- stop 后返回有效文件路径，文件可播放
-- 录制中途磁盘满，自动停止并保留已录制部分
+- stop 后状态变为 SAVING，编码完成后回到 IDLE
+- stop(cancel=True) 后临时文件和输出文件都被清理
+- 录制时长=实际时间，60fps视频无倍速问题
 - 连续 start-stop 多次，无资源泄漏
 
 ---
@@ -602,7 +630,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['mss', 'cv2', 'pynput', 'pynput.keyboard', 'pynput.keyboard._win32', 'pystray', 'PIL', 'six'],
+    hiddenimports=['dxcam', 'comtypes', 'comtypes.client', 'comtypes.stream', 'cv2', 'pynput', 'pynput.keyboard', 'pynput.keyboard._win32', 'pystray', 'PIL', 'six'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -660,6 +688,8 @@ pyinstaller build.spec
 |-----|------|------|
 | pynput 全局快捷键 | pynput 无需管理员权限即可监听全局按键 | 已替代 keyboard 库 |
 | mp4v 编码质量 | OpenCV 内置 mp4v 不如 x264，但无需 FFmpeg | 可接受 MVP 质量，v1.1 可切换 x264 |
+| 录制帧率精度 | 实时编码+截图合计~31ms/帧，60fps时帧不足 | 采用临时文件缓存：录制时JPEG写盘(~7ms/帧)，停止后异步编码 |
+| 临时文件大小 | 60fps录制时临时文件约18MB/分钟 | 编码完成后自动清理；录制前检查磁盘空间 |
 | 高 DPI 缩放 | PyQt 在 4K 屏幕上可能缩放不正确 | 启动时设置 QApplication.setAttribute(AA_EnableHighDpiScaling) |
 | 多显示器 | v1.0 只支持主显示器录制 | v2.0 添加显示器选择 |
 | 无音频 | v1.0 不录制声音 | v1.1 添加 PyAudio |
