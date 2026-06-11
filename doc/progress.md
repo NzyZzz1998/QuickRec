@@ -35,11 +35,11 @@
   - [x] 异常处理
   - [x] 单元测试 (8/8 通过)
 
-- [ ] [文件命名模块 (file_namer.py)](tasks/task-file_namer.md)
-  - [ ] FileNamer 类实现
-  - [ ] 命名规则
-  - [ ] 目录处理
-  - [ ] 单元测试
+- [x] [文件命名模块 (file_namer.py)](tasks/task-file_namer.md)
+  - [x] FileNamer 类实现
+  - [x] 命名规则
+  - [x] 目录处理
+  - [x] 单元测试 (5/5 通过)
 
 - [ ] [磁盘空间检查模块 (disk_checker.py)](tasks/task-disk_checker.md)
   - [ ] DiskChecker 类实现
