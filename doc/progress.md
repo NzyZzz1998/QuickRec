@@ -53,10 +53,10 @@
   - [x] 数据格式验证
   - [x] 单元测试 (6/6 通过)
 
-- [ ] [视频编码模块 (video_encoder.py)](tasks/task-video_encoder.md)
-  - [ ] VideoEncoder 类实现
-  - [ ] 编码参数配置
-  - [ ] 单元测试
+- [x] [视频编码模块 (video_encoder.py)](tasks/task-video_encoder.md)
+  - [x] VideoEncoder 类实现
+  - [x] 编码参数配置
+  - [x] 单元测试 (5/5 通过)
 
 - [ ] [录制控制模块 (recorder_manager.py)](tasks/task-recorder_manager.md)
   - [ ] RecorderState 枚举
