@@ -10,6 +10,8 @@ import threading
 import time
 from enum import Enum
 
+import ctypes
+
 from config import ConfigManager
 from recorder.screen_capturer import ScreenCapturer
 from recorder.video_encoder import VideoEncoder
@@ -17,6 +19,13 @@ from utils.disk_checker import DiskChecker
 from utils.file_namer import FileNamer
 
 logger = logging.getLogger("QuickRec")
+
+# Windows 高精度定时器：将系统计时器分辨率提升到 1ms
+# 默认约 15.6ms，导致 time.sleep() 不精确，高帧率下帧数不足
+try:
+    ctypes.windll.winmm.timeBeginPeriod(1)
+except Exception:
+    pass
 
 
 class RecorderState(Enum):
@@ -205,12 +214,15 @@ class RecorderManager:
             except Exception:
                 break
 
-            # 基于绝对时间戳控制帧率，避免累积误差
+            # 精确帧率控制：先 sleep 大部分间隔，最后忙等待补精度
             next_frame_time += frame_interval
             now = time.time()
-            sleep_time = next_frame_time - now
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-            elif now - next_frame_time > 1.0:
+            remaining = next_frame_time - now
+            if remaining < -1.0:
                 # 落后超过1秒，重置时间基准避免追赶
-                next_frame_time = now
+                next_frame_time = now + frame_interval
+            elif remaining > 0.002:
+                time.sleep(remaining - 0.001)
+                # 忙等待最后 ~1ms，确保精确对齐
+                while time.time() < next_frame_time:
+                    pass
