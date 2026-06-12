@@ -340,3 +340,31 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 **修复** (`src/recorder/recorder_manager.py`):
 - 开发环境路径从两层 `os.path.dirname` 改为三层，确保到达项目根目录
 - 修复后路径：`E:\CC_Learning\QuickRec_dev\ffmpeg\ffmpeg.exe`
+
+### Bug #22: 结果条关闭触发"录制已取消"通知 [中等]
+
+**症状**: 录制完成后的结果条（"✓ 已保存 | 📂 打开 | ✕ 关闭"）自动关闭或点击"✕ 关闭"时，额外弹出"录制已取消"通知
+
+**根因**: 结果条的 `_on_close_result()` 和 `_on_auto_close()` 方法 emit `cancelled` 信号，而 `cancelled` 连接到 `_on_cancel_recording()`，其中调用 `self._tray.show_notification("录制已取消")` 和 `self._recorder.stop(cancel=True)`。结果条关闭只是正常结束展示，不应触发取消逻辑。
+
+**修复** (`src/ui/toolbar.py`):
+- `_on_close_result()` 改为直接 `self.close()`，不再 emit `cancelled`
+- `_on_auto_close()` 改为直接 `self.close()`，不再 emit `cancelled`
+- 保持 `_on_cancel()`（真正取消录制时）仍然 emit `cancelled`
+
+### Bug #23: 区域录制画质缩放导致视频变形 [中等]
+
+**症状**: 区域录制时画质设为"高(1080p)"，选区的视频比例与实际选区比例不一致，画面被拉伸变形
+
+**根因**: `_get_target_size()` 对全屏和区域录制返回相同的目标分辨率（如 1920x1080），导致非 16:9 的选区被强制缩放到 16:9。例如选区 800x600(4:3) 被拉伸到 1920x1080(16:9)。
+
+**修复** (`src/recorder/recorder_manager.py`):
+- `_get_target_size()` 方法增加区域录制判断
+- 区域录制时根据选区宽高比计算目标尺寸，保持宽高比不变
+- 以目标分辨率做上限，按比例缩放，确保偶数宽高（编码要求）
+- 例：选区 800x600(4:3) + 画质 high → 1440x1080(4:3) 而非 1920x1080(16:9)
+
+**受影响文件**:
+- `src/ui/toolbar.py` — 结果条关闭方式修复
+- `src/recorder/recorder_manager.py` — 区域录制画质缩放保持宽高比
+- `src/main.py` — AreaSelector 保存为实例属性防止 GC
