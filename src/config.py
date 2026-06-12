@@ -22,8 +22,10 @@ class ConfigManager:
         "shortcut_start": "Ctrl+Shift+R",
         "shortcut_stop": "Ctrl+Shift+S",
         "shortcut_pause": "Ctrl+Shift+P",
+        "shortcut_area": "Ctrl+Shift+A",
         "show_countdown": False,
         "countdown_seconds": 3,
+        "audio_source": "none",  # none / system / microphone / both
     }
 
     # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
@@ -33,6 +35,14 @@ class ConfigManager:
         "medium": (1280, 720),
         "low": (854, 480),
     }
+
+    # 音频源选项：显示文本 → 配置值
+    AUDIO_OPTIONS = [
+        ("无", "none"),
+        ("系统声音", "system"),
+        ("麦克风", "microphone"),
+        ("两者都有", "both"),
+    ]
 
     def __init__(self):
         """初始化配置管理器"""
