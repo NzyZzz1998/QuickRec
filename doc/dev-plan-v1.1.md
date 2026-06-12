@@ -34,10 +34,12 @@
 
 | 库 | 版本 | 用途 |
 |----|------|------|
-| pyaudiowpatch | 0.2+ | WASAPI 系统声音捕获 |
-| pyaudio | 0.2+ | 麦克风音频捕获 |
-| winotify | 1.1+ | Windows Toast 通知 |
-| FFmpeg binary | — | 音视频混合（subprocess 调用） |
+| soundcard | 0.4.6 | WASAPI loopback 系统声音捕获 |
+| pyaudio | 0.2.14 | 麦克风音频捕获 |
+| winotify | 1.1 | Windows Toast 通知 |
+| FFmpeg binary | 8.0.1 | 音视频混合（subprocess 调用） |
+
+> 注：系统声音原计划用 pyaudiowpatch，因其 WASAPI `read()` 阻塞挂起，最终改用 soundcard（见 bugfix-log Bug #24）。
 
 ---
 
@@ -117,21 +119,21 @@
 
 **核心类**：
 ```
-AudioSource(Enum): NONE / SYSTEM / MICROPHONE / BOTH
-AudioCapturer:
-  + __init__(source: AudioSource, output_dir: str)
-  + start() -> bool
+AudioSource: NONE / SYSTEM / MICROPHONE / BOTH（普通常量类，值即配置字符串）
+AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
+  + __init__(source: str, output_dir: str)
+  + start(output_stem: str = "") -> bool
   + stop() -> list[str]  # 返回临时 WAV 文件路径列表
   + get_sample_rate() -> int
   + get_channels() -> int
-  - _find_wasapi_loopback() -> dict | None
+  - _find_loopback_mic()  # soundcard: 查找默认扬声器的 loopback 设备
   - _capture_loop()  # 音频捕获线程主循环
 ```
 
 **关键设计决策**：
 - 音频线程独立于录制线程，同时写入 WAV 临时文件
 - BOTH 模式：两路独立 WAV 文件（不同采样率无法直接合并）
-- WASAPI 系统声音设备查找：`pyaudiowpatch` 的 `get_loopback_device_info()`
+- WASAPI 系统声音设备查找：`soundcard` 的 `all_microphones(include_loopback=True)`，匹配默认扬声器对应的 loopback 设备
 - 初始化失败时 `start()` 返回 `False`，recorder_manager 降级为无声录制
 - `stop()` 关闭音频流、关闭 WAV 文件、返回路径列表
 
@@ -155,12 +157,13 @@ AudioCapturer:
 
 **内容**：
 1. 下载 FFmpeg Windows 静态编译版，放置 `ffmpeg/ffmpeg.exe`
-2. `build_std.spec` 的 `binaries` 添加 `('ffmpeg/ffmpeg.exe', 'ffmpeg')`
+2. `build_std.spec` 的 **`datas`** 添加 `('ffmpeg/ffmpeg.exe', 'ffmpeg')`
 3. `.gitignore` 添加 `ffmpeg/`
+4. `_get_ffmpeg_path()` frozen 分支优先用 `sys._MEIPASS`（onedir 下指向 `_internal`）定位
 
 **验证**：
 - [ ] `ffmpeg/ffmpeg.exe -version` 可运行
-- [ ] 打包后 `dist/QuickRec/ffmpeg/ffmpeg.exe` 存在
+- [ ] 打包后 `dist/QuickRec/_internal/ffmpeg/ffmpeg.exe` 存在
 
 **任务文件**：[task-v1.1-ffmpeg_setup.md](task-v1.1-ffmpeg_setup.md)
 
@@ -531,9 +534,9 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 | 风险 | 影响 | 缓解措施 |
 |-----|------|---------|
 | Win11 区域选择器仍点击穿透 | 区域录制不可用 | 已在 v1.0 修复（移除 Qt.Tool），确认测试 |
-| pyaudiowpatch 设备兼容性 | 部分设备无法捕获系统声音 | start() 返回 False 时降级为无声录制 |
+| soundcard loopback 设备兼容性 | 部分设备无法捕获系统声音 | start() 返回 False 时降级为无声录制 |
 | BOTH 模式两路采样率不同 | 合并后音频速度异常 | FFmpeg amerge 滤镜自动重采样 |
-| FFmpeg 打包体积增加 | 安装包超 80MB | 仅打包 ffmpeg.exe（~15MB），可接受 |
+| FFmpeg 打包体积增加 | 安装包增加 ~95MB | 仅打包 ffmpeg.exe，可接受 |
 | pystray 动态菜单 | 录制状态切换后菜单不刷新 | 使用 MenuItem callable + icon.update_menu() |
 | winotify 导入失败 | Toast 通知降级为纯文本 | 降级链：winotify → pystray.notify() |
 
