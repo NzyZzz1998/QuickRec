@@ -207,7 +207,7 @@ setup (最先)
   - [x] 确认对话框（开始录制 / 取消）
   - [x] 最小尺寸提示（红色提示 < 100x100）
   - [x] 边框视觉优化（白色虚线）
-  - [ ] 与 main.py 集成（_AreaBridge 信号桥）
+  - [x] 与 main.py 集成（_AreaBridge 信号桥）
 
 - [x] [音频录制模块 (audio_capturer.py)](../tasks/task-v1.1-audio_capturer.md) — 新增文件
   - [x] AudioSource 枚举和 AudioCapturer 类框架
@@ -218,24 +218,24 @@ setup (最先)
   - [x] 优雅降级（设备不可用时无声录制）
 
 - [x] [录制控制模块 (recorder_manager.py)](../tasks/task-v1.1-recorder_manager.md) — 更新
-  - [ ] RecordMode 枚举（FULLSCREEN / REGION）
-  - [ ] 音频初始化（_start 方法扩展）
-  - [ ] 音频停止（_stop_and_encode 方法扩展）
-  - [ ] 音频混合（_encode_loop + FFmpeg）
-  - [ ] FFmpeg 集成（_get_ffmpeg_path + _mix_audio_video）
-  - [ ] 配置扩展（audio_source 默认值）
+  - [x] RecordMode 枚举（FULLSCREEN / REGION）
+  - [x] 音频初始化（_start 方法扩展）
+  - [x] 音频停止（_stop_and_encode 方法扩展）
+  - [x] 音频混合（_encode_loop + FFmpeg）
+  - [x] FFmpeg 集成（_get_ffmpeg_path + _mix_audio_video）
+  - [x] 配置扩展（audio_source 默认值）
 
 - [x] [系统托盘模块 (tray_icon.py)](../tasks/task-v1.1-tray_icon.md) — 更新
-  - [ ] _SignalBridge 新增信号（start_region / pause_resume / stop）
-  - [ ] 动态菜单切换（空闲 / 录制中 / 暂停）
-  - [ ] Toast 通知增强（winotify 降级链）
-  - [ ] 托盘菜单回调扩展
+  - [x] _SignalBridge 新增信号（start_region / pause_resume / stop）
+  - [x] 动态菜单切换（空闲 / 录制中 / 暂停）
+  - [x] Toast 通知增强（winotify 降级链）
+  - [x] 托盘菜单回调扩展
 
 - [x] [录制工具栏模块 (toolbar.py)](../tasks/task-v1.1-toolbar.md) — 更新
-  - [ ] 结果条模式（✓ 时长 | 已保存 | 📂 打开 | ✕ 关闭）
-  - [ ] 5 秒自动关闭定时器
-  - [ ] "已保存" 按钮打开视频文件
-  - [ ] "📂 打开" 按钮打开文件夹并选中
+  - [x] 结果条模式（✓ 时长 | 已保存 | 📂 打开 | ✕ 关闭）
+  - [x] 5 秒自动关闭定时器
+  - [x] "已保存" 按钮打开视频文件
+  - [x] "📂 打开" 按钮打开文件夹并选中
 
 - [x] [配置管理模块 (config.py)](../tasks/task-v1.1-config.md) — 更新
   - [x] 新增 audio_source 默认配置
@@ -243,17 +243,17 @@ setup (最先)
   - [x] 旧版配置向后兼容
 
 - [x] [设置对话框模块 (settings_dialog.py)](../tasks/task-v1.1-settings_dialog.md) — 更新
-  - [ ] 音频源选择下拉框
-  - [ ] 区域录制快捷键设置
-  - [ ] 配置加载与保存扩展
+  - [x] 音频源选择下拉框
+  - [x] 区域录制快捷键设置
+  - [x] 配置加载与保存扩展
 
 - [x] [主程序入口 (main.py)](../tasks/task-v1.1-main.md) — 更新
-  - [ ] _AreaBridge 信号桥
-  - [ ] _HotkeyBridge 扩展（area_requested）
-  - [ ] 区域录制流程（_on_start_region / _on_region_selected）
-  - [ ] 托盘回调扩展（start_fullscreen / start_region / pause_resume / stop）
-  - [ ] 编码完成回调增强（Toast 通知 + 结果条）
-  - [ ] 工具栏信号连接（open_folder / open_file）
+  - [x] _AreaBridge 信号桥
+  - [x] _HotkeyBridge 扩展（area_requested）
+  - [x] 区域录制流程（_on_start_region / _on_region_selected）
+  - [x] 托盘回调扩展（start_fullscreen / start_region / pause_resume / stop）
+  - [x] 编码完成回调增强（Toast 通知 + 结果条）
+  - [x] 工具栏信号连接（open_folder / open_file）
 
 - [x] [FFmpeg 打包配置](../tasks/task-v1.1-ffmpeg_setup.md)
   - [x] build_std.spec 更新（添加 audio_capturer, winotify hiddenimport）
