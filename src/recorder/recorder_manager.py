@@ -289,11 +289,33 @@ class RecorderManager:
         return encoded.tobytes()
 
     def _get_target_size(self):
-        """根据画质配置获取目标分辨率 (width, height)，None 表示原始尺寸"""
+        """根据画质配置获取目标分辨率 (width, height)，None 表示原始尺寸
+
+        区域录制时保持选区宽高比，不强制拉伸到 16:9。
+        """
         quality = self._config.get("quality", "native")
         target = ConfigManager.QUALITY_SIZES.get(quality)
         if target is None:
             return None
+
+        # 区域录制时保持选区宽高比
+        if self._mode == RecordMode.REGION and self._frame_size:
+            fw, fh = self._frame_size
+            tw, th = target
+            # 按宽高比缩放：选区宽高比 vs 目标宽高比
+            src_ratio = fw / fh
+            dst_ratio = tw / th
+            if src_ratio > dst_ratio:
+                # 选区更宽，以目标宽度为准，高度按比例缩放
+                new_w = tw
+                new_h = int(tw / src_ratio)
+            else:
+                # 选区更高，以目标高度为准，宽度按比例缩放
+                new_h = th
+                new_w = int(th * src_ratio)
+            # 确保偶数（编码要求）
+            return (new_w & ~1, new_h & ~1)
+
         return target
 
     def _start(self, region=None) -> bool:
