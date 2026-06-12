@@ -27,6 +27,7 @@ class _SignalBridge(QObject):
 
     start_fullscreen_requested = pyqtSignal()
     start_region_requested = pyqtSignal()
+    start_window_requested = pyqtSignal()    # v1.2 新增
     pause_resume_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     settings_requested = pyqtSignal()
@@ -66,6 +67,7 @@ class TrayIcon:
         self._bridge = _SignalBridge()
         self._bridge.start_fullscreen_requested.connect(self._handle_start_fullscreen)
         self._bridge.start_region_requested.connect(self._handle_start_region)
+        self._bridge.start_window_requested.connect(self._handle_start_window)
         self._bridge.pause_resume_requested.connect(self._handle_pause_resume)
         self._bridge.stop_requested.connect(self._handle_stop)
         self._bridge.settings_requested.connect(self._handle_settings)
@@ -85,6 +87,7 @@ class TrayIcon:
         return pystray.Menu(
             pystray.MenuItem("▶ 全屏录制", self._on_start_fullscreen),
             pystray.MenuItem("▢ 区域录制", self._on_start_region),
+            pystray.MenuItem("🖥 窗口录制", self._on_start_window),
             pystray.MenuItem("⚙ 设置", self._on_settings),
             pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
             pystray.Menu.SEPARATOR,
@@ -132,6 +135,9 @@ class TrayIcon:
     def _on_start_region(self, icon, item):
         self._bridge.start_region_requested.emit()
 
+    def _on_start_window(self, icon, item):
+        self._bridge.start_window_requested.emit()
+
     def _on_pause_resume(self, icon, item):
         self._bridge.pause_resume_requested.emit()
 
@@ -153,6 +159,10 @@ class TrayIcon:
     def _handle_start_region(self):
         if "start_region" in self._callbacks:
             self._callbacks["start_region"]()
+
+    def _handle_start_window(self):
+        if "start_window" in self._callbacks:
+            self._callbacks["start_window"]()
 
     def _handle_pause_resume(self):
         if "pause_resume" in self._callbacks:
