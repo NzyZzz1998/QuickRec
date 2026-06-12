@@ -20,7 +20,7 @@
 ## 模块进度
 
 ### 基础设施
-- [x] [项目初始化和依赖安装](tasks/task-setup.md)
+- [x] [项目初始化和依赖安装](tasks/task-v1.0-setup.md)
   - [x] 安装 dxcam (0.3.0) 和 comtypes (1.4.16)
   - [x] 安装 pyqt5、opencv-python、numpy、pynput、pystray、pyinstaller
   - [x] 安装 pystray (0.19.5)
@@ -29,69 +29,69 @@
   - [x] 创建项目目录结构
 
 ### 核心模块 (无依赖，可独立开发)
-- [x] [配置管理模块 (config.py)](tasks/task-config.md)
+- [x] [配置管理模块 (config.py)](tasks/task-v1.0-config.md)
   - [x] ConfigManager 类实现
   - [x] 默认值定义
   - [x] 文件路径处理
   - [x] 异常处理
   - [x] 单元测试 (8/8 通过)
 
-- [x] [文件命名模块 (file_namer.py)](tasks/task-file_namer.md)
+- [x] [文件命名模块 (file_namer.py)](tasks/task-v1.0-file_namer.md)
   - [x] FileNamer 类实现
   - [x] 命名规则
   - [x] 目录处理
   - [x] 单元测试 (5/5 通过)
 
-- [x] [磁盘空间检查模块 (disk_checker.py)](tasks/task-disk_checker.md)
+- [x] [磁盘空间检查模块 (disk_checker.py)](tasks/task-v1.0-disk_checker.md)
   - [x] DiskChecker 类实现
   - [x] 空间估算逻辑
   - [x] 单元测试 (6/6 通过)
 
 ### 录制引擎
-- [x] [屏幕捕获模块 (screen_capturer.py)](tasks/task-screen_capturer.md)
+- [x] [屏幕捕获模块 (screen_capturer.py)](tasks/task-v1.0-screen_capturer.md)
   - [x] ScreenCapturer 类实现
   - [x] 全屏/区域捕获
   - [x] 数据格式验证
   - [x] 单元测试 (6/6 通过)
 
-- [x] [视频编码模块 (video_encoder.py)](tasks/task-video_encoder.md)
+- [x] [视频编码模块 (video_encoder.py)](tasks/task-v1.0-video_encoder.md)
   - [x] VideoEncoder 类实现
   - [x] 编码参数配置
   - [x] 单元测试 (5/5 通过)
 
-- [x] [录制控制模块 (recorder_manager.py)](tasks/task-recorder_manager.md)
+- [x] [录制控制模块 (recorder_manager.py)](tasks/task-v1.0-recorder_manager.md)
   - [x] RecorderState 枚举
   - [x] RecorderManager 类实现
   - [x] 录制循环
   - [x] 单元测试 (7/7 通过)
 
 ### UI 模块
-- [x] [区域选择模块 (area_selector.py)](tasks/task-area_selector.md)
+- [x] [区域选择模块 (area_selector.py)](tasks/task-v1.0-area_selector.md)
   - [x] AreaSelector 类实现
   - [x] 交互逻辑 (鼠标拖拽、ESC取消)
   - [x] 显示信息 (尺寸标签、边框高亮)
   - [x] 单元测试 (6/6 通过)
   - ⚠️ v1.0 未使用（Windows 11 兼容性问题，推迟到 v1.1）
 
-- [x] [录制工具栏模块 (toolbar.py)](tasks/task-toolbar.md)
+- [x] [录制工具栏模块 (toolbar.py)](tasks/task-v1.0-toolbar.md)
   - [x] RecordingToolbar 类实现
   - [x] UI 元素 (指示灯、计时器、按钮)
   - [x] 交互功能 (暂停/恢复、拖拽)
   - [x] 单元测试 (8/8 通过)
 
-- [x] [设置对话框模块 (settings_dialog.py)](tasks/task-settings_dialog.md)
+- [x] [设置对话框模块 (settings_dialog.py)](tasks/task-v1.0-settings_dialog.md)
   - [x] SettingsDialog 类实现
   - [x] 控件定义 (路径、画质、帧率、快捷键)
   - [x] 功能实现 (加载、保存、浏览)
   - [x] 单元测试 (5/5 通过)
 
-- [x] [系统托盘模块 (tray_icon.py)](tasks/task-tray_icon.md)
+- [x] [系统托盘模块 (tray_icon.py)](tasks/task-v1.0-tray_icon.md)
   - [x] TrayIcon 类实现
   - [x] 菜单项 (录制、设置、打开文件夹、退出)
   - [x] 功能实现 (显示、隐藏、通知)
   - [x] 单元测试 (3/3 通过)
 
-- [x] [全局快捷键模块 (hotkey_manager.py)](tasks/task-hotkey_manager.md)
+- [x] [全局快捷键模块 (hotkey_manager.py)](tasks/task-v1.0-hotkey_manager.md)
   - [x] HotkeyManager 类实现（基于 pynput，原 keyboard 已移除）
   - [x] 快捷键格式解析（键集合匹配）
   - [x] Ctrl/Shift/Alt 左右键兼容
@@ -99,7 +99,7 @@
   - [x] 单元测试 (7/7 通过)
 
 ### 入口和集成
-- [x] [主程序入口 (main.py)](tasks/task-main.md)
+- [x] [主程序入口 (main.py)](tasks/task-v1.0-main.md)
   - [x] 初始化流程
   - [x] 快捷键绑定
   - [x] UI 流程
@@ -134,26 +134,26 @@ setup (最先)
 ## 开发阶段
 
 ### 第一阶段 ✅
-1. ✅ **task-setup** - 安装依赖，创建目录
-2. ✅ **task-config** - 配置管理
-3. ✅ **task-file_namer** + **task-disk_checker** - 工具模块
+1. ✅ **task-v1.0-setup** - 安装依赖，创建目录
+2. ✅ **task-v1.0-config** - 配置管理
+3. ✅ **task-v1.0-file_namer** + **task-v1.0-disk_checker** - 工具模块
 
 ### 第二阶段 ✅
-4. ✅ **task-screen_capturer** - 屏幕捕获
-5. ✅ **task-video_encoder** - 视频编码
-6. ✅ **task-recorder_manager** - 录制控制
+4. ✅ **task-v1.0-screen_capturer** - 屏幕捕获
+5. ✅ **task-v1.0-video_encoder** - 视频编码
+6. ✅ **task-v1.0-recorder_manager** - 录制控制
 
 ### 第三阶段 ✅
-7. ✅ **task-area_selector** - 区域选择
-8. ✅ **task-toolbar** - 录制工具栏
-9. ✅ **task-settings_dialog** - 设置对话框
+7. ✅ **task-v1.0-area_selector** - 区域选择
+8. ✅ **task-v1.0-toolbar** - 录制工具栏
+9. ✅ **task-v1.0-settings_dialog** - 设置对话框
 
 ### 第四阶段 ✅
-10. ✅ **task-hotkey_manager** - 全局快捷键
-11. ✅ **task-tray_icon** - 系统托盘
+10. ✅ **task-v1.0-hotkey_manager** - 全局快捷键
+11. ✅ **task-v1.0-tray_icon** - 系统托盘
 
 ### 第五阶段 ✅
-12. ✅ **task-main** - 主程序入口
+12. ✅ **task-v1.0-main** - 主程序入口
 
 ### 第六阶段 ✅
 14. ✅ **完整功能测试** - 58/66 单元测试通过（8个 test_config 失败是已有 mock 路径问题）
@@ -193,3 +193,85 @@ setup (最先)
     - 根因：pynput 回调在其线程直接操作 Qt UI，违反线程安全
     - 修复：新增 _HotkeyBridge 信号桥，快捷键回调通过 pyqtSignal 转发到主线程
 26. ✅ **v1.0 测试通过** - 全部功能测试用例通过（除 T8.1/T8.6/T8.7 跳过、T10.x 未专项测试）
+
+---
+
+## v1.1 进度
+
+> v1.1 目标：区域录制 + 音频源选择 + 通知增强
+
+### v1.1 模块进度
+
+- [ ] [区域录制模块 (area_selector.py)](../tasks/task-v1.1-area_selector.md)
+  - [ ] Win11 点击穿透修复（移除 Qt.Tool，添加 StrongFocus）
+  - [ ] 确认对话框（开始录制 / 取消）
+  - [ ] 最小尺寸提示（红色提示 < 100x100）
+  - [ ] 边框视觉优化（白色虚线）
+  - [ ] 与 main.py 集成（_AreaBridge 信号桥）
+
+- [ ] [音频录制模块 (audio_capturer.py)](../tasks/task-v1.1-audio_capturer.md) — 新增文件
+  - [ ] AudioSource 枚举和 AudioCapturer 类框架
+  - [ ] WASAPI 系统声音捕获（pyaudiowpatch）
+  - [ ] 麦克风捕获（pyaudio）
+  - [ ] 音频捕获线程和 WAV 写入
+  - [ ] BOTH 模式双路独立录制
+  - [ ] 优雅降级（设备不可用时无声录制）
+
+- [ ] [录制控制模块 (recorder_manager.py)](../tasks/task-v1.1-recorder_manager.md) — 更新
+  - [ ] RecordMode 枚举（FULLSCREEN / REGION）
+  - [ ] 音频初始化（_start 方法扩展）
+  - [ ] 音频停止（_stop_and_encode 方法扩展）
+  - [ ] 音频混合（_encode_loop + FFmpeg）
+  - [ ] FFmpeg 集成（_get_ffmpeg_path + _mix_audio_video）
+  - [ ] 配置扩展（audio_source 默认值）
+
+- [ ] [系统托盘模块 (tray_icon.py)](../tasks/task-v1.1-tray_icon.md) — 更新
+  - [ ] _SignalBridge 新增信号（start_region / pause_resume / stop）
+  - [ ] 动态菜单切换（空闲 / 录制中 / 暂停）
+  - [ ] Toast 通知增强（winotify 降级链）
+  - [ ] 托盘菜单回调扩展
+
+- [ ] [录制工具栏模块 (toolbar.py)](../tasks/task-v1.1-toolbar.md) — 更新
+  - [ ] 结果条模式（✓ 时长 | 已保存 | 📂 打开 | ✕ 关闭）
+  - [ ] 5 秒自动关闭定时器
+  - [ ] "已保存" 按钮打开视频文件
+  - [ ] "📂 打开" 按钮打开文件夹并选中
+
+- [ ] [配置管理模块 (config.py)](../tasks/task-v1.1-config.md) — 更新
+  - [ ] 新增 audio_source 默认配置
+  - [ ] 新增 shortcut_area 默认配置
+  - [ ] 旧版配置向后兼容
+
+- [ ] [设置对话框模块 (settings_dialog.py)](../tasks/task-v1.1-settings_dialog.md) — 更新
+  - [ ] 音频源选择下拉框
+  - [ ] 区域录制快捷键设置
+  - [ ] 配置加载与保存扩展
+
+- [ ] [主程序入口 (main.py)](../tasks/task-v1.1-main.md) — 更新
+  - [ ] _AreaBridge 信号桥
+  - [ ] _HotkeyBridge 扩展（area_requested）
+  - [ ] 区域录制流程（_on_start_region / _on_region_selected）
+  - [ ] 托盘回调扩展（start_fullscreen / start_region / pause_resume / stop）
+  - [ ] 编码完成回调增强（Toast 通知 + 结果条）
+  - [ ] 工具栏信号连接（open_folder / open_file）
+
+- [ ] [FFmpeg 打包配置](../tasks/task-v1.1-ffmpeg_setup.md)
+  - [ ] FFmpeg 二进制文件就位
+  - [ ] build_std.spec 更新（添加 ffmpeg.exe）
+  - [ ] _get_ffmpeg_path() 实现
+  - [ ] 降级处理（无 FFmpeg 时纯视频）
+
+### v1.1 开发阶段
+
+| 阶段 | 内容 | 依赖 | 状态 |
+|-----|------|------|------|
+| 1 | config.py 新增配置项 | 无 | ❌ |
+| 2 | area_selector.py Win11 修复 + 确认对话框 | config | ❌ |
+| 3 | audio_capturer.py 音频捕获 | config | ❌ |
+| 4 | recorder_manager.py 录制模式 + 音频集成 | audio_capturer | ❌ |
+| 5 | tray_icon.py 动态菜单 + Toast 通知 | config | ❌ |
+| 6 | toolbar.py 结果条模式 | config | ❌ |
+| 7 | settings_dialog.py 设置扩展 | config | ❌ |
+| 8 | main.py 信号桥 + 流程集成 | 所有模块 | ❌ |
+| 9 | FFmpeg 打包配置 | recorder_manager | ❌ |
+| 10 | 集成测试 + 打包验证 | 全部 | ❌ |
