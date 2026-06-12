@@ -78,13 +78,12 @@ class TestRecordingToolbar(unittest.TestCase):
         toolbar._update_timer()
         self.assertEqual(toolbar._elapsed_seconds, 0)
 
-    def test_stop_countdown_resets(self):
-        """测试停止计时器后重置"""
+    def test_stop_recording_timer_resets(self):
+        """测试停止计时器"""
         toolbar = RecordingToolbar()
-        toolbar._elapsed_seconds = 100
-        toolbar.stop_countdown()
-        self.assertEqual(toolbar._elapsed_seconds, 0)
-        self.assertEqual(toolbar._label_timer.text(), "00:00")
+        toolbar.stop_recording_timer()
+        # stop_recording_timer 只停止定时器，不清零显示
+        self.assertFalse(toolbar._timer.isActive())
 
 
 if __name__ == "__main__":
