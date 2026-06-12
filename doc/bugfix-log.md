@@ -316,3 +316,27 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 - 快捷键回调不再直接调用 `_on_start_recording` 等方法，改为 emit 信号
 - 信号通过 `pyqtSignal` 的 QueuedConnection 机制安全转发到 Qt 主线程执行
 - 与 `_SavedBridge`（Bug #17）和 `_SignalBridge`（Bug #1）采用相同的设计模式
+
+---
+
+## v1.1 Bug 修复
+
+### Bug #20: 点击"区域录制"菜单或快捷键无响应 [严重]
+
+**症状**: 右键托盘点击"区域录制"或按 Ctrl+Shift+A 快捷键，没有任何反应，不出区域选择器遮罩
+
+**根因**: `main.py` 中 `_on_start_region()` 方法将 `AreaSelector` 创建为局部变量 `selector`，方法返回后 Python 垃圾回收器立即回收该对象，导致 QWidget 被销毁，遮罩窗口无法显示
+
+**修复** (`src/main.py`):
+- 将 `selector` 保存为实例属性 `self._area_selector`，防止垃圾回收
+- 在 `_on_region_selected` 和 `_on_selection_cancelled` 中将 `self._area_selector = None` 清理引用
+
+### Bug #21: _get_ffmpeg_path 开发环境下路径计算错误 [中等]
+
+**症状**: 开发环境下 FFmpeg 路径搜索失败，`_get_ffmpeg_path()` 返回空字符串，音频混合功能不可用
+
+**根因**: `_get_ffmpeg_path()` 中开发环境路径使用 `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`，但 `__file__` 位于 `src/recorder/recorder_manager.py`，两层 dirname 只到 `src/` 目录，而非项目根目录。因此搜索路径为 `src/ffmpeg/ffmpeg.exe` 而非项目根目录的 `ffmpeg/ffmpeg.exe`
+
+**修复** (`src/recorder/recorder_manager.py`):
+- 开发环境路径从两层 `os.path.dirname` 改为三层，确保到达项目根目录
+- 修复后路径：`E:\CC_Learning\QuickRec_dev\ffmpeg\ffmpeg.exe`
