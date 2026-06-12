@@ -131,18 +131,23 @@ class QuickRecApp:
 
     def _on_start_region(self):
         """区域录制：显示区域选择器"""
+        logger.info(f"_on_start_region called, state={self._recorder.get_state()}")
         if self._recorder.get_state() != RecorderState.IDLE:
+            logger.warning("非空闲状态，忽略区域录制请求")
             return
 
-        selector = AreaSelector()
-        selector.region_selected.connect(
+        # 保存为实例属性，防止被垃圾回收
+        self._area_selector = AreaSelector()
+        self._area_selector.region_selected.connect(
             lambda x, y, w, h: self._area_bridge.region_selected.emit(x, y, w, h)
         )
-        selector.cancelled.connect(self._area_bridge.cancelled.emit)
-        selector.show_fullscreen()
+        self._area_selector.cancelled.connect(self._area_bridge.cancelled.emit)
+        self._area_selector.show_fullscreen()
+        logger.info("区域选择器已显示")
 
     def _on_region_selected(self, x, y, w, h):
         """区域选择完成：开始录制"""
+        self._area_selector = None  # 清理引用
         if not self._recorder.start_region(region=(x, y, w, h)):
             logger.error("区域录制启动失败")
             return
@@ -151,7 +156,7 @@ class QuickRecApp:
 
     def _on_selection_cancelled(self):
         """区域选择取消"""
-        pass
+        self._area_selector = None  # 清理引用
 
     def _on_stop_recording(self):
         """停止录制"""
