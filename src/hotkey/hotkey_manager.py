@@ -3,9 +3,29 @@
 
 使用 pynput 监听全局键盘快捷键。
 pynput 不需要管理员权限即可监听全局按键。
+
+采用字符串标识符进行键匹配，比直接比较 pynput Key/KeyCode 对象更可靠。
+原因：pynput 在修饰键按下时报告的 KeyCode 与解析时创建的不同
+（例如 Ctrl+Shift+R 按下时 char 可能为 None 或控制字符），
+导致直接使用 KeyCode.__eq__ 比较永远不匹配。
 """
 
+import logging
+
 from pynput import keyboard
+
+logger = logging.getLogger("QuickRec")
+
+# Windows 虚拟键码到字符串标识符的映射
+_VK_MAP = {}
+for _vk, _ch in zip(range(0x41, 0x5B), 'abcdefghijklmnopqrstuvwxyz'):
+    _VK_MAP[_vk] = _ch
+for _vk in range(0x30, 0x3A):
+    _VK_MAP[_vk] = str(_vk - 0x30)
+_VK_MAP[0x20] = 'space'
+_VK_MAP[0x0D] = 'enter'
+_VK_MAP[0x09] = 'tab'
+_VK_MAP[0x1B] = 'esc'
 
 
 class HotkeyManager:
@@ -13,32 +33,21 @@ class HotkeyManager:
 
     def __init__(self):
         self._registered = {}  # {快捷键规范化字符串: 回调函数}
-        self._parsed = {}      # {规范化字符串: frozenset(pynput Key/KeyCombo)}
+        self._parsed = {}      # {规范化字符串: frozenset(键标识符)}
         self._listener = None
-        self._current_keys = set()
+        self._current_keys = set()  # 当前按下的键标识符集合
         self._started = False
+        self._triggered = set()     # 已触发的快捷键（防按键按住时重复触发）
 
     @staticmethod
     def parse_shortcut(shortcut: str) -> list:
-        """
-        解析快捷键字符串
-
-        Args:
-            shortcut: 格式如 "Ctrl+Shift+R"
-
-        Returns:
-            列表形式，如 ['ctrl', 'shift', 'r']
-        """
+        """解析快捷键字符串为标识符列表"""
         parts = shortcut.split("+")
         result = []
         for part in parts:
             p = part.strip().lower()
-            if p == "ctrl":
-                result.append("ctrl")
-            elif p == "shift":
-                result.append("shift")
-            elif p == "alt":
-                result.append("alt")
+            if p in ("ctrl", "shift", "alt"):
+                result.append(p)
             else:
                 result.append(p)
         return result
@@ -49,134 +58,68 @@ class HotkeyManager:
         parts = shortcut.split("+")
         return "+".join(p.strip().lower() for p in parts)
 
-    def _parse_to_pynput(self, shortcut: str) -> set:
-        """将快捷键字符串转为 pynput 键集合"""
-        parts = self.parse_shortcut(shortcut)
-        key_set = set()
-        for part in parts:
-            if part == "ctrl":
-                key_set.add(keyboard.Key.ctrl_l)
-                key_set.add(keyboard.Key.ctrl_r)
-            elif part == "shift":
-                key_set.add(keyboard.Key.shift_l)
-                key_set.add(keyboard.Key.shift_r)
-            elif part == "alt":
-                key_set.add(keyboard.Key.alt_l)
-                key_set.add(keyboard.Key.alt_r)
-            elif len(part) == 1:
-                key_set.add(keyboard.KeyCode.from_char(part))
-            else:
-                # 功能键映射
-                key_map = {
-                    "space": keyboard.Key.space,
-                    "enter": keyboard.Key.enter,
-                    "tab": keyboard.Key.tab,
-                    "esc": keyboard.Key.esc,
-                }
-                if part in key_map:
-                    key_set.add(key_map[part])
-        return key_set
+    def _key_to_id(self, key) -> str:
+        """将 pynput 键对象转换为标准化字符串标识符
 
-    def _match_hotkey(self, key) -> list:
-        """检查当前按下的键是否匹配某个快捷键"""
-        # 将 pynput key 加入当前按键集合
-        self._current_keys.add(key)
-
-        matched = []
-        for norm_key, callback in self._registered.items():
-            parsed = self._parsed.get(norm_key)
-            if parsed is None:
-                continue
-            # 检查所有解析出的键是否都被按下
-            if self._keys_match(parsed):
-                matched.append(callback)
-
-        return matched
-
-    def _keys_match(self, parsed_keys: set) -> bool:
-        """检查当前按键是否匹配解析的键集合
-
-        对于 ctrl/shift/alt 修饰键，左右键都会加入 parsed_keys，
-        只要当前按键集合包含其中之一即可。
+        解决 pynput 在修饰键按下时 KeyCode 与 from_char 创建的对象不一致的问题：
+        直接比较 Key/KeyCode 对象在 Ctrl/Shift 等修饰键按下时会失败，
+        因为 pynput 报告的 KeyCode.char 可能为 None 或控制字符。
+        通过将所有键统一为字符串标识符，用集合交集匹配，彻底避免此问题。
         """
-        # 将 current_keys 按普通键和修饰键分组
-        required_normal = set()
-        required_modifiers = {}  # {修饰键类型: {左键, 右键}}
+        # 修饰键 → 统一字符串
+        if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            return 'ctrl'
+        if key in (keyboard.Key.shift_l, keyboard.Key.shift_r):
+            return 'shift'
+        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r):
+            return 'alt'
 
-        for k in parsed_keys:
-            if k in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
-                required_modifiers.setdefault("ctrl", set()).add(k)
-            elif k in (keyboard.Key.shift_l, keyboard.Key.shift_r):
-                required_modifiers.setdefault("shift", set()).add(k)
-            elif k in (keyboard.Key.alt_l, keyboard.Key.alt_r):
-                required_modifiers.setdefault("alt", set()).add(k)
-            else:
-                required_normal.add(k)
+        # KeyCode 对象
+        if isinstance(key, keyboard.KeyCode):
+            # 优先用字符属性（字母不区分大小写）
+            char = getattr(key, 'char', None)
+            if char and len(char) == 1 and char.isalpha():
+                return char.lower()
+            # 回退到虚拟键码映射
+            vk = getattr(key, 'vk', None)
+            if vk is not None and vk in _VK_MAP:
+                return _VK_MAP[vk]
 
-        # 检查修饰键：当前按键集合中须包含左右之一
-        for mod_type, keys in required_modifiers.items():
-            if not self._current_keys.intersection(keys):
-                return False
+        # 特殊键
+        if key == keyboard.Key.space:
+            return 'space'
+        if key == keyboard.Key.enter:
+            return 'enter'
+        if key == keyboard.Key.tab:
+            return 'tab'
+        if key == keyboard.Key.esc:
+            return 'esc'
 
-        # 检查普通键：须全部在当前按键集合中
-        # 需排除修饰键的匹配
-        current_without_mods = self._current_keys.copy()
-        for keys in required_modifiers.values():
-            current_without_mods -= keys
+        # 尝试 vk 映射（兜底）
+        vk = getattr(key, 'vk', None)
+        if vk is not None and vk in _VK_MAP:
+            return _VK_MAP[vk]
 
-        for k in required_normal:
-            if k not in current_without_mods:
-                return False
-
-        return True
+        return None
 
     def register(self, shortcut: str, callback) -> bool:
-        """
-        注册快捷键
-
-        Args:
-            shortcut: 快捷键字符串，如 "Ctrl+Shift+R"
-            callback: 回调函数
-
-        Returns:
-            True 注册成功, False 注册失败或已存在
-        """
+        """注册快捷键"""
         key = self._normalize(shortcut)
         if key in self._registered:
+            logger.debug(f"快捷键 {key} 已注册，跳过重复注册")
             return False
-
-        parsed = self._parse_to_pynput(shortcut)
+        parsed = frozenset(self.parse_shortcut(shortcut))
         self._parsed[key] = parsed
         self._registered[key] = callback
-
-        # 如果监听器已经在运行，需要重启以应用新快捷键
-        if self._started:
-            self.stop_listening()
-            self.start_listening()
-
         return True
 
     def unregister(self, shortcut: str) -> bool:
-        """
-        取消注册快捷键
-
-        Args:
-            shortcut: 快捷键字符串
-
-        Returns:
-            True 取消成功, False 快捷键未注册
-        """
+        """取消注册快捷键"""
         key = self._normalize(shortcut)
         if key not in self._registered:
             return False
-
         del self._registered[key]
         del self._parsed[key]
-
-        if self._started:
-            self.stop_listening()
-            self.start_listening()
-
         return True
 
     def unregister_all(self):
@@ -187,24 +130,46 @@ class HotkeyManager:
 
     def _on_press(self, key):
         """按键按下回调"""
-        matched = self._match_hotkey(key)
-        for callback in matched:
-            try:
-                callback()
-            except Exception:
-                pass
+        key_id = self._key_to_id(key)
+        if key_id is None:
+            return
+        self._current_keys.add(key_id)
+        logger.debug(f"按键按下: {key_id}, 当前按键集合: {self._current_keys}")
+
+        # 精确匹配：当前按键集合必须完全等于注册的组合键
+        for norm_key, parsed in self._parsed.items():
+            if parsed == self._current_keys and norm_key not in self._triggered:
+                self._triggered.add(norm_key)
+                logger.info(f"快捷键触发: {norm_key}")
+                callback = self._registered.get(norm_key)
+                if callback:
+                    try:
+                        callback()
+                    except Exception as e:
+                        logger.error(f"快捷键回调异常: {e}")
 
     def _on_release(self, key):
         """按键释放回调"""
-        self._current_keys.discard(key)
+        key_id = self._key_to_id(key)
+        if key_id is None:
+            return
+        self._current_keys.discard(key_id)
+        logger.debug(f"按键释放: {key_id}, 当前按键集合: {self._current_keys}")
+        # 组合键中任一键释放，清除对应触发标记
+        self._triggered = {
+            k for k in self._triggered
+            if key_id not in self._parsed.get(k, frozenset())
+        }
 
     def start_listening(self):
         """开始监听全局按键"""
         if self._started:
             return
+        self._current_keys.clear()
+        self._triggered.clear()
         self._listener = keyboard.Listener(
             on_press=self._on_press,
-            on_release=self._on_release
+            on_release=self._on_release,
         )
         self._listener.start()
         self._started = True
@@ -216,3 +181,4 @@ class HotkeyManager:
             self._listener = None
         self._started = False
         self._current_keys.clear()
+        self._triggered.clear()

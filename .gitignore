@@ -24,3 +24,5 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+_dxcam_test.mp4
+_test_*.png

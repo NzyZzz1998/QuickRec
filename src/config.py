@@ -17,13 +17,21 @@ class ConfigManager:
     # 默认配置值
     defaults = {
         "save_path": str(Path.home() / "Videos" / "QuickRec"),
-        "quality": "high",  # high / medium / low
+        "quality": "high",  # native / high / medium / low
         "fps": 30,  # 30 / 60
         "shortcut_start": "Ctrl+Shift+R",
         "shortcut_stop": "Ctrl+Shift+S",
         "shortcut_pause": "Ctrl+Shift+P",
         "show_countdown": False,
         "countdown_seconds": 3,
+    }
+
+    # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
+    QUALITY_SIZES = {
+        "native": None,
+        "high": (1920, 1080),
+        "medium": (1280, 720),
+        "low": (854, 480),
     }
 
     def __init__(self):

@@ -103,13 +103,8 @@ class RecordingToolbar(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_timer)
 
-    def start_countdown(self, seconds: int = 0):
-        """开始录制计时"""
-        self._elapsed_seconds = 0
-        self._recording = True
-        self._paused = False
-        self._timer.start(1000)
-        # 将工具栏定位到屏幕顶部居中
+    def center_on_screen(self):
+        """将工具栏移动到屏幕顶部居中位置"""
         from PyQt5.QtWidgets import QApplication
         screen = QApplication.primaryScreen()
         if screen:
@@ -118,6 +113,15 @@ class RecordingToolbar(QWidget):
                 screen_geo.center().x() - self.width() // 2,
                 screen_geo.top() + 10
             )
+
+    def start_countdown(self, seconds: int = 0):
+        """开始录制计时"""
+        self._elapsed_seconds = 0
+        self._recording = True
+        self._paused = False
+        self._timer.start(1000)
+        # 延迟定位，确保布局已完成、self.width() 返回正确值
+        QTimer.singleShot(0, self.center_on_screen)
 
     def stop_countdown(self):
         """停止录制计时"""

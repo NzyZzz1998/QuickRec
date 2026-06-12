@@ -71,6 +71,7 @@ class RecorderManager:
         self._total_frames: int = 0
         self._fps: int = 30
         self._frame_size: tuple = (0, 0)
+        self._encode_size: tuple = (0, 0)
 
         # 编码完成回调
         self._on_saved = on_saved
@@ -110,7 +111,9 @@ class RecorderManager:
         return True
 
     def stop(self, cancel: bool = False) -> str:
-        """停止录制，返回文件路径
+        """停止录制，立即返回（不阻塞主线程）
+
+        录制线程的等待、文件清理和编码启动全部在后台线程中完成。
 
         Args:
             cancel: True 表示取消录制，不保存文件
@@ -123,6 +126,8 @@ class RecorderManager:
                 return ""
             if self._state == RecorderState.SAVING:
                 return ""
+            if self._state == RecorderState.STOPPING:
+                return ""
             self._state = RecorderState.STOPPING
 
         self._cancelled = cancel
@@ -131,6 +136,16 @@ class RecorderManager:
         self._stop_event.set()
         self._resume_event.set()
 
+        # 在后台线程中等待录制结束、清理并启动编码，不阻塞主线程
+        self._stop_thread = threading.Thread(
+            target=self._stop_and_encode, daemon=True
+        )
+        self._stop_thread.start()
+        return ""
+
+    def _stop_and_encode(self):
+        """后台线程：等待录制结束、清理文件、启动编码"""
+        # 等待录制线程结束
         if self._record_thread and self._record_thread.is_alive():
             self._record_thread.join(timeout=5.0)
 
@@ -145,11 +160,11 @@ class RecorderManager:
             self._capturer = None
 
         # 取消录制时：删除临时文件，不编码
-        if cancel:
+        if self._cancelled:
             self._cleanup_temp_file()
             with self._lock:
                 self._state = RecorderState.IDLE
-            return ""
+            return
 
         # 启动后台编码线程
         with self._lock:
@@ -159,7 +174,6 @@ class RecorderManager:
             target=self._encode_loop, daemon=True
         )
         self._encode_thread.start()
-        return ""
 
     def get_state(self) -> RecorderState:
         """获取当前状态"""
@@ -182,11 +196,31 @@ class RecorderManager:
         """是否正在后台编码保存中"""
         return self._state == RecorderState.SAVING
 
+    def wait_until_idle(self, timeout: float = 60.0):
+        """等待录制器回到 IDLE 状态（用于退出时等待编码完成）
+
+        Args:
+            timeout: 最大等待时间（秒）
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._state == RecorderState.IDLE:
+                return
+            time.sleep(0.1)
+
     @staticmethod
     def _compress_frame(frame):
         """将BGR帧压缩为JPEG字节"""
         _, encoded = cv2.imencode('.jpg', frame, _JPEG_PARAMS)
         return encoded.tobytes()
+
+    def _get_target_size(self):
+        """根据画质配置获取目标分辨率 (width, height)，None 表示原始尺寸"""
+        quality = self._config.get("quality", "native")
+        target = ConfigManager.QUALITY_SIZES.get(quality)
+        if target is None:
+            return None
+        return target
 
     def _start(self, region=None) -> bool:
         """内部启动录制"""
@@ -200,9 +234,16 @@ class RecorderManager:
             if DiskChecker.is_low_space(save_path, quality):
                 return False
 
-            # 创建捕获器
+            # 创建捕获器（延迟启动，在录制线程中调用 start()）
             self._capturer = ScreenCapturer(region=region)
             self._frame_size = self._capturer.get_monitor_size()
+
+            # 计算编码用的目标尺寸（画质缩放）
+            target = self._get_target_size()
+            if target:
+                self._encode_size = target
+            else:
+                self._encode_size = self._frame_size
 
             fps = self._config.get("fps", 30)
             self._output_path = FileNamer.generate(save_path)
@@ -243,6 +284,13 @@ class RecorderManager:
         录制循环仅包含截图+压缩+写盘，无编码开销，足以稳定60fps。
         暂停期间保留帧计数，恢复时调整时间基准使帧号连续。
         """
+        # 在录制线程中启动 dxcam，避免在主线程中初始化导致阻塞
+        try:
+            self._capturer.start()
+        except Exception as e:
+            logger.error(f"屏幕捕获器启动失败: {e}")
+            self._stop_event.set()
+
         fps = self._fps
         frame_interval = 1.0 / fps
         rec_start = time.time()
@@ -291,13 +339,11 @@ class RecorderManager:
             fh.write(compressed)
             frames_written += 1
 
-            # 等待到下一帧时刻
+            # 等待到下一帧时刻（使用 time.sleep 释放 GIL，避免忙等待冻结主线程）
             next_time = rec_start + frames_written * frame_interval
             wait = next_time - time.time()
             if wait > 0.002:
-                time.sleep(wait - 0.001)
-            while time.time() < next_time:
-                pass
+                time.sleep(max(wait - 0.001, 0.001))
 
         self._total_frames = frames_written
 
@@ -316,7 +362,7 @@ class RecorderManager:
             total = self._total_frames
             logger.info(f"开始编码保存，共 {total} 帧...")
 
-            encoder = VideoEncoder(self._output_path, self._fps, self._frame_size)
+            encoder = VideoEncoder(self._output_path, self._fps, self._encode_size)
 
             with open(self._temp_file, "rb") as fh:
                 for i in range(total):
@@ -333,12 +379,23 @@ class RecorderManager:
                         logger.error(f"读取帧数据失败，第 {i} 帧")
                         raise RuntimeError(f"临时文件读取失败，第 {i} 帧")
 
-                    # 解压并写入编码器
+                    # 解压并缩放帧
                     frame = cv2.imdecode(
                         np.frombuffer(jpeg_data, dtype=np.uint8),
                         cv2.IMREAD_COLOR
                     )
-                    if frame is None or not encoder.write_frame(frame):
+                    if frame is None:
+                        logger.error(f"解码失败，第 {i} 帧")
+                        raise RuntimeError("JPEG 解码失败")
+
+                    # 按画质缩放
+                    if self._encode_size != self._frame_size:
+                        frame = cv2.resize(
+                            frame, self._encode_size,
+                            interpolation=cv2.INTER_LINEAR
+                        )
+
+                    if not encoder.write_frame(frame):
                         logger.error(f"解码/编码失败，第 {i} 帧")
                         raise RuntimeError("解码/编码写入失败")
 
@@ -366,9 +423,10 @@ class RecorderManager:
             # 通知主线程编码完成
             if self._on_saved:
                 try:
+                    logger.info(f"编码完成回调，即将通知主线程: {result_path}")
                     self._on_saved(result_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"编码完成回调异常: {e}")
 
     def _cleanup_temp_file(self):
         """清理临时文件"""

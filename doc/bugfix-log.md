@@ -111,14 +111,16 @@
 | 文件 | 修改内容 |
 |------|---------|
 | `src/ui/tray_icon.py` | 信号桥线程安全、延迟停止图标 |
-| `src/recorder/recorder_manager.py` | 临时文件缓存方案（替代内存缓存），SAVING状态，帧写入/读取循环 |
-| `src/recorder/screen_capturer.py` | mss→dxcam，__del__ 异常保护 |
-| `src/hotkey/hotkey_manager.py` | keyboard → pynput 完全重写 |
+| `src/recorder/recorder_manager.py` | 临时文件缓存方案、SAVING状态、帧写入/读取循环、画质缩放 |
+| `src/recorder/screen_capturer.py` | mss→dxcam、__del__ 异常保护 |
+| `src/hotkey/hotkey_manager.py` | 完全重写：字符串标识符键匹配、VK映射、防重复触发 |
 | `src/ui/area_selector.py` | 移除 Qt.Tool、添加焦点策略、右键取消 |
 | `src/ui/toolbar.py` | 添加初始屏幕位置 |
-| `src/recorder/screen_capturer.py` | __del__ 异常保护 |
+| `src/ui/settings_dialog.py` | _ShortcutRecorder 可录制快捷键、画质选项改中文+新增native(2K)档位 |
 | `src/recorder/video_encoder.py` | __del__ 异常保护 |
-| `src/main.py` | 快捷键监听重启、退出时停止监听 |
+| `src/config.py` | 新增 QUALITY_SIZES 画质→分辨率映射表 |
+| `src/main.py` | 快捷键监听重启、退出时停止监听、延迟重绑定、编码完成日志 |
+| `src/ui/toolbar.py` | 屏幕居中定位、延迟定位修复 |
 | `build_std.spec` | hidden imports 更新 |
 | `requirements.txt` | keyboard → pynput |
 
@@ -178,3 +180,139 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 **根因**: 与 Bug #8 相关——由于帧率控制问题，首次录制的视频内容异常，后续状态管理本身无逻辑错误。`stop()` 方法正确清理了 `_encoder` 和 `_capturer`（设为 None），`_start()` 重新创建新实例。
 
 **修复**: Bug #8 修复后待重测验证。
+
+---
+
+### Bug #11: 全局快捷键完全不工作 [严重]
+
+**症状**: 所有快捷键（Ctrl+Shift+R/S/P）均不响应，T5.1-T5.6 全部失败
+
+**根因**: pynput 在修饰键按下时报告的 `KeyCode` 对象与 `KeyCode.from_char()` 创建的对象不一致。当 Ctrl 或 Shift 被按住时，后续普通键的 `KeyCode.char` 可能为 `None` 或控制字符，导致 `_key_to_id` 返回的键标识符与注册解析的快捷键字符串无法匹配。原来的实现直接比较 `KeyCode`/`Key` 对象，在修饰键组合场景下永远匹配失败。
+
+**修复** (`src/hotkey/hotkey_manager.py`):
+- 完全重写键匹配机制：将所有 pynput 键对象统一转换为字符串标识符（如 'ctrl', 'shift', 'r'），用 `frozenset` 集合进行精确匹配
+- 新增 `_VK_MAP` Windows 虚拟键码映射表，确保 R/S/P 等字母键在修饰键按下时也能正确识别
+- `_key_to_id()` 方法：将 pynput Key/KeyCode 统一转为字符串标识符，优先用 `char` 属性，回退到 `vk` 映射
+- `_match_hotkey` 改为精确集合匹配：`parsed == self._current_keys`（当前按键集合必须完全等于注册组合）
+- 新增 `_triggered` 防重复触发集合：按键按住时仅触发一次，释放后清除
+
+---
+
+### Bug #12: 画质设置不影响视频分辨率 [中等]
+
+**症状**: 无论选择高/中/低画质，视频始终以显示器原始分辨率（2K/1440p）输出
+
+**根因**: `ScreenCapturer` 始终以显示器原始分辨率截图，`VideoEncoder` 直接使用截图尺寸作为帧尺寸，从未根据画质设置进行缩放。`_record_loop` 写入 JPEG 时也是原始分辨率帧。
+
+**修复**:
+- `src/config.py`: 新增 `QUALITY_SIZES` 映射表，将画质字符串映射到目标分辨率。新增 "native"（原始分辨率，即2K）档位
+- `src/recorder/recorder_manager.py`: 新增 `_get_target_size()` 方法，根据画质配置获取目标分辨率；`_start()` 中计算 `_encode_size`；`_encode_loop()` 在解压后用 `cv2.resize()` 将帧缩放到目标尺寸再编码
+- `src/ui/settings_dialog.py`: 画质选项改为中文显示（原生(2K)/高(1080p)/中(720p)/低(480p)），使用 `addItem(text, data)` 存储 config 值
+
+---
+
+### Bug #13: 快捷键设置无法修改 [中等]
+
+**症状**: 设置对话框中快捷键显示为只读 QLabel，用户无法修改快捷键组合
+
+**修复** (`src/ui/settings_dialog.py`):
+- 新增 `_ShortcutRecorder(QLabel)` 可点击录制快捷键的控件
+- 点击后进入录制模式，显示"按下快捷键..."提示
+- 按下修饰键+普通键组合时自动识别并显示（如 `Ctrl+Shift+R`）
+- 按 Escape 取消录制，恢复原值
+- 失去焦点时自动取消录制
+- 保存时读取标签文本作为快捷键值
+
+### Bug #13b: 设置对话框中快捷键录制与全局快捷键冲突 [严重]
+
+**症状**: 打开设置对话框按键录制自定义快捷键时，程序直接退出
+
+**根因**: `pynput` 全局键盘监听器与 `_ShortcutRecorder` 同时捕获按键，pynput 捕获到 Ctrl+Shift+R/S 后触发了全局快捷键回调（开始录制/停止录制），导致非预期行为。此外，全局监听器拦截了按键事件，`_ShortcutRecorder` 的 `keyPressEvent` 可能无法正常工作。
+
+**修复** (`src/main.py`):
+- `_show_settings()` 打开设置对话框前先调用 `self._hotkey.stop_listening()` 暂停全局快捷键监听
+- 对话框关闭后（无论保存或取消）重新调用 `self._hotkey.start_listening()`
+- 保存配置时 `_on_config_saved()` 已包含 `stop_listening()` + `unregister_all()` + 重新注册 + `start_listening()` 的完整流程
+- 取消时仅重启监听（配置未变，只需 `start_listening()`）
+
+### Bug #14: QChar 导入错误导致设置对话框崩溃 [严重]
+
+**症状**: 在设置对话框中点击快捷键录制控件后按任意键，程序崩溃闪退
+
+**根因**: `src/ui/settings_dialog.py` 中误导入了 `from PyQt5.QtCore import QChar`。QChar 是 Qt C++ 类，PyQt5 的 Python 绑定中未暴露此类型，导致 `ImportError`。实际代码使用的是 Python 内置的 `chr()` 函数，不需要 QChar 导入。
+
+**修复** (`src/ui/settings_dialog.py`):
+- 删除 `from PyQt5.QtCore import QChar` 导入行
+- 第96行 `ch = chr(key)` 使用的 `chr()` 是 Python 内置函数，无需任何导入
+
+### Bug #15: 修改快捷键后不生效，再次修改导致闪退 [严重]
+
+**症状**: 在设置对话框中修改快捷键并保存后，新快捷键无响应；再次打开设置对话框修改快捷键时程序崩溃
+
+**根因**: `_on_config_saved` 在 Qt 信号回调中直接操作 pynput：先 `stop_listening()` 停止监听器，然后 `unregister_all()` + 重新注册 + `start_listening()`。此时 `_ShortcutRecorder` 仍然持有 `grabKeyboard()`，pynput 的新 Listener 启动与 Qt 键盘抓取冲突导致崩溃。此外，在对话框生命周期内重启 pynput 监听器会与 `_ShortcutRecorder` 的按键捕获产生竞争。
+
+**修复** (`src/main.py`):
+- 新增 `_config_saved_pending` 标志位
+- `_on_config_saved_pend()` 只设置标志，不直接操作 pynput
+- `_show_settings()` 在对话框关闭后统一处理：如果配置已保存，执行 `unregister_all()` + `_setup_hotkeys()` 重绑定；无论保存或取消，最后统一调用 `start_listening()` 重启监听
+- 这确保 pynput 操作始终在对话框关闭（键盘抓取释放）后执行，避免冲突
+
+### Bug #16: 录制工具栏位置偏左未居中 [轻微]
+
+**症状**: 录制工具栏出现在屏幕顶部但整体偏左，没有水平居中
+
+**根因**: `start_countdown()` 中使用 `self.width()` 计算居中位置，但此时 Qt 布局尚未完成计算，`self.width()` 返回的是初始/不正确的宽度值（可能为0或偏小），导致 `screen_center_x - width//2` 计算结果偏左。
+
+**修复** (`src/ui/toolbar.py`):
+- 将定位逻辑提取为 `center_on_screen()` 方法
+- 使用 `QTimer.singleShot(0, self.center_on_screen)` 延迟执行定位，确保在 Qt 事件循环完成布局计算后再获取 `self.width()`，返回正确的窗口宽度
+
+### Bug #17: 点击停止后工具栏显示"保存中"但一直不消失 [严重]
+
+**症状**: T7.5 测试未通过 — 点击工具栏"停止"按钮后，工具栏显示"保存中..."状态，但编码完成后工具栏不会自动消失，通知也不会弹出来
+
+**根因**: `_on_saved` 回调在编码线程（Python threading.Thread）中被调用，原实现使用 `QTimer.singleShot(0, lambda: self._handle_saved(output_path))` 将调用转发到主线程。但 `QTimer.singleShot` 从非 Qt 线程（原生 Python 线程）调用时，PyQt5 无法可靠地将定时器事件投递到主线程事件循环，导致回调永远不会在主线程执行，工具栏一直停留在"保存中..."状态。
+
+**修复** (`src/main.py`):
+- 新增 `_SavedBridge(QObject)` 信号桥类，包含 `saved = pyqtSignal(str)` 信号
+- `_on_saved` 回调改为 `self._saved_bridge.saved.emit(output_path)`，通过 PyQt5 信号槽机制安全转发到主线程
+- `_SavedBridge.saved` 信号连接到 `_handle_saved` 槽函数
+- PyQt5 的 `pyqtSignal.emit()` 从非 Qt 线程调用时自动使用 `Qt.QueuedConnection`，确保信号在主线程事件循环中被正确处理
+- 与 Bug #1 (pystray 线程安全) 和 Bug #15 (pynput 线程冲突) 采用相同的设计模式：信号桥转发
+
+### Bug #18: 录制期间 GUI 冻结，快捷键和托盘菜单均不响应 [严重]
+
+**症状**: 使用快捷键开始录制后，所有操作（快捷键、托盘右键菜单、停止按钮）均无响应。按快捷键开始录制后录制工具栏可能不出现。录制中退出程序导致临时文件被占用、视频未生成。
+
+**根因**: 三个问题叠加：
+1. **忙等待循环占满 CPU 和 GIL**：`_record_loop` 中 `while time.time() < next_time: pass` 是忙等待，每帧约33ms中几乎全程空转占满一个 CPU 核心，Python GIL 被录制线程持续持有，主线程（Qt GUI + pynput）无法获得 GIL 执行事件处理
+2. **dxcam 在主线程初始化**：`ScreenCapturer.__init__` 中调用 `dxcam.create()` 和 `camera.start()`，这是较慢的 DirectX 初始化操作，在主线程中执行会短暂冻结 GUI
+3. **`stop()` 中 `join(timeout=5.0)` 阻塞主线程**：停止录制时主线程冻结最多5秒
+
+**修复** (`src/recorder/recorder_manager.py`):
+- 移除忙等待循环：将 `while time.time() < next_time: pass` 替换为 `time.sleep(max(wait - 0.001, 0.001))`，释放 GIL 让主线程可以运行
+- `stop()` 改为非阻塞：只设置停止事件和 STOPPING 状态，立即返回；`join`、文件清理、编码启动逻辑移到 `_stop_and_encode()` 后台线程
+- 新增 STOPPING 状态判断：防止重复调用 stop
+- 新增 `wait_until_idle(timeout)` 方法：用于退出时等待所有后台操作完成
+
+**修复** (`src/recorder/screen_capturer.py`):
+- `ScreenCapturer.__init__` 不再创建和启动 dxcam，改为延迟初始化
+- 新增 `start()` 方法，在录制线程中调用 `dxcam.create()` 和 `camera.start()`
+- `_record_loop` 开头调用 `self._capturer.start()` 在录制线程中初始化 dxcam
+
+**修复** (`src/main.py`):
+- `_on_stop_recording`: 停止后直接显示"保存中..."，不依赖阻塞返回值
+- `_on_cancel_recording`: 增加 IDLE 和 SAVING 状态判断
+- `_on_exit`: 使用 `wait_until_idle(timeout=60)` 确保编码完成后退出
+
+### Bug #19: 快捷键触发录制后 GUI 冻结、工具栏不出现 [严重]
+
+**症状**: 使用快捷键 Ctrl+Shift+R 开始录制后，录制工具栏不出现，程序完全无响应只能强制退出。但通过托盘菜单开始录制一切正常。
+
+**根因**: pynput 的键盘监听回调在其独立线程中执行。QTimer.singleShot 从非 Qt 线程调用不可靠（Bug #17）的同一类问题 —— pynput 回调直接操作 Qt UI 组件（创建 toolbar、调用 show/close 等）违反了 Qt 的线程安全规则，导致 GUI 事件循环死锁。与 Bug #1（pystray 线程安全）和 Bug #17（编码线程回调）属于同一类问题。
+
+**修复** (`src/main.py`):
+- 新增 `_HotkeyBridge(QObject)` 信号桥类，包含 `start_requested`、`stop_requested`、`pause_requested` 三个信号
+- 快捷键回调不再直接调用 `_on_start_recording` 等方法，改为 emit 信号
+- 信号通过 `pyqtSignal` 的 QueuedConnection 机制安全转发到 Qt 主线程执行
+- 与 `_SavedBridge`（Bug #17）和 `_SignalBridge`（Bug #1）采用相同的设计模式
