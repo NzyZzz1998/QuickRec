@@ -368,3 +368,23 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 - `src/ui/toolbar.py` — 结果条关闭方式修复
 - `src/recorder/recorder_manager.py` — 区域录制画质缩放保持宽高比
 - `src/main.py` — AreaSelector 保存为实例属性防止 GC
+
+### Bug #24: 系统声音录制停止时程序崩溃 (0xC0000005) [严重]
+
+**症状**: 音频源设为"系统声音"或"两者都有"，录制停止后程序崩溃，退出码 0xC0000005（访问冲突）。日志显示系统声音初始化成功（48000Hz, 2ch），但停止录制后进程直接崩溃
+
+**根因**: 两个问题叠加：
+
+1. **PyAudio 实例跨实例索引不匹配**：`_find_wasapi_loopback()` 创建临时 `pyaudiowpatch.PyAudio()` 实例发现 loopback 设备索引，然后 `pa.terminate()` 销毁实例。`_start_system()` 创建新的 `PyAudio()` 实例，用旧实例的设备索引 `open()` 流——不同实例间设备索引不通用，导致 C 层访问无效内存，引发 0xC0000005
+
+2. **资源释放顺序错误**：`stop()` 方法先关闭音频流（`stop_stream()`/`close()`），再关闭 WAV 文件。如果 `_capture_loop` 线程正在 `writeframes()` 时流被关闭，WAV 文件处于不一致状态。此外，`_capture_loop` 中 `stream.read()` 在流关闭后抛出未捕获的异常导致线程崩溃
+
+**修复** (`src/recorder/audio_capturer.py`):
+
+1. `_find_wasapi_loopback()` 改为接受 `pa` 参数，使用同一 PyAudio 实例发现设备和打开流，避免跨实例索引问题。同时改进设备查找逻辑：先查找默认输出设备对应的 loopback，再 fallback 到任意 loopback 设备
+
+2. `_start_system()` 不再单独创建临时 PyAudio 实例，而是先创建 `self._pa_wp = pawp.PyAudio()`，然后调用 `_find_wasapi_loopback(self._pa_wp)` 在同一实例上查找设备
+
+3. `stop()` 改变资源释放顺序：先 `_is_recording.clear()` + 等待线程结束 → 关闭 WAV 文件（确保数据刷盘） → 关闭音频流 → 终止 PyAudio。WAV 在流之前关闭，避免线程写入已关闭流的数据
+
+4. `_capture_loop()` 增加错误处理：捕获 `OSError`（流已关闭）时直接跳出循环；连续读取错误超过阈值时停止捕获；不再因单次错误崩溃

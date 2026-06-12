@@ -54,7 +54,7 @@ class AudioCapturer:
         self._system_temp_path = ""
         self._mic_temp_path = ""
 
-        # pyaudiowpatch 和 pyaudio 实例
+        # pyaudiowpatch 和 pyaudio 实例（与流同生命周期）
         self._pa_wp = None
         self._pa_mic = None
 
@@ -72,7 +72,6 @@ class AudioCapturer:
                 if not self._start_system(output_stem):
                     logger.warning("系统声音捕获初始化失败")
                     if self._source == AudioSource.BOTH:
-                        # BOTH 模式系统声音失败，尝试仅麦克风
                         logger.info("BOTH 模式降级为仅麦克风")
                         self._source = AudioSource.MICROPHONE
                     else:
@@ -82,7 +81,6 @@ class AudioCapturer:
                 if not self._start_mic(output_stem):
                     logger.warning("麦克风捕获初始化失败")
                     if self._source == AudioSource.BOTH:
-                        # BOTH 模式麦克风失败，检查系统声音是否已启动
                         if self._system_stream:
                             logger.info("BOTH 模式降级为仅系统声音")
                             self._source = AudioSource.SYSTEM
@@ -110,15 +108,39 @@ class AudioCapturer:
         Returns:
             WAV 临时文件路径列表，失败时返回空列表
         """
+        if not self._is_recording.is_set():
+            # 已经停止或从未启动
+            self._cleanup()
+            return []
+
         self._is_recording.clear()
 
-        # 等待音频线程结束
+        # 等待音频线程结束（先让线程停止读取数据）
         if self._audio_thread and self._audio_thread.is_alive():
-            self._audio_thread.join(timeout=3.0)
+            self._audio_thread.join(timeout=5.0)
 
         paths = []
 
-        # 关闭系统声音流
+        # 先关闭 WAV 文件（确保所有数据刷盘），再关闭音频流
+        if self._system_wav:
+            try:
+                self._system_wav.close()
+            except Exception:
+                pass
+            self._system_wav = None
+            if self._system_temp_path and os.path.exists(self._system_temp_path):
+                paths.append(self._system_temp_path)
+
+        if self._mic_wav:
+            try:
+                self._mic_wav.close()
+            except Exception:
+                pass
+            self._mic_wav = None
+            if self._mic_temp_path and os.path.exists(self._mic_temp_path):
+                paths.append(self._mic_temp_path)
+
+        # 关闭音频流
         if self._system_stream:
             try:
                 self._system_stream.stop_stream()
@@ -127,22 +149,6 @@ class AudioCapturer:
                 pass
             self._system_stream = None
 
-        if self._system_wav:
-            try:
-                self._system_wav.close()
-                paths.append(self._system_temp_path)
-            except Exception:
-                pass
-            self._system_wav = None
-
-        if self._pa_wp:
-            try:
-                self._pa_wp.terminate()
-            except Exception:
-                pass
-            self._pa_wp = None
-
-        # 关闭麦克风流
         if self._mic_stream:
             try:
                 self._mic_stream.stop_stream()
@@ -151,13 +157,13 @@ class AudioCapturer:
                 pass
             self._mic_stream = None
 
-        if self._mic_wav:
+        # 关闭 PyAudio 实例
+        if self._pa_wp:
             try:
-                self._mic_wav.close()
-                paths.append(self._mic_temp_path)
+                self._pa_wp.terminate()
             except Exception:
                 pass
-            self._mic_wav = None
+            self._pa_wp = None
 
         if self._pa_mic:
             try:
@@ -177,58 +183,80 @@ class AudioCapturer:
 
     # --- 内部方法 ---
 
-    def _find_wasapi_loopback(self) -> dict | None:
-        """查找 WASAPI 环形缓冲区输出设备
+    def _find_wasapi_loopback(self, pa: "pyaudiowpatch.PyAudio") -> dict | None:
+        """在给定的 PyAudio 实例上查找 WASAPI 环形缓冲区输出设备
 
-        pyaudiowpatch 提供了 get_loopback_device_info() 可直接获取。
-        若未找到设备，返回 None。
+        使用同一 PyAudio 实例发现设备，确保索引可用于后续 open() 调用。
+
+        Args:
+            pa: 已初始化的 pyaudiowpatch.PyAudio 实例
+
+        Returns:
+            设备信息字典，未找到返回 None
         """
         try:
-            import pyaudiowpatch as pawp
-            pa = pawp.PyAudio()
+            # 方法1: 查找默认输出设备的 loopback（推荐方式）
+            # 先获取默认输出设备，然后查找其 loopback 设备
             try:
-                # 尝试获取默认输出设备的 loopback
-                wasapi_info = pa.get_loopback_device_info()
-                if wasapi_info:
-                    return wasapi_info
-            except Exception:
-                pass
+                default_output = pa.get_default_output_device_info()
+                default_name = default_output.get("name", "").lower()
+                # 搜索与默认输出设备同名的 loopback 设备
+                for i in range(pa.get_device_count()):
+                    info = pa.get_device_info_by_index(i)
+                    if info.get("isLoopbackDevice", False):
+                        # loopback 设备名称通常包含输出设备名称
+                        loopback_name = info.get("name", "").lower()
+                        if default_name and default_name.split("(")[0].strip() in loopback_name:
+                            logger.info(f"找到默认输出设备的 loopback: {info.get('name')}")
+                            return info
+            except Exception as e:
+                logger.debug(f"查找默认输出 loopback 失败: {e}")
 
-            # 遍历所有设备查找 loopback
+            # 方法2: 遍历所有设备查找 loopback（取第一个可用的）
             device_count = pa.get_device_count()
             for i in range(device_count):
                 info = pa.get_device_info_by_index(i)
                 if info.get("isLoopbackDevice", False):
-                    return info
-                # 查找包含 speaker/立体声混音 的 loopback 设备
-                name = info.get("name", "").lower()
-                if "loopback" in name:
+                    logger.info(f"找到 loopback 设备 (index {i}): {info.get('name')}")
                     return info
 
+            logger.warning("未找到任何 WASAPI loopback 设备")
             return None
-        finally:
-            try:
-                pa.terminate()
-            except Exception:
-                pass
+        except Exception as e:
+            logger.error(f"查找 WASAPI loopback 设备异常: {e}")
+            return None
 
     def _start_system(self, output_stem: str) -> bool:
-        """初始化 WASAPI 系统声音捕获"""
+        """初始化 WASAPI 系统声音捕获
+
+        在同一 PyAudio 实例上完成设备发现和流打开，避免跨实例索引不匹配。
+        """
         try:
             import pyaudiowpatch as pawp
 
-            device_info = self._find_wasapi_loopback()
-            if not device_info:
-                logger.warning("未找到 WASAPI 环形缓冲区设备")
-                return False
-
+            # 创建 PyAudio 实例（发现设备和打开流用同一实例）
             self._pa_wp = pawp.PyAudio()
 
-            # 获取设备实际采样率
-            self._sample_rate = int(device_info.get("defaultSampleRate", 48000))
-            self._channels = device_info.get("maxInputChannels", 2)
+            # 在同一实例上查找 loopback 设备
+            device_info = self._find_wasapi_loopback(self._pa_wp)
+            if not device_info:
+                logger.warning("未找到 WASAPI 环形缓冲区设备")
+                self._cleanup_system()
+                return False
 
-            # 打开 loopback 流
+            # 获取设备实际参数
+            self._sample_rate = int(device_info.get("defaultSampleRate", 48000))
+            # loopback 设备的 maxInputChannels 为输入通道数
+            channels = device_info.get("maxInputChannels", 2)
+            if channels < 1:
+                channels = 2
+            self._channels = channels
+
+            logger.info(f"系统声音设备: {device_info.get('name')}, "
+                         f"{self._sample_rate}Hz, {self._channels}ch, "
+                         f"index={device_info['index']}")
+
+            # 打开 loopback 流（使用同一实例的设备索引）
             self._system_stream = self._pa_wp.open(
                 format=pawp.paInt16,
                 channels=self._channels,
@@ -252,7 +280,7 @@ class AudioCapturer:
             return True
 
         except Exception as e:
-            logger.warning(f"系统声音捕获初始化失败: {e}")
+            logger.warning(f"系统声音捕获初始化失败: {e}", exc_info=True)
             self._cleanup_system()
             return False
 
@@ -288,14 +316,20 @@ class AudioCapturer:
             return True
 
         except Exception as e:
-            logger.warning(f"麦克风捕获初始化失败: {e}")
+            logger.warning(f"麦克风捕获初始化失败: {e}", exc_info=True)
             self._cleanup_mic()
             return False
 
     def _capture_loop(self):
-        """音频捕获线程主循环"""
+        """音频捕获线程主循环
+
+        从音频流读取 PCM 数据并写入 WAV 文件。
+        读取错误时记录日志并跳出循环，不崩溃。
+        """
         logger.info("音频捕获线程启动")
         chunk_size = 1024
+        read_errors = 0
+        max_errors = 10
 
         try:
             while self._is_recording.is_set():
@@ -306,9 +340,16 @@ class AudioCapturer:
                             chunk_size, exception_on_overflow=False
                         )
                         self._system_wav.writeframes(data)
-                    except Exception as e:
-                        logger.error(f"系统声音读取异常: {e}")
+                    except OSError as e:
+                        # 流已关闭，退出循环
+                        logger.debug(f"系统声音流已关闭: {e}")
                         break
+                    except Exception as e:
+                        read_errors += 1
+                        if read_errors >= max_errors:
+                            logger.error(f"系统声音连续读取错误过多，停止音频捕获")
+                            break
+                        logger.warning(f"系统声音读取异常 ({read_errors}/{max_errors}): {e}")
 
                 # 麦克风
                 if self._mic_stream and self._mic_wav:
@@ -317,9 +358,15 @@ class AudioCapturer:
                             chunk_size, exception_on_overflow=False
                         )
                         self._mic_wav.writeframes(data)
-                    except Exception as e:
-                        logger.error(f"麦克风读取异常: {e}")
+                    except OSError as e:
+                        logger.debug(f"麦克风流已关闭: {e}")
                         break
+                    except Exception as e:
+                        read_errors += 1
+                        if read_errors >= max_errors:
+                            logger.error(f"麦克风连续读取错误过多，停止音频捕获")
+                            break
+                        logger.warning(f"麦克风读取异常 ({read_errors}/{max_errors}): {e}")
 
         except Exception as e:
             logger.error(f"音频捕获线程异常: {e}")
@@ -334,12 +381,6 @@ class AudioCapturer:
             except Exception:
                 pass
             self._system_wav = None
-        if self._pa_wp:
-            try:
-                self._pa_wp.terminate()
-            except Exception:
-                pass
-            self._pa_wp = None
         if self._system_stream:
             try:
                 self._system_stream.stop_stream()
@@ -347,7 +388,12 @@ class AudioCapturer:
             except Exception:
                 pass
             self._system_stream = None
-        # 删除未完成的临时文件
+        if self._pa_wp:
+            try:
+                self._pa_wp.terminate()
+            except Exception:
+                pass
+            self._pa_wp = None
         if self._system_temp_path and os.path.exists(self._system_temp_path):
             try:
                 os.remove(self._system_temp_path)
@@ -363,12 +409,6 @@ class AudioCapturer:
             except Exception:
                 pass
             self._mic_wav = None
-        if self._pa_mic:
-            try:
-                self._pa_mic.terminate()
-            except Exception:
-                pass
-            self._pa_mic = None
         if self._mic_stream:
             try:
                 self._mic_stream.stop_stream()
@@ -376,6 +416,12 @@ class AudioCapturer:
             except Exception:
                 pass
             self._mic_stream = None
+        if self._pa_mic:
+            try:
+                self._pa_mic.terminate()
+            except Exception:
+                pass
+            self._pa_mic = None
         if self._mic_temp_path and os.path.exists(self._mic_temp_path):
             try:
                 os.remove(self._mic_temp_path)

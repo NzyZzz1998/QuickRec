@@ -29,3 +29,7 @@ _test_*.png
 
 # FFmpeg binary
 ffmpeg/
+
+# Temporary test files
+*.wav
+test_wasapi*.py
