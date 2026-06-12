@@ -34,6 +34,8 @@ a = Analysis(
         'hotkey',
         'hotkey.hotkey_manager',
         'winotify',
+        'soundcard',
+        'soundcard.mediafoundation',
     ],
     hookspath=[],
     hooksconfig={},

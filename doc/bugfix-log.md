@@ -388,3 +388,13 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 3. `stop()` 改变资源释放顺序：先 `_is_recording.clear()` + 等待线程结束 → 关闭 WAV 文件（确保数据刷盘） → 关闭音频流 → 终止 PyAudio。WAV 在流之前关闭，避免线程写入已关闭流的数据
 
 4. `_capture_loop()` 增加错误处理：捕获 `OSError`（流已关闭）时直接跳出循环；连续读取错误超过阈值时停止捕获；不再因单次错误崩溃
+
+**后续发现**: 上述修复后，`pyaudiowpatch` 的 WASAPI loopback `stream.read()` 仍然无限阻塞（进程直接挂起，无异常）。`get_default_wasapi_loopback()` 发现设备正常，`pa.open()` 打开流正常，但 `read()` 调用后永不返回。最终**将 pyaudiowpatch 替换为 soundcard 库**。
+
+**最终修复** (`src/recorder/audio_capturer.py`):
+- 系统声音捕获从 pyaudiowpatch 迁移到 soundcard（WASAPI loopback via MediaFoundation）
+- `soundcard` 的 `rec.record(numframes=N)` 非阻塞、准确返回 N 帧 float32 numpy 数组
+- 支持手动管理 recorder 生命周期（`__enter__`/`__exit__`），适配长时录制线程
+- 麦克风仍使用 pyaudio（代码不变）
+- 更新 `requirements.txt` 添加 soundcard，`build_std.spec` 添加 hiddenimports
+- 测试验证：系统声音 3 秒录制 → WAV 3.0s；BOTH 模式 3 秒 → 双文件各 3.0s
