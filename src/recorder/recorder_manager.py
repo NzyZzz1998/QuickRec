@@ -268,8 +268,8 @@ class RecorderManager:
             if os.path.isfile(local_ffmpeg):
                 return local_ffmpeg
 
-        # 2. 开发环境：项目目录
-        dev_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # 2. 开发环境：项目根目录（src/recorder/ → src/ → 项目根）
+        dev_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         local_ffmpeg = os.path.join(dev_dir, "ffmpeg", "ffmpeg.exe")
         if os.path.isfile(local_ffmpeg):
             return local_ffmpeg
