@@ -8,7 +8,7 @@
 
 import logging
 
-from PyQt5.QtCore import QPropertyAnimation, QRectF, Qt, pyqtProperty, pyqtSignal
+from PyQt5.QtCore import QPropertyAnimation, QObject, QRectF, Qt, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.QtWidgets import QWidget
 from pynput import mouse
