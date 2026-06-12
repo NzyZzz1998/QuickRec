@@ -22,6 +22,8 @@ import ctypes
 import cv2
 import numpy as np
 
+from PyQt5.QtCore import QObject, pyqtSignal
+
 from config import ConfigManager
 from recorder.screen_capturer import ScreenCapturer
 from recorder.video_encoder import VideoEncoder
@@ -55,6 +57,12 @@ class RecordMode(Enum):
     """录制模式枚举"""
     FULLSCREEN = "fullscreen"
     REGION = "region"
+    WINDOW = "window"  # v1.2 新增
+
+
+class _WindowLostBridge(QObject):
+    """窗口丢失信号桥（录制线程 → Qt 主线程）"""
+    window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
 class RecorderManager:
@@ -93,6 +101,11 @@ class RecorderManager:
         self._ffmpeg_path: str = ""
         self._audio_temp_paths: list = []
 
+        # v1.2: 窗口录制相关字段
+        self._window_hwnd: int = None
+        self._window_title: str = ""
+        self._window_lost_bridge = _WindowLostBridge()
+
         # 编码完成回调
         self._on_saved = on_saved
 
@@ -109,6 +122,35 @@ class RecorderManager:
         """
         self._mode = RecordMode.REGION
         return self._start(region=region)
+
+    def start_window(self, hwnd: int) -> bool:
+        """开始窗口录制（v1.2 新增）
+
+        Args:
+            hwnd: 目标窗口句柄
+
+        Returns:
+            True 如果成功开始录制
+        """
+        # 验证窗口有效性
+        if not ctypes.windll.user32.IsWindow(hwnd):
+            logger.error(f"无效窗口句柄: {hwnd}")
+            return False
+
+        # 获取窗口标题
+        self._window_title = self._get_window_title(hwnd)
+        self._mode = RecordMode.WINDOW
+        self._window_hwnd = hwnd
+
+        # 获取初始窗口区域
+        rect = self._get_window_rect(hwnd)
+        if rect is None:
+            logger.error(f"无法获取窗口位置: hwnd={hwnd}")
+            return False
+
+        region = (rect.left, rect.top, rect.width(), rect.height())
+        logger.info(f"窗口录制: hwnd={hwnd}, title={self._window_title}, region={region}")
+        return self._start(region=region, hwnd=hwnd)
 
     def pause(self) -> bool:
         """暂停录制"""
@@ -324,11 +366,17 @@ class RecorderManager:
 
         return target
 
-    def _start(self, region=None) -> bool:
+    def _start(self, region=None, hwnd=None) -> bool:
         """内部启动录制"""
         with self._lock:
             if self._state != RecorderState.IDLE:
                 return False
+
+            # v1.2: 窗口模式设置
+            if hwnd:
+                self._window_hwnd = hwnd
+                if self._mode != RecordMode.WINDOW:
+                    self._mode = RecordMode.WINDOW
 
             # 检查磁盘空间
             save_path = self._config.get("save_path")
@@ -439,6 +487,23 @@ class RecorderManager:
             if was_paused:
                 rec_start = time.time() - frames_written * frame_interval
                 was_paused = False
+
+            # v1.2: 窗口模式下每帧更新捕获区域
+            if self._mode == RecordMode.WINDOW and self._window_hwnd:
+                rect = self._get_window_rect(self._window_hwnd)
+                if rect is None:
+                    # 窗口已关闭
+                    logger.info(f"录制窗口已关闭 (hwnd={self._window_hwnd})")
+                    self._window_lost_bridge.window_lost.emit("closed")
+                    break
+                if rect.width() < 10 or rect.height() < 10:
+                    # 窗口已最小化
+                    logger.info(f"录制窗口已最小化 (hwnd={self._window_hwnd})")
+                    self._window_lost_bridge.window_lost.emit("minimized")
+                    break
+                self._capturer.update_region(
+                    (rect.left, rect.top, rect.width(), rect.height())
+                )
 
             # 计算应该写到第几帧
             target_frame = int((time.time() - rec_start) / frame_interval)
@@ -658,3 +723,39 @@ class RecorderManager:
             except OSError:
                 pass
         self._temp_file = ""
+
+    @staticmethod
+    def _get_window_rect(hwnd: int):
+        """获取窗口位置和尺寸
+
+        Args:
+            hwnd: 窗口句柄
+
+        Returns:
+            QRect 或 None（窗口无效时）
+        """
+        if not ctypes.windll.user32.IsWindow(hwnd):
+            return None
+        rect = ctypes.wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        from PyQt5.QtCore import QRect
+        width = rect.right - rect.left
+        height = rect.bottom - rect.top
+        return QRect(rect.left, rect.top, width, height)
+
+    @staticmethod
+    def _get_window_title(hwnd: int) -> str:
+        """获取窗口标题
+
+        Args:
+            hwnd: 窗口句柄
+
+        Returns:
+            窗口标题字符串
+        """
+        title_length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        if title_length == 0:
+            return ""
+        title = ctypes.create_unicode_buffer(title_length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, title, title_length + 1)
+        return title.value

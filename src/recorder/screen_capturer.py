@@ -58,6 +58,26 @@ class ScreenCapturer:
             frame = self._camera.get_latest_frame()
         return frame
 
+    def update_region(self, region: tuple):
+        """动态更新捕获区域（用于窗口录制跟踪窗口位置）
+
+        Args:
+            region: (left, top, width, height) 新的捕获区域
+        """
+        self._region = region
+        left, top, width, height = region
+        self._dxcam_region = (left, top, left + width, top + height)
+        if self._camera and self._started:
+            # dxcam 不支持运行时更新 region，需要重启
+            try:
+                self._camera.stop()
+                self._camera.release()
+                import dxcam
+                self._camera = dxcam.create(output_idx=0, output_color="BGR")
+                self._camera.start(target_fps=60, region=self._dxcam_region)
+            except Exception as e:
+                logger.error(f"更新捕获区域失败: {e}")
+
     def get_monitor_size(self) -> tuple:
         """
         获取当前捕获区域的尺寸
