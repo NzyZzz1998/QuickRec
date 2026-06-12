@@ -10,24 +10,24 @@
 ## 子任务
 
 ### 1. Win11 点击穿透修复
-- [ ] 移除 `Qt.Tool` 窗口标志（这是点击穿透的根因）
-- [ ] 保留 `Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint`
-- [ ] 添加 `Qt.StrongFocus` 焦点策略
-- [ ] `show_fullscreen()` 中确保 `raise_()` → `activateWindow()` → `setFocus()` 调用顺序
+- [x] 移除 `Qt.Tool` 窗口标志（这是点击穿透的根因）
+- [x] 保留 `Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint`
+- [x] 添加 `Qt.StrongFocus` 焦点策略
+- [x] `show_fullscreen()` 中确保 `raise_()` → `activateWindow()` → `setFocus()` 调用顺序
 
 ### 2. 确认对话框
-- [ ] 拖拽完成后（mouseReleaseEvent）判断选区尺寸
-- [ ] 选区 >= MIN_SIZE：在选区中心显示确认浮动按钮（"开始录制" / "取消"）
-- [ ] "开始录制" → emit `region_selected(x, y, w, h)` → close
-- [ ] "取消" → emit `cancelled` → close
+- [x] 拖拽完成后（mouseReleaseEvent）判断选区尺寸
+- [x] 选区 >= MIN_SIZE：在选区中心显示确认浮动按钮（"开始录制" / "取消"）
+- [x] "开始录制" → emit `region_selected(x, y, w, h)` → close
+- [x] "取消" → emit `cancelled` → close
 
 ### 3. 最小尺寸提示
-- [ ] 选区 < MIN_SIZE 时：在释放位置显示红色提示 "选区太小 (最小 100x100)"
-- [ ] 红色提示 1 秒后自动消失
-- [ ] emit `cancelled` → close
+- [x] 选区 < MIN_SIZE 时：在释放位置显示红色提示 "选区太小 (最小 100x100)"
+- [x] 红色提示 1 秒后自动消失
+- [x] emit `cancelled` → close
 
 ### 4. 边框视觉优化
-- [ ] 选区边框从蓝色实线改为白色虚线
+- [x] 选区边框从蓝色实线改为白色虚线
 - [ ] 半透明遮罩 alpha 值调优确保选中区域清晰可见
 
 ### 5. 与 main.py 集成

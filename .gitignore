@@ -26,3 +26,6 @@ dist/
 Thumbs.db
 _dxcam_test.mp4
 _test_*.png
+
+# FFmpeg binary
+ffmpeg/

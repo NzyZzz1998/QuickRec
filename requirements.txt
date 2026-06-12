@@ -11,3 +11,6 @@ PyQt5-Qt5==5.15.2
 PyQt5_sip==12.18.0
 pystray==0.19.5
 six==1.17.0
+pyaudiowpatch>=0.2
+pyaudio>=0.2.14
+winotify>=1.1

@@ -202,22 +202,22 @@ setup (最先)
 
 ### v1.1 模块进度
 
-- [ ] [区域录制模块 (area_selector.py)](../tasks/task-v1.1-area_selector.md)
-  - [ ] Win11 点击穿透修复（移除 Qt.Tool，添加 StrongFocus）
-  - [ ] 确认对话框（开始录制 / 取消）
-  - [ ] 最小尺寸提示（红色提示 < 100x100）
-  - [ ] 边框视觉优化（白色虚线）
+- [x] [区域录制模块 (area_selector.py)](../tasks/task-v1.1-area_selector.md)
+  - [x] Win11 点击穿透修复（移除 Qt.Tool，添加 StrongFocus）
+  - [x] 确认对话框（开始录制 / 取消）
+  - [x] 最小尺寸提示（红色提示 < 100x100）
+  - [x] 边框视觉优化（白色虚线）
   - [ ] 与 main.py 集成（_AreaBridge 信号桥）
 
-- [ ] [音频录制模块 (audio_capturer.py)](../tasks/task-v1.1-audio_capturer.md) — 新增文件
-  - [ ] AudioSource 枚举和 AudioCapturer 类框架
-  - [ ] WASAPI 系统声音捕获（pyaudiowpatch）
-  - [ ] 麦克风捕获（pyaudio）
-  - [ ] 音频捕获线程和 WAV 写入
-  - [ ] BOTH 模式双路独立录制
-  - [ ] 优雅降级（设备不可用时无声录制）
+- [x] [音频录制模块 (audio_capturer.py)](../tasks/task-v1.1-audio_capturer.md) — 新增文件
+  - [x] AudioSource 枚举和 AudioCapturer 类框架
+  - [x] WASAPI 系统声音捕获（pyaudiowpatch）
+  - [x] 麦克风捕获（pyaudio）
+  - [x] 音频捕获线程和 WAV 写入
+  - [x] BOTH 模式双路独立录制
+  - [x] 优雅降级（设备不可用时无声录制）
 
-- [ ] [录制控制模块 (recorder_manager.py)](../tasks/task-v1.1-recorder_manager.md) — 更新
+- [x] [录制控制模块 (recorder_manager.py)](../tasks/task-v1.1-recorder_manager.md) — 更新
   - [ ] RecordMode 枚举（FULLSCREEN / REGION）
   - [ ] 音频初始化（_start 方法扩展）
   - [ ] 音频停止（_stop_and_encode 方法扩展）
@@ -225,29 +225,29 @@ setup (最先)
   - [ ] FFmpeg 集成（_get_ffmpeg_path + _mix_audio_video）
   - [ ] 配置扩展（audio_source 默认值）
 
-- [ ] [系统托盘模块 (tray_icon.py)](../tasks/task-v1.1-tray_icon.md) — 更新
+- [x] [系统托盘模块 (tray_icon.py)](../tasks/task-v1.1-tray_icon.md) — 更新
   - [ ] _SignalBridge 新增信号（start_region / pause_resume / stop）
   - [ ] 动态菜单切换（空闲 / 录制中 / 暂停）
   - [ ] Toast 通知增强（winotify 降级链）
   - [ ] 托盘菜单回调扩展
 
-- [ ] [录制工具栏模块 (toolbar.py)](../tasks/task-v1.1-toolbar.md) — 更新
+- [x] [录制工具栏模块 (toolbar.py)](../tasks/task-v1.1-toolbar.md) — 更新
   - [ ] 结果条模式（✓ 时长 | 已保存 | 📂 打开 | ✕ 关闭）
   - [ ] 5 秒自动关闭定时器
   - [ ] "已保存" 按钮打开视频文件
   - [ ] "📂 打开" 按钮打开文件夹并选中
 
-- [ ] [配置管理模块 (config.py)](../tasks/task-v1.1-config.md) — 更新
-  - [ ] 新增 audio_source 默认配置
-  - [ ] 新增 shortcut_area 默认配置
-  - [ ] 旧版配置向后兼容
+- [x] [配置管理模块 (config.py)](../tasks/task-v1.1-config.md) — 更新
+  - [x] 新增 audio_source 默认配置
+  - [x] 新增 shortcut_area 默认配置
+  - [x] 旧版配置向后兼容
 
-- [ ] [设置对话框模块 (settings_dialog.py)](../tasks/task-v1.1-settings_dialog.md) — 更新
+- [x] [设置对话框模块 (settings_dialog.py)](../tasks/task-v1.1-settings_dialog.md) — 更新
   - [ ] 音频源选择下拉框
   - [ ] 区域录制快捷键设置
   - [ ] 配置加载与保存扩展
 
-- [ ] [主程序入口 (main.py)](../tasks/task-v1.1-main.md) — 更新
+- [x] [主程序入口 (main.py)](../tasks/task-v1.1-main.md) — 更新
   - [ ] _AreaBridge 信号桥
   - [ ] _HotkeyBridge 扩展（area_requested）
   - [ ] 区域录制流程（_on_start_region / _on_region_selected）
@@ -265,13 +265,13 @@ setup (最先)
 
 | 阶段 | 内容 | 依赖 | 状态 |
 |-----|------|------|------|
-| 1 | config.py 新增配置项 | 无 | ❌ |
-| 2 | area_selector.py Win11 修复 + 确认对话框 | config | ❌ |
-| 3 | audio_capturer.py 音频捕获 | config | ❌ |
-| 4 | recorder_manager.py 录制模式 + 音频集成 | audio_capturer | ❌ |
-| 5 | tray_icon.py 动态菜单 + Toast 通知 | config | ❌ |
-| 6 | toolbar.py 结果条模式 | config | ❌ |
-| 7 | settings_dialog.py 设置扩展 | config | ❌ |
-| 8 | main.py 信号桥 + 流程集成 | 所有模块 | ❌ |
+| 1 | config.py 新增配置项 | 无 | ✅ |
+| 2 | area_selector.py Win11 修复 + 确认对话框 | config | ✅ |
+| 3 | audio_capturer.py 音频捕获 | config | ✅ |
+| 4 | recorder_manager.py 录制模式 + 音频集成 | audio_capturer | ✅ |
+| 5 | tray_icon.py 动态菜单 + Toast 通知 | config | ✅ |
+| 6 | toolbar.py 结果条模式 | config | ✅ |
+| 7 | settings_dialog.py 设置扩展 | config | ✅ |
+| 8 | main.py 信号桥 + 流程集成 | 所有模块 | ✅ |
 | 9 | FFmpeg 打包配置 | recorder_manager | ❌ |
 | 10 | 集成测试 + 打包验证 | 全部 | ❌ |
