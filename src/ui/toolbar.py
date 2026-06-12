@@ -280,11 +280,11 @@ class RecordingToolbar(QWidget):
     def _on_close_result(self):
         """结果条：关闭"""
         self._auto_close_timer.stop()
-        self.cancelled.emit()
+        self.close()
 
     def _on_auto_close(self):
         """5秒后自动关闭"""
-        self.cancelled.emit()
+        self.close()
 
     # 拖拽支持
     def mousePressEvent(self, event):

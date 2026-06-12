@@ -148,6 +148,7 @@ class QuickRecApp:
     def _on_region_selected(self, x, y, w, h):
         """区域选择完成：开始录制"""
         self._area_selector = None  # 清理引用
+        logger.info(f"区域录制: x={x}, y={y}, w={w}, h={h}")
         if not self._recorder.start_region(region=(x, y, w, h)):
             logger.error("区域录制启动失败")
             return

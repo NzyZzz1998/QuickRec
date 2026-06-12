@@ -5,6 +5,10 @@
 dxcam 的创建和销毁都在调用线程中执行，避免跨线程问题。
 """
 
+import logging
+
+logger = logging.getLogger("QuickRec")
+
 
 class ScreenCapturer:
     """屏幕捕获器（基于 dxcam）"""
@@ -32,6 +36,8 @@ class ScreenCapturer:
         """启动捕获（延迟初始化，应在录制线程中调用）"""
         import dxcam
         self._camera = dxcam.create(output_idx=0, output_color="BGR")
+        if self._dxcam_region:
+            logger.info(f"ScreenCapturer region: {self._dxcam_region}")
         self._camera.start(target_fps=60, region=self._dxcam_region)
         self._started = True
 
