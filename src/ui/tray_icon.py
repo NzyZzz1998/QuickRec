@@ -5,10 +5,13 @@
 
 关键设计：pystray 的运行循环在独立线程，回调也在该线程执行。
 不能直接在 pystray 回调中操作 Qt 组件，必须通过信号转发到 Qt 主线程。
+
+v1.1 新增：动态菜单切换 + Toast 通知增强。
 """
 
 import os
-import webbrowser
+import subprocess
+import logging
 
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 from PyQt5.QtWidgets import QApplication
@@ -16,92 +19,156 @@ from PyQt5.QtWidgets import QApplication
 import pystray
 from PIL import Image, ImageDraw
 
+logger = logging.getLogger("QuickRec")
+
 
 class _SignalBridge(QObject):
     """将 pystray 线程的回调转发到 Qt 主线程"""
 
-    start_requested = pyqtSignal()
+    start_fullscreen_requested = pyqtSignal()
+    start_region_requested = pyqtSignal()
+    pause_resume_requested = pyqtSignal()
+    stop_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     exit_requested = pyqtSignal()
 
 
 class TrayIcon:
-    """系统托盘图标"""
+    """系统托盘图标
+
+    v1.1 新增：
+    - 动态菜单切换（空闲/录制中/暂停）
+    - Toast 通知增强（winotify 降级链）
+    - 录制状态管理
+    """
 
     def __init__(self, config=None, callbacks=None):
         """
-        初始化托盘图标
-
         Args:
             config: ConfigManager 实例
-            callbacks: 回调函数映射 {"start": func, "settings": func, "exit": func}
+            callbacks: 回调函数映射
+                "start_fullscreen": func,  — 全屏录制
+                "start_region": func,      — 区域录制（v1.1 新增）
+                "pause_resume": func,      — 暂停/继续（v1.1 新增）
+                "stop": func,              — 停止录制（v1.1 新增）
+                "settings": func,
+                "exit": func,
         """
         self._config = config
         self._callbacks = callbacks or {}
         self._icon = None
 
+        # v1.1: 录制状态标志
+        self._is_recording = False
+        self._is_paused = False
+
         # 信号桥：将 pystray 线程回调转发到 Qt 主线程
         self._bridge = _SignalBridge()
-        self._bridge.start_requested.connect(self._handle_start)
+        self._bridge.start_fullscreen_requested.connect(self._handle_start_fullscreen)
+        self._bridge.start_region_requested.connect(self._handle_start_region)
+        self._bridge.pause_resume_requested.connect(self._handle_pause_resume)
+        self._bridge.stop_requested.connect(self._handle_stop)
         self._bridge.settings_requested.connect(self._handle_settings)
         self._bridge.exit_requested.connect(self._handle_exit)
-
-        self._menu_items = self._build_menu()
 
     def _create_icon_image(self):
         """创建默认托盘图标"""
         size = 64
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         dc = ImageDraw.Draw(img)
-
-        # 绘制一个简单的圆形录制图标
         dc.ellipse([8, 8, 56, 56], fill="#e74c3c", outline="#c0392b", width=2)
-        # 内圆
         dc.ellipse([20, 20, 44, 44], fill="#c0392b")
-
         return img
 
-    def _build_menu(self):
-        """构建托盘菜单"""
+    def _build_idle_menu(self):
+        """构建空闲状态菜单"""
         return pystray.Menu(
-            pystray.MenuItem("▶ 开始录制", self._on_start),
+            pystray.MenuItem("▶ 全屏录制", self._on_start_fullscreen),
+            pystray.MenuItem("▢ 区域录制", self._on_start_region),
             pystray.MenuItem("⚙ 设置", self._on_settings),
             pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
-            pystray.MenuItem("---", None, visible=False),  # 占位
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("✕ 退出", self._on_exit),
         )
 
+    def _build_recording_menu(self):
+        """构建录制中菜单"""
+        # 暂停/继续按钮：根据暂停状态切换文字
+        pause_text = "▶ 继续录制" if self._is_paused else "⏸ 暂停录制"
+        return pystray.Menu(
+            pystray.MenuItem(pause_text, self._on_pause_resume),
+            pystray.MenuItem("⏹ 停止录制", self._on_stop),
+            pystray.MenuItem("⚙ 设置", self._on_settings),
+            pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("✕ 退出", self._on_exit),
+        )
+
+    def set_recording_state(self, recording: bool, paused: bool = False):
+        """切换菜单状态：空闲菜单 ↔ 录制中菜单
+
+        Args:
+            recording: 是否正在录制
+            paused: 是否暂停
+        """
+        self._is_recording = recording
+        self._is_paused = paused
+        self._rebuild_menu()
+
+    def _rebuild_menu(self):
+        """重建并更新菜单"""
+        if self._icon:
+            if self._is_recording:
+                self._icon.menu = self._build_recording_menu()
+            else:
+                self._icon.menu = self._build_idle_menu()
+            self._icon.update_menu()
+
     # --- pystray 线程回调（只发信号，不操作 Qt） ---
 
-    def _on_start(self, icon, item):
-        """开始录制回调（pystray 线程）"""
-        self._bridge.start_requested.emit()
+    def _on_start_fullscreen(self, icon, item):
+        self._bridge.start_fullscreen_requested.emit()
+
+    def _on_start_region(self, icon, item):
+        self._bridge.start_region_requested.emit()
+
+    def _on_pause_resume(self, icon, item):
+        self._bridge.pause_resume_requested.emit()
+
+    def _on_stop(self, icon, item):
+        self._bridge.stop_requested.emit()
 
     def _on_settings(self, icon, item):
-        """设置回调（pystray 线程）"""
         self._bridge.settings_requested.emit()
 
     def _on_exit(self, icon, item):
-        """退出回调（pystray 线程）"""
         self._bridge.exit_requested.emit()
 
     # --- Qt 主线程处理 ---
 
-    def _handle_start(self):
-        """Qt 主线程：开始录制"""
-        if "start" in self._callbacks:
-            self._callbacks["start"]()
+    def _handle_start_fullscreen(self):
+        if "start_fullscreen" in self._callbacks:
+            self._callbacks["start_fullscreen"]()
+
+    def _handle_start_region(self):
+        if "start_region" in self._callbacks:
+            self._callbacks["start_region"]()
+
+    def _handle_pause_resume(self):
+        if "pause_resume" in self._callbacks:
+            self._callbacks["pause_resume"]()
+
+    def _handle_stop(self):
+        if "stop" in self._callbacks:
+            self._callbacks["stop"]()
 
     def _handle_settings(self):
-        """Qt 主线程：打开设置"""
         if "settings" in self._callbacks:
             self._callbacks["settings"]()
 
     def _handle_exit(self):
-        """Qt 主线程：退出程序"""
         if "exit" in self._callbacks:
             self._callbacks["exit"]()
-        # 延迟停止图标，避免在 pystray 回调中直接调用 stop() 导致死锁
         QTimer.singleShot(0, self._stop_icon)
         QApplication.quit()
 
@@ -118,7 +185,7 @@ class TrayIcon:
         if self._config:
             path = self._config.get("save_path", "")
             if path and os.path.exists(path):
-                webbrowser.open(path)
+                subprocess.run(["explorer.exe", path])
 
     def show(self):
         """显示托盘图标"""
@@ -127,7 +194,7 @@ class TrayIcon:
                 name="QuickRec",
                 icon=self._create_icon_image(),
                 title="QuickRec - 录屏工具",
-                menu=self._menu_items,
+                menu=self._build_idle_menu(),
             )
             self._icon.run_detached()
 
@@ -141,6 +208,32 @@ class TrayIcon:
         if self._icon:
             self._icon.notify(msg, title)
 
-    def set_menu(self, menu_items):
-        """设置托盘菜单（暂不实现动态菜单）"""
-        pass
+    def show_notification_with_action(self, title: str, msg: str,
+                                       action_label: str = "打开文件夹",
+                                       output_path: str = ""):
+        """显示带操作按钮的 Toast 通知
+
+        降级链：winotify → pystray.notify()
+        """
+        # 优先使用 winotify（Windows 10/11 Toast 通知）
+        try:
+            from winotify import Notification
+            toast = Notification(
+                app_id="QuickRec",
+                title=title,
+                body=msg,
+            )
+            if output_path:
+                # 添加"打开文件夹并选中文件"按钮
+                toast.add_actions([
+                    action_label,
+                    f"explorer.exe /select,{output_path}"
+                ])
+            toast.show()
+            logger.info(f"winotify 通知已发送: {title}")
+            return
+        except Exception as e:
+            logger.debug(f"winotify 不可用，降级为 pystray 通知: {e}")
+
+        # 降级：pystray 纯文本通知
+        self.show_notification(msg, title)

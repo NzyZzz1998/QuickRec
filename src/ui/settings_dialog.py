@@ -20,6 +20,9 @@ _QUALITY_OPTIONS = [
     ("低 (480p)", "low"),
 ]
 
+# 音频源选项：显示文本 → 配置值
+_AUDIO_OPTIONS = ConfigManager.AUDIO_OPTIONS
+
 
 class _ShortcutRecorder(QLabel):
     """可点击录制快捷键的标签控件"""
@@ -160,6 +163,12 @@ class SettingsDialog(QDialog):
         self._combo_fps.setCurrentText("30")
         form.addRow("帧率:", self._combo_fps)
 
+        # 音频源选择（v1.1 新增）
+        self._combo_audio_source = QComboBox()
+        for display_text, value in _AUDIO_OPTIONS:
+            self._combo_audio_source.addItem(display_text, value)
+        form.addRow("音频源:", self._combo_audio_source)
+
         # 快捷键（可点击录制）
         self._shortcut_start = _ShortcutRecorder("Ctrl+Shift+R")
         self._shortcut_start.shortcut_changed.connect(
@@ -178,6 +187,13 @@ class SettingsDialog(QDialog):
             lambda s: self._shortcut_pause.setText(s)
         )
         form.addRow("暂停快捷键:", self._shortcut_pause)
+
+        # 区域录制快捷键（v1.1 新增）
+        self._shortcut_area = _ShortcutRecorder("Ctrl+Shift+A")
+        self._shortcut_area.shortcut_changed.connect(
+            lambda s: self._shortcut_area.setText(s)
+        )
+        form.addRow("区域录制:", self._shortcut_area)
 
         layout.addLayout(form)
 
@@ -220,6 +236,16 @@ class SettingsDialog(QDialog):
         self._shortcut_pause.setText(
             str(self._config.get("shortcut_pause", "Ctrl+Shift+P"))
         )
+        self._shortcut_area.setText(
+            str(self._config.get("shortcut_area", "Ctrl+Shift+A"))
+        )
+
+        # 音频源加载
+        audio_source = self._config.get("audio_source", "none")
+        for i, (display_text, value) in enumerate(_AUDIO_OPTIONS):
+            if value == audio_source:
+                self._combo_audio_source.setCurrentIndex(i)
+                break
 
     def _save_config(self):
         """从控件读取值，写入 ConfigManager"""
@@ -229,6 +255,8 @@ class SettingsDialog(QDialog):
         self._config.set("shortcut_start", self._shortcut_start.text())
         self._config.set("shortcut_stop", self._shortcut_stop.text())
         self._config.set("shortcut_pause", self._shortcut_pause.text())
+        self._config.set("shortcut_area", self._shortcut_area.text())
+        self._config.set("audio_source", self._combo_audio_source.currentData())
         self._config.save()
         self.config_saved.emit()
         self.accept()
