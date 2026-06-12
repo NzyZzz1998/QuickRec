@@ -4,7 +4,9 @@ a = Analysis(
     ['src/main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[],
+    datas=[
+        ('ffmpeg/ffmpeg.exe', 'ffmpeg'),
+    ],
     hiddenimports=[
         'dxcam',
         'comtypes',
@@ -36,6 +38,7 @@ a = Analysis(
         'winotify',
         'soundcard',
         'soundcard.mediafoundation',
+        'pyaudio',
     ],
     hookspath=[],
     hooksconfig={},

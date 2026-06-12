@@ -275,4 +275,4 @@ setup (最先)
 | 7 | settings_dialog.py 设置扩展 | config | ✅ |
 | 8 | main.py 信号桥 + 流程集成 | 所有模块 | ✅ |
 | 9 | FFmpeg 打包配置 | recorder_manager | ✅ |
-| 10 | 集成测试 + 打包验证 | 全部 | ❌ |
+| 10 | 集成测试 + 打包验证 | 全部 | 🔄 打包成功（exe 启动冒烟通过，FFmpeg 内置），打包后功能测试 T10.3-T10.7 待验证 |

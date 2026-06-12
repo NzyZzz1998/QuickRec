@@ -1,7 +1,7 @@
 # QuickRec Bug 修复日志
 
 > 创建时间: 2026-06-11
-> 最后更新: 2026-06-11
+> 最后更新: 2026-06-12
 
 ## Bug 列表与修复
 
@@ -398,3 +398,65 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 - 麦克风仍使用 pyaudio（代码不变）
 - 更新 `requirements.txt` 添加 soundcard，`build_std.spec` 添加 hiddenimports
 - 测试验证：系统声音 3 秒录制 → WAV 3.0s；BOTH 模式 3 秒 → 双文件各 3.0s
+
+---
+
+### Bug #25: 结果条"📂 打开"未选中文件 [中等]
+
+**症状**: T5.4 — 点击结果条"📂 打开"按钮，文件管理器打开了正确的目录，但没有选中（高亮）刚录制的视频文件。
+
+**根因**: `main.py` 的 `_on_open_folder()` 使用 `os.startfile(os.path.dirname(path))`，只能打开目录，无法定位到具体文件。tray_icon.py 的 Toast 通知里已用 `explorer.exe /select,` 正确实现，但结果条按钮回调未复用。
+
+**修复** (`src/main.py`):
+- `_on_open_folder()` 改用 `subprocess.run(["explorer.exe", f"/select,{path}"])` 打开文件夹并选中文件
+- 先 `os.path.normpath()` 规范化路径（explorer 需要 Windows 反斜杠）
+- 文件不存在时降级为 `os.startfile(dirname)` 仅打开目录
+- 补充 `import subprocess`
+
+---
+
+### Bug #26: 结果条点击按钮后不再自动关闭 [中等]
+
+**症状**: T5.6 — 结果条本应在录制停止后 5 秒自动关闭。但只要点过任意按钮（如"已保存"/"📂 打开"），自动关闭定时器被永久停掉，结果条会一直停留，需手动关闭。
+
+**根因**: `toolbar.py` 的 `_on_open_file()` / `_on_open_folder()` 在触发动作前调用 `self._auto_close_timer.stop()`，意图是"用户在操作时不要关闭"，但只 stop 不重启，导致定时器再也不触发。
+
+**修复** (`src/ui/toolbar.py`):
+- 语义改为"无操作 5 秒后关闭"：任何交互都**重置** 5 秒倒计时，而非停掉
+- 新增 `_restart_auto_close()`：result 模式下 `_auto_close_timer.start(5000)`
+- `_on_open_file` / `_on_open_folder` 末尾调用 `_restart_auto_close()` 而非 `stop()`
+- `mousePressEvent`（拖拽）在 result 模式下也重置倒计时
+- "✕ 关闭"按钮仍直接 `close()`，行为不变
+
+---
+
+### Bug #27: Toast 通知"打开文件夹"按钮缺失/无效，且 winotify 始终降级 [中等]
+
+**症状**: T6.3/T6.4 — Toast 通知里应有"打开文件夹"按钮，但按钮从未出现，点击也无反应。实际看到的通知样式是 pystray 纯文本通知，并非 winotify Toast。
+
+**根因**: 三个问题叠加：
+1. **构造参数名错误**：`Notification(..., body=msg)`，但 winotify 1.1.0 的构造签名是 `Notification(app_id, title, msg='', ...)`，参数名是 `msg` 不是 `body`。`body=` 直接抛 `TypeError`，被 `except` 捕获后**每次都降级到 pystray**——所以 T6.1/T6.2 看到的"通知"其实是降级版，winotify 从未成功执行。
+2. **add_actions 传参错误**：`add_actions([label, launch])` 传了一个 list，但签名是 `add_actions(label: str, launch='')` 两个独立参数。即便构造成功，按钮文字也会变成 list 字符串、launch 为空。
+3. **launch 非合法 URI**：winotify 的 action 固定用 `activationType="protocol"`，launch 必须是 URI。`explorer.exe /select,path` 是命令行而非协议 URI，点击不会打开。
+
+**修复** (`src/ui/tray_icon.py`):
+- `body=msg` → `msg=msg`，winotify 路径才能真正执行
+- `add_actions(label=action_label, launch=launch_uri)` 正确传两个参数
+- launch 改用 `pathlib.Path(folder).as_uri()` 生成 `file:///` 目录 URI（自动处理空格/反斜杠），点击用资源管理器打开视频所在目录
+- 受协议激活限制，Toast 按钮只能"打开目录"无法"选中文件"（这正是 T6.4 预期）；选中文件的能力由结果条"📂 打开"按钮承担（见 [Bug #25]）
+- 验证：toast 正确生成 `<action activationType="protocol" content="打开文件夹" arguments="file:///..." />`
+
+---
+
+### Bug #28: 打包后找不到 FFmpeg（datas 落入 _internal 与查找路径不符）[严重]
+
+**症状**: 开发环境音频混合正常，但打包后 `_get_ffmpeg_path()` 返回空，系统声音/麦克风录制无法混合音频。
+
+**根因**: 两个配合问题：
+1. `build_std.spec` 的 `datas=[]` 为空，ffmpeg.exe 根本没打进包。
+2. 加入 `datas=[('ffmpeg/ffmpeg.exe', 'ffmpeg')]` 后，PyInstaller 6.x onedir 模式把数据文件放到 `dist/QuickRec/_internal/ffmpeg/ffmpeg.exe`，而 `_get_ffmpeg_path()` 只在 `sys.executable` 同级目录（`dist/QuickRec/ffmpeg/`）查找——路径不符，仍找不到。
+
+**修复**:
+- `build_std.spec`：`datas` 添加 `('ffmpeg/ffmpeg.exe', 'ffmpeg')`；hiddenimports 补 `pyaudio`（麦克风捕获，之前遗漏）
+- `recorder_manager.py` `_get_ffmpeg_path()`：frozen 分支优先用 `sys._MEIPASS`（onedir 下指向 `_internal`）拼接 `ffmpeg/ffmpeg.exe`，再 fallback 到 `sys.executable` 同级目录
+- 验证：重新打包后 `_internal/ffmpeg/ffmpeg.exe` 就位，exe 启动无崩溃

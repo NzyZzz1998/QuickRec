@@ -267,15 +267,20 @@ class RecordingToolbar(QWidget):
 
     def _on_open_file(self):
         """结果条：打开视频文件"""
-        self._auto_close_timer.stop()
         if self._output_path:
             self.open_file_requested.emit()
+        self._restart_auto_close()
 
     def _on_open_folder(self):
         """结果条：打开文件夹并选中文件"""
-        self._auto_close_timer.stop()
         if self._output_path:
             self.open_folder_requested.emit()
+        self._restart_auto_close()
+
+    def _restart_auto_close(self):
+        """重置自动关闭倒计时（结果条任何交互后调用）"""
+        if self._result_mode:
+            self._auto_close_timer.start(5000)
 
     def _on_close_result(self):
         """结果条：关闭"""
@@ -290,6 +295,7 @@ class RecordingToolbar(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            self._restart_auto_close()
 
     def mouseMoveEvent(self, event):
         if self._drag_pos and event.buttons() & Qt.LeftButton:

@@ -221,14 +221,19 @@ class TrayIcon:
             toast = Notification(
                 app_id="QuickRec",
                 title=title,
-                body=msg,
+                msg=msg,
             )
             if output_path:
-                # 添加"打开文件夹并选中文件"按钮
-                toast.add_actions([
-                    action_label,
-                    f"explorer.exe /select,{output_path}"
-                ])
+                # 添加"打开文件夹"按钮。
+                # winotify 的 action 使用 protocol 激活，launch 必须是 URI，
+                # 因此用 file:/// 目录 URI 打开视频所在文件夹（无法选中具体文件）。
+                folder = os.path.dirname(output_path)
+                try:
+                    from pathlib import Path
+                    launch_uri = Path(folder).as_uri()
+                except Exception:
+                    launch_uri = folder
+                toast.add_actions(label=action_label, launch=launch_uri)
             toast.show()
             logger.info(f"winotify 通知已发送: {title}")
             return

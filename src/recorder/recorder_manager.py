@@ -261,12 +261,18 @@ class RecorderManager:
         3. 系统 PATH 环境变量
         4. 返回空字符串（无音频混合能力）
         """
-        # 1. 打包后：sys.executable 所在目录
+        # 1. 打包后：优先 sys._MEIPASS（PyInstaller 资源目录，onedir 下为 _internal），
+        #    再 fallback 到 sys.executable 同级目录
         if getattr(sys, 'frozen', False):
+            candidates = []
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
+                candidates.append(os.path.join(meipass, "ffmpeg", "ffmpeg.exe"))
             app_dir = os.path.dirname(sys.executable)
-            local_ffmpeg = os.path.join(app_dir, "ffmpeg", "ffmpeg.exe")
-            if os.path.isfile(local_ffmpeg):
-                return local_ffmpeg
+            candidates.append(os.path.join(app_dir, "ffmpeg", "ffmpeg.exe"))
+            for local_ffmpeg in candidates:
+                if os.path.isfile(local_ffmpeg):
+                    return local_ffmpeg
 
         # 2. 开发环境：项目根目录（src/recorder/ → src/ → 项目根）
         dev_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

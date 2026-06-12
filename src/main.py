@@ -15,6 +15,7 @@ v1.1 新增：
 import os
 import sys
 import logging
+import subprocess
 
 from PyQt5.QtCore import QTimer, QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication
@@ -217,9 +218,12 @@ class QuickRecApp:
     def _on_open_folder(self):
         """结果条：打开文件夹并选中文件"""
         if self._toolbar and hasattr(self._toolbar, '_output_path') and self._toolbar._output_path:
-            path = self._toolbar._output_path
+            path = os.path.normpath(self._toolbar._output_path)
             try:
-                os.startfile(os.path.dirname(path))
+                if os.path.exists(path):
+                    subprocess.run(["explorer.exe", f"/select,{path}"])
+                else:
+                    os.startfile(os.path.dirname(path))
             except Exception:
                 pass
 
