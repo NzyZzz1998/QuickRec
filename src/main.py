@@ -196,13 +196,13 @@ class QuickRecApp:
         self._toolbar.open_folder_requested.connect(self._on_open_folder)
         self._toolbar.open_file_requested.connect(self._on_open_file)
 
-        self._toolbar.start_countdown()
+        self._toolbar.start_recording_timer()
         self._toolbar.show()
 
     def _hide_toolbar(self):
         """隐藏录制工具栏"""
         if self._toolbar:
-            self._toolbar.stop_countdown()
+            self._toolbar.stop_recording_timer()
             self._toolbar.close()
             self._toolbar = None
 
