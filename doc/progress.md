@@ -256,9 +256,11 @@ setup (最先)
   - [x] 工具栏信号连接（open_folder / open_file）
 
 - [x] [FFmpeg 打包配置](../tasks/task-v1.1-ffmpeg_setup.md)
+  - [x] FFmpeg 8.0.1 已就位（ffmpeg/ffmpeg.exe, 94MB）
   - [x] build_std.spec 更新（添加 audio_capturer, winotify hiddenimport）
-  - [x] requirements.txt 添加新依赖（pyaudiowpatch, pyaudio, winotify）
+  - [x] requirements.txt 添加新依赖（pyaudiowpatch, pyaudio, winotify）— 已安装
   - [x] .gitignore 添加 ffmpeg/ 目录
+  - [x] _get_ffmpeg_path() 实现（修复开发环境路径计算）
 
 ### v1.1 开发阶段
 
