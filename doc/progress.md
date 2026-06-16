@@ -277,3 +277,88 @@ setup (最先)
 | 8 | main.py 信号桥 + 流程集成 | 所有模块 | ✅ |
 | 9 | FFmpeg 打包配置 | recorder_manager | ✅ |
 | 10 | 集成测试 + 打包验证 | 全部 | ✅ 76 用例 75 通过 / 1 跳过（T6.5 降级路径）/ 0 失败；打包成功，打包后功能全部通过 |
+
+---
+
+## v1.2 进度 ✅ 已完成（窗口录制延期）
+
+> v1.2 目标：指定窗口录制 + 鼠标点击高亮 + 原生画质优化 + 开机自启 + 录制倒计时
+> 测试结果：62 通过 / 24 延期（窗口录制相关） / 0 失败；单元测试 26/26 通过
+
+### v1.2 模块进度
+
+#### 基础设施
+- [x] [配置管理模块更新 (config.py)](../tasks/task-v1.2-config.md) — v1.2
+  - [x] 新增配置项（shortcut_window, show_countdown, countdown_seconds, mouse_highlight, auto_start）
+  - [x] 新增 get_native_resolution() 静态方法
+  - [x] 旧版配置向后兼容
+
+#### 工具模块
+- [x] [开机自启模块 (autostart.py)](../tasks/task-v1.2-autostart.md) — 新增
+  - [x] is_autostart_enabled() 注册表读取
+  - [x] enable_autostart() 注册表写入
+  - [x] disable_autostart() 注册表删除
+
+#### UI 模块
+- [x] [鼠标点击高亮模块 (click_highlighter.py)](../tasks/task-v1.2-click_highlighter.md) — 新增
+  - [x] _ClickBridge 信号桥
+  - [x] ClickCircle 扩散圆圈动画
+  - [x] ClickHighlighter 管理器（pynput 鼠标监听）
+
+- [x] [录制工具栏倒计时 (toolbar.py)](../tasks/task-v1.2-toolbar-countdown.md) — 更新
+  - [x] 倒计时 UI（大号数字 + 取消提示）
+  - [x] start_countdown / cancel_countdown 方法
+  - [x] countdown_finished 信号
+  - [x] ESC 键取消倒计时
+
+- [x] [窗口选择器 (window_selector.py)](../tasks/task-v1.2-window_selector.md) — 新增 (延期)
+  - [x] Win32 窗口枚举（EnumWindows + 过滤）
+  - [x] 窗口列表对话框 UI
+  - [x] window_selected / cancelled 信号
+
+- [x] [窗口边框高亮 (window_highlighter.py)](../tasks/task-v1.2-window_highlighter.md) — 新增 (延期)
+  - [x] 绿色虚线边框绘制
+  - [x] 位置跟踪定时器（100ms）
+  - [x] show_highlight / hide_highlight
+
+- [x] [设置对话框更新 (settings_dialog.py)](../tasks/task-v1.2-settings_dialog.md) — 更新
+  - [x] 开机自启复选框 + 注册表同步
+  - [x] 倒计时复选框 + 秒数输入
+  - [x] 鼠标高亮复选框
+  - [x] 窗口录制快捷键
+  - [x] 画质下拉框动态显示分辨率
+
+- [x] [系统托盘更新 (tray_icon.py)](../tasks/task-v1.2-tray_icon.md) — 更新
+  - [x] 空闲菜单新增"窗口录制"
+  - [x] start_window_requested 信号
+
+#### 录制模块
+- [x] [屏幕捕获更新 (screen_capturer.py)](../tasks/task-v1.2-screen_capturer.md) — 更新
+  - [x] update_region() 动态更新捕获区域
+
+- [x] [录制控制器更新 (recorder_manager.py)](../tasks/task-v1.2-recorder_manager.md) — 更新
+  - [x] RecordMode.WINDOW 枚举 (延期)
+  - [x] start_window() 方法 (延期)
+  - [x] _record_loop 窗口位置跟踪 (延期)
+  - [x] _WindowLostBridge 信号桥 (延期)
+
+#### 入口集成
+- [x] [主程序入口更新 (main.py)](../tasks/task-v1.2-main.md) — 更新
+  - [x] _WindowBridge / _WindowLostBridge 信号桥
+  - [x] 窗口录制流程（_on_start_window / _on_window_selected / _do_start_window） (延期)
+  - [x] 倒计时集成（全屏/区域/窗口）
+  - [x] 鼠标高亮控制
+  - [x] 窗口高亮生命周期管理 (延期)
+  - [x] 快捷键注册扩展
+
+### v1.2 开发阶段
+
+| 阶段 | 内容 | 依赖 | 状态 |
+|-----|------|------|------|
+| 1 | config.py 新增配置项 + autostart.py | 无 | ✅ |
+| 2 | click_highlighter.py 鼠标高亮 | config | ✅ |
+| 3 | toolbar.py 倒计时模式 | config（可与阶段 2 并行） | ✅ |
+| 4 | settings_dialog.py 设置更新 | config, autostart | ✅ |
+| 5 | 窗口录制核心（window_selector + window_highlighter + screen_capturer + recorder_manager） | config | ✅ |
+| 6 | main.py 集成 + tray_icon.py 菜单更新 | 所有模块 | ✅ |
+| 7 | 集成测试 + 打包验证 | 全部 | ✅ 部分延期（窗口录制延期） |

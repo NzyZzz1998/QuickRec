@@ -38,6 +38,7 @@ class HotkeyManager:
         self._current_keys = set()  # 当前按下的键标识符集合
         self._started = False
         self._triggered = set()     # 已触发的快捷键（防按键按住时重复触发）
+        self._on_esc = None         # ESC 单键全局回调
 
     @staticmethod
     def parse_shortcut(shortcut: str) -> list:
@@ -113,6 +114,14 @@ class HotkeyManager:
         self._registered[key] = callback
         return True
 
+    def set_esc_callback(self, callback):
+        """设置 ESC 单键全局回调（用于倒计时取消等场景）
+
+        与组合键快捷键不同，ESC 是单键监听，无需修饰键。
+        设为 None 可禁用。
+        """
+        self._on_esc = callback
+
     def unregister(self, shortcut: str) -> bool:
         """取消注册快捷键"""
         key = self._normalize(shortcut)
@@ -133,6 +142,14 @@ class HotkeyManager:
         key_id = self._key_to_id(key)
         if key_id is None:
             return
+
+        # ESC 单键回调（倒计时取消等）
+        if key_id == 'esc' and self._on_esc:
+            try:
+                self._on_esc()
+            except Exception as e:
+                logger.error(f"ESC 回调异常: {e}")
+
         self._current_keys.add(key_id)
         logger.debug(f"按键按下: {key_id}, 当前按键集合: {self._current_keys}")
 

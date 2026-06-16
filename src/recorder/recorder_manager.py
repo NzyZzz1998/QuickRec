@@ -19,8 +19,11 @@ import time
 from enum import Enum
 
 import ctypes
+import ctypes.wintypes
 import cv2
 import numpy as np
+
+from PyQt5.QtCore import QObject, pyqtSignal
 
 from config import ConfigManager
 from recorder.screen_capturer import ScreenCapturer
@@ -55,6 +58,12 @@ class RecordMode(Enum):
     """录制模式枚举"""
     FULLSCREEN = "fullscreen"
     REGION = "region"
+    # WINDOW = "window"  # v1.2 新增 → 延期：窗口录制
+
+
+# class _WindowLostBridge(QObject):
+#     """窗口丢失信号桥（录制线程 → Qt 主线程）"""
+#     window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
 class RecorderManager:
@@ -78,6 +87,7 @@ class RecorderManager:
         self._output_path: str = ""
         self._lock = threading.Lock()
         self._cancelled = False
+        # self._window_lost_notified = False  # 延期：窗口录制
 
         # 临时文件缓存（JPEG帧写入磁盘，非内存）
         self._temp_file: str = ""
@@ -92,6 +102,12 @@ class RecorderManager:
         self._audio_source: str = AudioSource.NONE
         self._ffmpeg_path: str = ""
         self._audio_temp_paths: list = []
+
+        # v1.2: 窗口录制相关字段（延期：窗口录制）
+        # self._window_hwnd: int = None
+        # self._window_title: str = ""
+        # self._window_lost_bridge = _WindowLostBridge()
+        # self._window_lost_notified = False  # 防止重复 emit 窗口丢失信号
 
         # 编码完成回调
         self._on_saved = on_saved
@@ -109,6 +125,35 @@ class RecorderManager:
         """
         self._mode = RecordMode.REGION
         return self._start(region=region)
+
+    # def start_window(self, hwnd: int) -> bool:
+    #     """开始窗口录制（v1.2 新增 → 延期：窗口录制）
+    #
+    #     Args:
+    #         hwnd: 目标窗口句柄
+    #
+    #     Returns:
+    #         True 如果成功开始录制
+    #     """
+    #     # 验证窗口有效性
+    #     if not ctypes.windll.user32.IsWindow(hwnd):
+    #         logger.error(f"无效窗口句柄: {hwnd}")
+    #         return False
+    #
+    #     # 获取窗口标题
+    #     self._window_title = self._get_window_title(hwnd)
+    #     self._mode = RecordMode.WINDOW
+    #     self._window_hwnd = hwnd
+    #
+    #     # 获取初始窗口区域（客户区，不含边框阴影）
+    #     rect = self._get_window_rect(hwnd)
+    #     if rect is None:
+    #         logger.error(f"无法获取窗口位置: hwnd={hwnd}")
+    #         return False
+    #
+    #     region = (rect.left(), rect.top(), rect.width(), rect.height())
+    #     logger.info(f"窗口录制: hwnd={hwnd}, title={self._window_title}, region={region}")
+    #     return self._start(region=region, hwnd=hwnd)
 
     def pause(self) -> bool:
         """暂停录制"""
@@ -128,6 +173,7 @@ class RecorderManager:
                 return False
             self._state = RecorderState.RECORDING
             self._pause_duration += time.time() - self._pause_start
+            # self._window_lost_notified = False  # 允许再次通知窗口丢失（延期：窗口录制）
         # set 唤醒录制线程继续执行
         self._resume_event.set()
         return True
@@ -324,11 +370,17 @@ class RecorderManager:
 
         return target
 
-    def _start(self, region=None) -> bool:
+    def _start(self, region=None, hwnd=None) -> bool:
         """内部启动录制"""
         with self._lock:
             if self._state != RecorderState.IDLE:
                 return False
+
+            # v1.2: 窗口模式设置（延期：窗口录制）
+            # if hwnd:
+            #     self._window_hwnd = hwnd
+            #     if self._mode != RecordMode.WINDOW:
+            #         self._mode = RecordMode.WINDOW
 
             # 检查磁盘空间
             save_path = self._config.get("save_path")
@@ -368,6 +420,7 @@ class RecorderManager:
             self._resume_event.set()
             self._pause_duration = 0
             self._cancelled = False
+            # self._window_lost_notified = False  # 延期：窗口录制
             self._start_time = time.time()
             self._state = RecorderState.RECORDING
 
@@ -423,6 +476,7 @@ class RecorderManager:
         frames_written = 0
         was_paused = False
         fh = self._temp_file_handle
+        # last_window_update = 0  # v1.2: 窗口位置更新时间戳（延期：窗口录制）
 
         while not self._stop_event.is_set():
             # 暂停等待
@@ -440,12 +494,47 @@ class RecorderManager:
                 rec_start = time.time() - frames_written * frame_interval
                 was_paused = False
 
+            # v1.2: 窗口模式下定期更新捕获区域（延期：窗口录制）
+            # if self._mode == RecordMode.WINDOW and self._window_hwnd:
+            #     now = time.time()
+            #     if now - last_window_update >= 0.2:
+            #         rect = self._get_window_rect(self._window_hwnd)
+            #         if rect is None:
+            #             user32 = ctypes.windll.user32
+            #             if not user32.IsWindow(self._window_hwnd):
+            #                 reason = "closed"
+            #             elif user32.IsIconic(self._window_hwnd):
+            #                 reason = "minimized"
+            #             else:
+            #                 reason = "closed"
+            #             reason_text = "关闭" if reason == "closed" else "最小化"
+            #             logger.info(f"录制窗口已{reason_text} (hwnd={self._window_hwnd})")
+            #             self._total_frames = frames_written
+            #             if fh and not fh.closed:
+            #                 fh.flush()
+            #             self._resume_event.clear()
+            #             with self._lock:
+            #                 self._state = RecorderState.PAUSED
+            #                 self._pause_start = time.time()
+            #             if not self._window_lost_notified:
+            #                 self._window_lost_notified = True
+            #                 self._window_lost_bridge.window_lost.emit(reason)
+            #             continue
+            #         self._capturer.update_region(
+            #             (rect.left(), rect.top(), rect.width(), rect.height())
+            #         )
+            #         last_window_update = now
+
             # 计算应该写到第几帧
             target_frame = int((time.time() - rec_start) / frame_interval)
 
             try:
                 frame = self._capturer.capture_frame()
                 if frame is None:
+                    # 捕获器可能因窗口移动重建失败而停止
+                    if not self._capturer._started:
+                        logger.error("屏幕捕获器已停止，终止录制")
+                        break
                     continue
             except Exception:
                 break
@@ -476,6 +565,14 @@ class RecorderManager:
         # 确保数据刷盘
         if fh and not fh.closed:
             fh.flush()
+
+        # 释放 dxcam 捕获器（必须在录制线程中释放，避免跨线程问题）
+        if self._capturer:
+            try:
+                self._capturer.close()
+            except Exception as e:
+                logger.error(f"释放捕获器异常: {e}")
+            self._capturer = None
 
         logger.info(
             f"录制结束，写入 {self._total_frames} 帧到临时文件 "
@@ -658,3 +755,53 @@ class RecorderManager:
             except OSError:
                 pass
         self._temp_file = ""
+
+    # @staticmethod
+    # def _get_window_rect(hwnd: int):
+    #     """获取窗口客户区位置和尺寸（不含边框阴影）（延期：窗口录制）
+    #
+    #     使用 ClientRect + ClientToScreen 获取客户区在屏幕上的坐标，
+    #     避免最大化窗口 GetWindowRect 返回负坐标或超出屏幕。
+    #
+    #     Args:
+    #         hwnd: 窗口句柄
+    #
+    #     Returns:
+    #         QRect 或 None（窗口无效/不可见/最小化时）
+    #     """
+    #     user32 = ctypes.windll.user32
+    #     if not user32.IsWindow(hwnd):
+    #         return None
+    #     if not user32.IsWindowVisible(hwnd):
+    #         return None
+    #     if user32.IsIconic(hwnd):
+    #         return None
+    #     client_rect = ctypes.wintypes.RECT()
+    #     user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+    #     width = client_rect.right
+    #     height = client_rect.bottom
+    #     if width < 10 or height < 10:
+    #         return None
+    #     point = ctypes.wintypes.POINT()
+    #     point.x = client_rect.left
+    #     point.y = client_rect.top
+    #     user32.ClientToScreen(hwnd, ctypes.byref(point))
+    #     from PyQt5.QtCore import QRect
+    #     return QRect(point.x, point.y, width, height)
+
+    # @staticmethod
+    # def _get_window_title(hwnd: int) -> str:
+    #     """获取窗口标题（延期：窗口录制）
+    #
+    #     Args:
+    #         hwnd: 窗口句柄
+    #
+    #     Returns:
+    #         窗口标题字符串
+    #     """
+    #     title_length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+    #     if title_length == 0:
+    #         return ""
+    #     title = ctypes.create_unicode_buffer(title_length + 1)
+    #     ctypes.windll.user32.GetWindowTextW(hwnd, title, title_length + 1)
+    #     return title.value

@@ -5,6 +5,7 @@
 配置文件存储在 AppData/Roaming/QuickRec/config.json
 """
 
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -23,9 +24,12 @@ class ConfigManager:
         "shortcut_stop": "Ctrl+Shift+S",
         "shortcut_pause": "Ctrl+Shift+P",
         "shortcut_area": "Ctrl+Shift+A",
+        "shortcut_window": "Ctrl+Shift+W",
         "show_countdown": False,
         "countdown_seconds": 3,
         "audio_source": "none",  # none / system / microphone / both
+        "mouse_highlight": False,
+        "auto_start": False,
     }
 
     # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
@@ -107,3 +111,17 @@ class ConfigManager:
         """恢复默认配置"""
         self._config = self.defaults.copy()
         self.save()
+
+    @staticmethod
+    def get_native_resolution() -> tuple[int, int]:
+        """获取主显示器的原生分辨率
+
+        使用 Win32 API GetSystemMetrics 获取主显示器分辨率。
+
+        Returns:
+            (width, height) 主显示器分辨率
+        """
+        user32 = ctypes.windll.user32
+        width = user32.GetSystemMetrics(0)   # SM_CXSCREEN
+        height = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+        return (width, height)

@@ -20,6 +20,7 @@ if app is None:
 
 from config import ConfigManager
 from ui.settings_dialog import SettingsDialog
+from unittest.mock import patch
 
 
 class TestSettingsDialog(unittest.TestCase):
@@ -29,16 +30,8 @@ class TestSettingsDialog(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.config = ConfigManager.__new__(ConfigManager)
         self.config._config_path = os.path.join(self.temp_dir, "config.json")
-        self.config._config = {
-            "save_path": self.temp_dir,
-            "quality": "high",
-            "fps": 30,
-            "shortcut_start": "Ctrl+Shift+R",
-            "shortcut_stop": "Ctrl+Shift+S",
-            "shortcut_pause": "Ctrl+Shift+P",
-            "show_countdown": False,
-            "countdown_seconds": 3,
-        }
+        self.config._config = ConfigManager.defaults.copy()
+        self.config._config["save_path"] = self.temp_dir
 
     def tearDown(self):
         import shutil
@@ -53,15 +46,23 @@ class TestSettingsDialog(unittest.TestCase):
         """测试加载配置值到控件"""
         dialog = SettingsDialog(self.config)
         self.assertEqual(dialog._edit_save_path.text(), self.temp_dir)
-        self.assertEqual(dialog._combo_quality.currentText(), "high")
+        # v1.2: 画质下拉框使用动态文本，验证 currentData
+        self.assertEqual(dialog._combo_quality.currentData(), "high")
         self.assertEqual(dialog._combo_fps.currentText(), "30")
 
     def test_save_config_updates_values(self):
         """测试保存配置更新值"""
         dialog = SettingsDialog(self.config)
-        dialog._combo_quality.setCurrentText("low")
+        # 切换到"低"画质
+        for i in range(dialog._combo_quality.count()):
+            if dialog._combo_quality.itemData(i) == "low":
+                dialog._combo_quality.setCurrentIndex(i)
+                break
         dialog._combo_fps.setCurrentText("60")
-        dialog._save_config()
+        # v1.2: save_config 会操作注册表，mock掉
+        with patch("ui.settings_dialog.enable_autostart"), \
+             patch("ui.settings_dialog.disable_autostart"):
+            dialog._save_config()
 
         self.assertEqual(self.config.get("quality"), "low")
         self.assertEqual(self.config.get("fps"), 60)
