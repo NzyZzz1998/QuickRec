@@ -6,6 +6,7 @@
 """
 
 import ctypes
+import ctypes.wintypes
 import logging
 
 from PyQt5.QtCore import QTimer, Qt
@@ -39,7 +40,7 @@ class WindowHighlighter(QWidget):
             | Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_TransparentForMouseInput)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
     def show_highlight(self):

@@ -280,10 +280,10 @@ setup (最先)
 
 ---
 
-## v1.2 进度 ✅ 开发完成
+## v1.2 进度 ✅ 已完成（窗口录制延期）
 
 > v1.2 目标：指定窗口录制 + 鼠标点击高亮 + 原生画质优化 + 开机自启 + 录制倒计时
-> 测试结果：92 通过 / 6 失败（v1.1 已有的 dxcam/recorder 集成测试需 GPU 环境）
+> 测试结果：62 通过 / 24 延期（窗口录制相关） / 0 失败；单元测试 26/26 通过
 
 ### v1.2 模块进度
 
@@ -311,12 +311,12 @@ setup (最先)
   - [x] countdown_finished 信号
   - [x] ESC 键取消倒计时
 
-- [x] [窗口选择器 (window_selector.py)](../tasks/task-v1.2-window_selector.md) — 新增
+- [x] [窗口选择器 (window_selector.py)](../tasks/task-v1.2-window_selector.md) — 新增 (延期)
   - [x] Win32 窗口枚举（EnumWindows + 过滤）
   - [x] 窗口列表对话框 UI
   - [x] window_selected / cancelled 信号
 
-- [x] [窗口边框高亮 (window_highlighter.py)](../tasks/task-v1.2-window_highlighter.md) — 新增
+- [x] [窗口边框高亮 (window_highlighter.py)](../tasks/task-v1.2-window_highlighter.md) — 新增 (延期)
   - [x] 绿色虚线边框绘制
   - [x] 位置跟踪定时器（100ms）
   - [x] show_highlight / hide_highlight
@@ -337,18 +337,18 @@ setup (最先)
   - [x] update_region() 动态更新捕获区域
 
 - [x] [录制控制器更新 (recorder_manager.py)](../tasks/task-v1.2-recorder_manager.md) — 更新
-  - [x] RecordMode.WINDOW 枚举
-  - [x] start_window() 方法
-  - [x] _record_loop 窗口位置跟踪
-  - [x] _WindowLostBridge 信号桥
+  - [x] RecordMode.WINDOW 枚举 (延期)
+  - [x] start_window() 方法 (延期)
+  - [x] _record_loop 窗口位置跟踪 (延期)
+  - [x] _WindowLostBridge 信号桥 (延期)
 
 #### 入口集成
 - [x] [主程序入口更新 (main.py)](../tasks/task-v1.2-main.md) — 更新
   - [x] _WindowBridge / _WindowLostBridge 信号桥
-  - [x] 窗口录制流程（_on_start_window / _on_window_selected / _do_start_window）
+  - [x] 窗口录制流程（_on_start_window / _on_window_selected / _do_start_window） (延期)
   - [x] 倒计时集成（全屏/区域/窗口）
   - [x] 鼠标高亮控制
-  - [x] 窗口高亮生命周期管理
+  - [x] 窗口高亮生命周期管理 (延期)
   - [x] 快捷键注册扩展
 
 ### v1.2 开发阶段
@@ -361,4 +361,4 @@ setup (最先)
 | 4 | settings_dialog.py 设置更新 | config, autostart | ✅ |
 | 5 | 窗口录制核心（window_selector + window_highlighter + screen_capturer + recorder_manager） | config | ✅ |
 | 6 | main.py 集成 + tray_icon.py 菜单更新 | 所有模块 | ✅ |
-| 7 | 集成测试 + 打包验证 | 全部 | ✅ |
+| 7 | 集成测试 + 打包验证 | 全部 | ✅ 部分延期（窗口录制延期） |

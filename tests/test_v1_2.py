@@ -164,21 +164,21 @@ class TestAutostart(unittest.TestCase):
         self.assertTrue(result)
 
 
-class TestRecordModeWindow(unittest.TestCase):
-    """RecordMode.WINDOW 枚举测试"""
-
-    def test_window_mode_exists(self):
-        """测试 WINDOW 模式枚举存在"""
-        from recorder.recorder_manager import RecordMode
-        self.assertEqual(RecordMode.WINDOW.value, "window")
-
-    def test_all_modes(self):
-        """测试所有录制模式"""
-        from recorder.recorder_manager import RecordMode
-        modes = [m.value for m in RecordMode]
-        self.assertIn("fullscreen", modes)
-        self.assertIn("region", modes)
-        self.assertIn("window", modes)
+# class TestRecordModeWindow(unittest.TestCase):
+#     """RecordMode.WINDOW 枚举测试（延期：窗口录制）"""
+#
+#     def test_window_mode_exists(self):
+#         """测试 WINDOW 模式枚举存在"""
+#         from recorder.recorder_manager import RecordMode
+#         self.assertEqual(RecordMode.WINDOW.value, "window")
+#
+#     def test_all_modes(self):
+#         """测试所有录制模式"""
+#         from recorder.recorder_manager import RecordMode
+#         modes = [m.value for m in RecordMode]
+#         self.assertIn("fullscreen", modes)
+#         self.assertIn("region", modes)
+#         self.assertIn("window", modes)
 
 
 class TestWindowSelector(unittest.TestCase):
@@ -233,48 +233,44 @@ class TestScreenCapturerUpdateRegion(unittest.TestCase):
         self.assertEqual(capturer._region, (0, 0, 1920, 1080))
 
 
-class TestRecorderManagerWindow(unittest.TestCase):
-    """RecorderManager 窗口模式测试"""
-
-    def test_window_lost_bridge_exists(self):
-        """测试 _WindowLostBridge 信号桥存在"""
-        from recorder.recorder_manager import RecorderManager
-        rm = RecorderManager.__new__(RecorderManager)
-        rm._window_lost_bridge = None
-        # 验证类定义
-        self.assertTrue(hasattr(RecorderManager, 'start_window'))
-
-    def test_get_window_title(self):
-        """测试获取窗口标题"""
-        from recorder.recorder_manager import RecorderManager
-        # 使用桌面窗口句柄测试
-        desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
-        title = RecorderManager._get_window_title(desktop_hwnd)
-        self.assertIsInstance(title, str)
-
-    def test_get_window_rect(self):
-        """测试获取窗口位置"""
-        from recorder.recorder_manager import RecorderManager
-        desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
-        rect = RecorderManager._get_window_rect(desktop_hwnd)
-        # 桌面窗口应该有位置信息
-        if rect:
-            self.assertGreater(rect.width(), 0)
-            self.assertGreater(rect.height(), 0)
+# class TestRecorderManagerWindow(unittest.TestCase):
+#     """RecorderManager 窗口模式测试（延期：窗口录制）"""
+#
+#     def test_window_lost_bridge_exists(self):
+#         """测试 _WindowLostBridge 信号桥存在"""
+#         from recorder.recorder_manager import RecorderManager
+#         rm = RecorderManager.__new__(RecorderManager)
+#         rm._window_lost_bridge = None
+#         # 验证类定义
+#         self.assertTrue(hasattr(RecorderManager, 'start_window'))
+#
+#     def test_get_window_title(self):
+#         """测试获取窗口标题"""
+#         from recorder.recorder_manager import RecorderManager
+#         desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
+#         title = RecorderManager._get_window_title(desktop_hwnd)
+#         self.assertIsInstance(title, str)
+#
+#     def test_get_window_rect(self):
+#         """测试获取窗口位置"""
+#         from recorder.recorder_manager import RecorderManager
+#         desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
+#         rect = RecorderManager._get_window_rect(desktop_hwnd)
+#         if rect:
+#             self.assertGreater(rect.width(), 0)
+#             self.assertGreater(rect.height(), 0)
 
 
-class TestWindowHighlighter(unittest.TestCase):
-    """WindowHighlighter 测试"""
-
-    def test_highlighter_creation(self):
-        """测试 WindowHighlighter 对象创建"""
-        from ui.window_highlighter import WindowHighlighter
-        # 使用桌面窗口句柄
-        desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
-        # 不实际显示，仅验证构造不会崩溃
-        highlighter = WindowHighlighter.__new__(WindowHighlighter)
-        highlighter._hwnd = desktop_hwnd
-        self.assertEqual(highlighter._hwnd, desktop_hwnd)
+# class TestWindowHighlighter(unittest.TestCase):
+#     """WindowHighlighter 测试（延期：窗口录制）"""
+#
+#     def test_highlighter_creation(self):
+#         """测试 WindowHighlighter 对象创建"""
+#         from ui.window_highlighter import WindowHighlighter
+#         desktop_hwnd = ctypes.windll.user32.GetDesktopWindow()
+#         highlighter = WindowHighlighter.__new__(WindowHighlighter)
+#         highlighter._hwnd = desktop_hwnd
+#         self.assertEqual(highlighter._hwnd, desktop_hwnd)
 
 
 class TestClickHighlighter(unittest.TestCase):

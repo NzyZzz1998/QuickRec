@@ -6,6 +6,7 @@
 """
 
 import ctypes
+import ctypes.wintypes
 import logging
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -19,20 +20,53 @@ logger = logging.getLogger(__name__)
 
 # Win32 API 常量
 GWL_STYLE = -16
+GWL_EXSTYLE = -20
 WS_VISIBLE = 0x10000000
 WS_MINIMIZE = 0x20000000
+WS_EX_TOOLWINDOW = 0x00000080
+WS_EX_APPWINDOW = 0x00040000
+WS_EX_NOINHERITLAYOUT = 0x00100000
 
 # 系统窗口类名黑名单（不显示在选择列表中）
 _SYSTEM_WINDOW_CLASSES = {
-    "Progman",       # 桌面
-    "Shell_TrayWnd", # 任务栏
-    "WorkerW",       # 桌面辅助
-    "IME",           # 输入法
-    "MSCTFIME UI",  # 输入法
-    "IMEUIWindow",   # 输入法UI
-    "tooltips_class32",  # 工具提示
-    "MenuDeskBar",   # 菜单栏
-    "ToolbarWindow32",  # 工具栏
+    # 桌面和任务栏
+    "Progman",           # 桌面
+    "Shell_TrayWnd",     # 任务栏
+    "WorkerW",           # 桌面辅助
+    "Desktop Window X",  # 桌面
+    # 输入法
+    "IME",
+    "MSCTFIME UI",
+    "IMEUIWindow",
+    # 提示和菜单
+    "tooltips_class32",
+    "MenuDeskBar",
+    "ToolbarWindow32",
+    # 系统控件
+    "Button",            # 系统按钮
+    "ComboBox",
+    "ComboBoxEx32",
+    "Edit",
+    "ListBox",
+    "Static",
+    "SysHeader32",
+    "SysListView32",
+    "SysTreeView32",
+    "msctls_statusbar32",
+    "msctls_updown32",
+    "msctls_progress32",
+    "msctls_hotkey32",
+    "msctls_trackbar32",
+    "msctls_tab32",
+    # 系统通知和浮动窗口
+    "NotifyIconOverflowWindow",  # 通知溢出窗口
+    "TaskManagerWindow",         # 任务管理器（隐藏窗口）
+    "SearchUI",                  # 搜索界面后台
+    "Shell_InputSwitch",         # 输入法切换
+    # DWM 和渲染
+    "DwmWindowCompositionWindow",  # DWM 合成
+    "MultitaskViewFrame",         # 多任务视图
+    "Xaml_WindowedPopupClass",    # XAML 弹出
 }
 
 
@@ -136,8 +170,9 @@ class WindowSelector(QDialog):
         self._windows = self._enum_visible_windows()
         self._list_widget.clear()
 
-        for hwnd, title, rect in self._windows:
-            item = QListWidgetItem(f"{title}  ({rect.width()}×{rect.height()})")
+        for hwnd, title, rect, is_minimized in self._windows:
+            suffix = "  (最小化)" if is_minimized else f"  ({rect.width()}×{rect.height()})"
+            item = QListWidgetItem(f"{title}{suffix}")
             item.setData(Qt.UserRole, hwnd)
             self._list_widget.addItem(item)
 
@@ -164,9 +199,9 @@ class WindowSelector(QDialog):
         hwnd = item.data(Qt.UserRole)
         # 根据hwnd找title
         title = ""
-        for h, t, r in self._windows:
-            if h == hwnd:
-                title = t
+        for entry in self._windows:
+            if entry[0] == hwnd:
+                title = entry[1]
                 break
         self.window_selected.emit(hwnd, title)
         self.accept()
@@ -205,10 +240,14 @@ class WindowSelector(QDialog):
             if class_name.value in _SYSTEM_WINDOW_CLASSES:
                 return True
 
-            # 过滤不可见样式
+            # 获取扩展样式，过滤工具窗口
+            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            if (ex_style & WS_EX_TOOLWINDOW) and not (ex_style & WS_EX_APPWINDOW):
+                return True
+
+            # 检查是否最小化（不过滤，用于标注）
             style = user32.GetWindowLongW(hwnd, GWL_STYLE)
-            if style & WS_MINIMIZE:
-                return True  # 最小化的窗口不录制
+            is_minimized = bool(style & WS_MINIMIZE)
 
             # 获取窗口位置
             rect = ctypes.wintypes.RECT()
@@ -216,12 +255,12 @@ class WindowSelector(QDialog):
             width = rect.right - rect.left
             height = rect.bottom - rect.top
 
-            # 过滤过小的窗口
-            if width < 50 or height < 50:
+            # 过滤过小的窗口（最小化窗口宽高可能为0，不在此过滤）
+            if not is_minimized and (width < 50 or height < 50):
                 return True
 
             from PyQt5.QtCore import QRect
-            windows.append((hwnd, title_str, QRect(rect.left, rect.top, width, height)))
+            windows.append((hwnd, title_str, QRect(rect.left, rect.top, max(width, 100), max(height, 100)), is_minimized))
             return True
 
         user32.EnumWindows(WNDENUMPROC(_enum_callback), 0)

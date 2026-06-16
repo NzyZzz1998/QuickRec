@@ -24,6 +24,7 @@ class ScreenCapturer:
         self._region = region
         self._camera = None
         self._started = False
+        self._last_dxcam_region = None  # 上一次 dxcam 使用的 region，避免重复重启
 
         if region:
             left, top, width, height = region
@@ -39,6 +40,7 @@ class ScreenCapturer:
         if self._dxcam_region:
             logger.info(f"ScreenCapturer region: {self._dxcam_region}")
         self._camera.start(target_fps=60, region=self._dxcam_region)
+        self._last_dxcam_region = self._dxcam_region
         self._started = True
 
     def capture_frame(self):
@@ -66,9 +68,16 @@ class ScreenCapturer:
         """
         self._region = region
         left, top, width, height = region
-        self._dxcam_region = (left, top, left + width, top + height)
+        new_dxcam_region = (left, top, left + width, top + height)
+
+        # 与上次相同则跳过重启，避免每帧都重建 dxcam
+        if self._last_dxcam_region == new_dxcam_region:
+            return
+
+        self._dxcam_region = new_dxcam_region
+        self._last_dxcam_region = new_dxcam_region
+
         if self._camera and self._started:
-            # dxcam 不支持运行时更新 region，需要重启
             try:
                 self._camera.stop()
                 self._camera.release()
@@ -77,6 +86,14 @@ class ScreenCapturer:
                 self._camera.start(target_fps=60, region=self._dxcam_region)
             except Exception as e:
                 logger.error(f"更新捕获区域失败: {e}")
+                # 重建失败时确保状态干净，避免后续 capture_frame 在坏状态上调用
+                try:
+                    if self._camera:
+                        self._camera.release()
+                except Exception:
+                    pass
+                self._camera = None
+                self._started = False
 
     def get_monitor_size(self) -> tuple:
         """

@@ -172,21 +172,22 @@ class SettingsDialog(QDialog):
 
         # v1.2 新增：开机自启、录制倒计时、鼠标点击高亮
         options_layout = QHBoxLayout()
+        options_layout.setSpacing(12)
         self._cb_auto_start = QCheckBox("开机自启")
         self._cb_countdown = QCheckBox("录制倒计时")
-        self._spin_countdown_seconds = QSpinBox()
-        self._spin_countdown_seconds.setRange(1, 10)
-        self._spin_countdown_seconds.setValue(3)
-        self._spin_countdown_seconds.setSuffix(" 秒")
-        self._spin_countdown_seconds.setEnabled(False)
+        self._combo_countdown_seconds = QComboBox()
+        self._combo_countdown_seconds.addItems([f"{i} 秒" for i in range(1, 11)])
+        self._combo_countdown_seconds.setCurrentIndex(2)  # 默认 3 秒
+        self._combo_countdown_seconds.setEnabled(False)
         self._cb_countdown.toggled.connect(
-            lambda checked: self._spin_countdown_seconds.setEnabled(checked)
+            lambda checked: self._combo_countdown_seconds.setEnabled(checked)
         )
         self._cb_mouse_highlight = QCheckBox("鼠标点击高亮")
 
         options_layout.addWidget(self._cb_auto_start)
         options_layout.addWidget(self._cb_countdown)
-        options_layout.addWidget(self._spin_countdown_seconds)
+        options_layout.addWidget(self._combo_countdown_seconds)
+        options_layout.addStretch()
         options_layout.addWidget(self._cb_mouse_highlight)
         form.addRow("选项:", options_layout)
 
@@ -216,12 +217,12 @@ class SettingsDialog(QDialog):
         )
         form.addRow("区域录制:", self._shortcut_area)
 
-        # v1.2 新增：窗口录制快捷键
-        self._shortcut_window = _ShortcutRecorder("Ctrl+Shift+W")
-        self._shortcut_window.shortcut_changed.connect(
-            lambda s: self._shortcut_window.setText(s)
-        )
-        form.addRow("窗口录制:", self._shortcut_window)
+        # v1.2 新增：窗口录制快捷键（延期：窗口录制）
+        # self._shortcut_window = _ShortcutRecorder("Ctrl+Shift+W")
+        # self._shortcut_window.shortcut_changed.connect(
+        #     lambda s: self._shortcut_window.setText(s)
+        # )
+        # form.addRow("窗口录制:", self._shortcut_window)
 
         layout.addLayout(form)
 
@@ -280,9 +281,9 @@ class SettingsDialog(QDialog):
         self._shortcut_area.setText(
             str(self._config.get("shortcut_area", "Ctrl+Shift+A"))
         )
-        self._shortcut_window.setText(
-            str(self._config.get("shortcut_window", "Ctrl+Shift+W"))
-        )
+        # self._shortcut_window.setText(
+        #     str(self._config.get("shortcut_window", "Ctrl+Shift+W"))
+        # )  # 延期：窗口录制
 
         # 音频源加载
         audio_source = self._config.get("audio_source", "none")
@@ -300,10 +301,10 @@ class SettingsDialog(QDialog):
         # 录制倒计时
         show_countdown = self._config.get("show_countdown", False)
         self._cb_countdown.setChecked(show_countdown)
-        self._spin_countdown_seconds.setValue(
-            self._config.get("countdown_seconds", 3)
+        self._combo_countdown_seconds.setCurrentIndex(
+            self._config.get("countdown_seconds", 3) - 1
         )
-        self._spin_countdown_seconds.setEnabled(show_countdown)
+        self._combo_countdown_seconds.setEnabled(show_countdown)
 
         # 鼠标点击高亮
         self._cb_mouse_highlight.setChecked(
@@ -323,7 +324,7 @@ class SettingsDialog(QDialog):
 
         # v1.2 新增配置保存
         self._config.set("show_countdown", self._cb_countdown.isChecked())
-        self._config.set("countdown_seconds", self._spin_countdown_seconds.value())
+        self._config.set("countdown_seconds", self._combo_countdown_seconds.currentIndex() + 1)
         self._config.set("mouse_highlight", self._cb_mouse_highlight.isChecked())
 
         # 开机自启：同时操作注册表
@@ -334,8 +335,8 @@ class SettingsDialog(QDialog):
         else:
             disable_autostart()
 
-        # 窗口录制快捷键
-        self._config.set("shortcut_window", self._shortcut_window.text())
+        # 窗口录制快捷键（延期：窗口录制）
+        # self._config.set("shortcut_window", self._shortcut_window.text())
 
         self._config.save()
         self.config_saved.emit()

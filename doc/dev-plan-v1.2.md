@@ -2,7 +2,7 @@
 
 > 版本: v1.2
 > 创建时间: 2026-06-13
-> 状态: 待开发
+> 状态: 已完成（窗口录制延期）
 > 前置版本: v1.1（已完成，tag v1.1）
 
 ---
@@ -13,7 +13,7 @@
 
 | 编号 | 功能 | 说明 | 涉及模块 |
 |-----|------|------|---------|
-| N1 | 指定窗口录制 | 窗口枚举选择 + 边框高亮 + 跟随移动 + 丢失暂停 | window_selector, window_highlighter, recorder_manager, screen_capturer, main |
+| N1 | 指定窗口录制 | 窗口枚举选择 + 边框高亮 + 跟随移动 + 丢失暂停（延期） | window_selector, window_highlighter, recorder_manager, screen_capturer, main |
 | N2 | 鼠标点击高亮 | 左键点击扩散圆圈动画，仅屏幕叠加层，默认关闭 | click_highlighter, config, settings_dialog, main |
 | N3 | 原生画质优化 | "原生"档动态匹配主显示器分辨率，设置界面显示实际值 | config, settings_dialog |
 | N4 | 开机自启 | 注册表 HKEY_CURRENT_USER\Run 操作，设置中勾选 | autostart, settings_dialog, config |
@@ -407,11 +407,11 @@ self._hotkey.register(shortcut_window, self._hotkey_bridge.window_requested.emit
 | 全屏录制（倒计时开启） | 显示 3→2→1 → 开始录制 |
 | 全屏录制（倒计时开启，ESC 取消） | 取消后回到空闲 |
 | 区域录制 | 与 v1.1 行为一致 |
-| 窗口录制 | 从列表选择 → 绿色边框 → 录制内容含边框 |
-| 窗口录制 + 移动窗口 | 帧内容跟随窗口位置 |
-| 窗口录制 + 最小化 | 暂停录制 + 提示对话框 |
-| 窗口录制 + 关闭窗口 | 暂停录制 + 停止并保存 |
-| 窗口录制 + 音频 | 窗口模式 + 系统声音/麦克风正常 |
+| 窗口录制 | ~~从列表选择 → 绿色边框 → 录制内容含边框~~ 延期 |
+| 窗口录制 + 移动窗口 | ~~帧内容跟随窗口位置~~ 延期 |
+| 窗口录制 + 最小化 | ~~暂停录制 + 提示对话框~~ 延期 |
+| 窗口录制 + 关闭窗口 | ~~暂停录制 + 停止并保存~~ 延期 |
+| 窗口录制 + 音频 | ~~窗口模式 + 系统声音/麦克风正常~~ 延期 |
 | 鼠标点击高亮（开启） | 左键点击显示扩散圆圈，右键不显示 |
 | 鼠标点击高亮（关闭） | 配置关闭时不显示 |
 | 鼠标点击高亮（不在录制中） | 不响应 |
@@ -430,7 +430,7 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 
 - [ ] `dist/QuickRec/QuickRec.exe` 可运行
 - [ ] 开机自启功能正常（注册表操作）
-- [ ] 窗口录制功能正常
+- [ ] ~~窗口录制功能正常~~ 延期
 - [ ] 鼠标点击高亮正常
 - [ ] 无新增依赖导致打包失败
 
