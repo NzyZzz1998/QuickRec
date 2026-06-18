@@ -217,12 +217,11 @@ class SettingsDialog(QDialog):
         )
         form.addRow("区域录制:", self._shortcut_area)
 
-        # v1.2 新增：窗口录制快捷键（延期：窗口录制）
-        # self._shortcut_window = _ShortcutRecorder("Ctrl+Shift+W")
-        # self._shortcut_window.shortcut_changed.connect(
-        #     lambda s: self._shortcut_window.setText(s)
-        # )
-        # form.addRow("窗口录制:", self._shortcut_window)
+        self._shortcut_window = _ShortcutRecorder("Ctrl+Shift+W")
+        self._shortcut_window.shortcut_changed.connect(
+            lambda s: self._shortcut_window.setText(s)
+        )
+        form.addRow("窗口录制:", self._shortcut_window)
 
         layout.addLayout(form)
 
@@ -281,9 +280,9 @@ class SettingsDialog(QDialog):
         self._shortcut_area.setText(
             str(self._config.get("shortcut_area", "Ctrl+Shift+A"))
         )
-        # self._shortcut_window.setText(
-        #     str(self._config.get("shortcut_window", "Ctrl+Shift+W"))
-        # )  # 延期：窗口录制
+        self._shortcut_window.setText(
+            str(self._config.get("shortcut_window", "Ctrl+Shift+W"))
+        )
 
         # 音频源加载
         audio_source = self._config.get("audio_source", "none")
@@ -320,9 +319,8 @@ class SettingsDialog(QDialog):
         self._config.set("shortcut_stop", self._shortcut_stop.text())
         self._config.set("shortcut_pause", self._shortcut_pause.text())
         self._config.set("shortcut_area", self._shortcut_area.text())
+        self._config.set("shortcut_window", self._shortcut_window.text())
         self._config.set("audio_source", self._combo_audio_source.currentData())
-
-        # v1.2 新增配置保存
         self._config.set("show_countdown", self._cb_countdown.isChecked())
         self._config.set("countdown_seconds", self._combo_countdown_seconds.currentIndex() + 1)
         self._config.set("mouse_highlight", self._cb_mouse_highlight.isChecked())
