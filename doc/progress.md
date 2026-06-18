@@ -356,74 +356,74 @@ setup (最先)
 
 #### 录制核心
 
-- [ ] **recorder_manager.py — 管线重构 + 窗口录制恢复**
-  - [ ] 删除：`_JPEG_QUALITY`、`_JPEG_PARAMS`（常量）；`_temp_file`、`_temp_file_handle`、`_total_frames`（字段）
-  - [ ] 删除：`_compress_frame()`、`_encode_loop()`、`_cleanup_temp_file()`（方法）
-  - [ ] 新增字段：`_session_dir`、`_video_temp_path`、`_encoder`、`_finalize_thread`
-  - [ ] 修改 `_start()` — 创建 session 目录（temp_cleaner）；音频 WAV 输出路径改为 session_dir；VideoEncoder 在录制线程中初始化
-  - [ ] 修改 `_record_loop()` — 录制循环开头初始化 VideoEncoder(FFmpeg pipe)；去掉 JPEG 压缩调用，改直接写 BGR24 → `write_frame()`；画质缩放 `cv2.resize` 移到写 pipe 前
-  - [ ] 修改 `_stop_and_encode()` — 拆分：录制线程 join 后 → 停止音频 → 取消则 cleanup_session → 保存则 `_finalize()` 线程
-  - [ ] 实现 `_finalize()` — 音频有则 FFmpeg mux（`-c:v copy -c:a aac`）→ `shutil.move` 到最终路径 → `cleanup_session` → `on_saved` 回调
-  - [ ] 适配 `_mix_audio_if_available()` — 视频路径改为 `self._video_temp_path`
-  - [ ] 恢复 `RecordMode.WINDOW` 枚举值（取消注释）
-  - [ ] 恢复 `_WindowLostBridge(QObject)` 信号桥（取消注释）
-  - [ ] 恢复 `_window_hwnd`、`_window_title` 字段
-  - [ ] 恢复 `start_window(hwnd)` 方法
-  - [ ] 恢复 `_get_window_rect(hwnd)` — 使用 GetClientRect + ClientToScreen（非 GetWindowRect）
-  - [ ] 恢复 `_get_window_title(hwnd)` 方法
-  - [ ] 恢复 `_record_loop()` 窗口位置跟踪 — 200ms `update_region()` + 窗口丢失 `window_lost.emit()`
-  - [ ] 集成测试：无音频全屏录制 → 停止后 < 1 秒文件可播放；有音频 → 停止后 1~5 秒含音频
-  - [ ] 集成测试：取消录制 → session_dir 被清理、无输出文件
-  - [ ] 集成测试：录制 5 秒 → 视频分辨率/帧率正确 → 播放器可播
+- [x] **recorder_manager.py — 管线重构 + 窗口录制恢复**
+  - [x] 删除：`_JPEG_QUALITY`、`_JPEG_PARAMS`（常量）；`_temp_file`、`_temp_file_handle`、`_total_frames`（字段）
+  - [x] 删除：`_compress_frame()`、`_encode_loop()`、`_cleanup_temp_file()`（方法）
+  - [x] 新增字段：`_session_dir`、`_video_temp_path`、`_encoder`、`_finalize_thread`
+  - [x] 修改 `_start()` — 创建 session 目录（temp_cleaner）；音频 WAV 输出路径改为 session_dir；VideoEncoder 在录制线程中初始化
+  - [x] 修改 `_record_loop()` — 录制循环开头初始化 VideoEncoder(FFmpeg pipe)；去掉 JPEG 压缩调用，改直接写 BGR24 → `write_frame()`；画质缩放 `cv2.resize` 移到写 pipe 前
+  - [x] 修改 `_stop_and_encode()` — 拆分：录制线程 join 后 → 停止音频 → 取消则 cleanup_session → 保存则 `_finalize()` 线程
+  - [x] 实现 `_finalize()` — 音频有则 FFmpeg mux（`-c:v copy -c:a aac`）→ `shutil.move` 到最终路径 → `cleanup_session` → `on_saved` 回调
+  - [x] 适配 `_mix_audio_if_available()` — 视频路径改为 `self._video_temp_path`
+  - [x] 恢复 `RecordMode.WINDOW` 枚举值（取消注释）
+  - [x] 恢复 `_WindowLostBridge(QObject)` 信号桥（取消注释）
+  - [x] 恢复 `_window_hwnd`、`_window_title` 字段
+  - [x] 恢复 `start_window(hwnd)` 方法
+  - [x] 恢复 `_get_window_rect(hwnd)` — 使用 GetClientRect + ClientToScreen（非 GetWindowRect）
+  - [x] 恢复 `_get_window_title(hwnd)` 方法
+  - [x] 恢复 `_record_loop()` 窗口位置跟踪 — 200ms `update_region()` + 窗口丢失 `window_lost.emit()`
+  - [x] 集成测试：无音频全屏录制 → 停止后 < 1 秒文件可播放；有音频 → 停止后 1~5 秒含音频
+  - [x] 集成测试：取消录制 → session_dir 被清理、无输出文件
+  - [x] 集成测试：录制 5 秒 → 视频分辨率/帧率正确 → 播放器可播
 
 #### 窗口录制 UI
 
-- [ ] **window_selector.py — 窗口选择器重写**
-  - [ ] 删除 v1.2 所有注释代码
-  - [ ] 顶部 `import ctypes; import ctypes.wintypes`（修复 0xC0000409 崩溃）
-  - [ ] 定义 `_SYSTEM_CLASSES` 类名黑名单（Shell_TrayWnd, Progman, Button 等）
-  - [ ] 实现 `_enum_windows()` — EnumWindows 回调 + WNDENUMPROC；过滤：可见 + 有标题 + 无 TOOLWINDOW + 类名白名单 + 排除自身；返回 `[(hwnd, title, is_minimized)]`
-  - [ ] 实现 WindowSelector(QDialog) UI — QListWidget + [刷新][选择][取消] 按钮
-  - [ ] 实现双击选择 / 刷新 / 取消关闭交互
-  - [ ] 实现最小化窗口选择 → SW_RESTORE + SetForegroundWindow
-  - [ ] 集成测试：列表中出现 Chrome/记事本等，不出现任务栏和系统控件
+- [x] **window_selector.py — 窗口选择器重写**
+  - [x] 删除 v1.2 所有注释代码
+  - [x] 顶部 `import ctypes; import ctypes.wintypes`（修复 0xC0000409 崩溃）
+  - [x] 定义 `_SYSTEM_CLASSES` 类名黑名单（Shell_TrayWnd, Progman, Button 等）
+  - [x] 实现 `_enum_windows()` — EnumWindows 回调 + WNDENUMPROC；过滤：可见 + 有标题 + 无 TOOLWINDOW + 类名白名单 + 排除自身；返回 `[(hwnd, title, is_minimized)]`
+  - [x] 实现 WindowSelector(QDialog) UI — QListWidget + [刷新][选择][取消] 按钮
+  - [x] 实现双击选择 / 刷新 / 取消关闭交互
+  - [x] 实现最小化窗口选择 → SW_RESTORE + SetForegroundWindow
+  - [x] 集成测试：列表中出现 Chrome/记事本等，不出现任务栏和系统控件
 
-- [ ] **window_highlighter.py — 边框高亮重写**
-  - [ ] 删除 v1.2 所有注释代码
-  - [ ] `import ctypes; import ctypes.wintypes` + `Qt.WA_TransparentForMouseEvents`（修复拼写 Bug）
-  - [ ] 实现 `__init__` — FramelessWindowHint | StaysOnTop | Tool | WindowTransparentForInput + WA_TransparentForMouseEvents
-  - [ ] 实现 `paintEvent` — QPainter 绿色虚线边框（#00e676, 2px, Qt.DashLine）
-  - [ ] 实现 `_update_position()` — GetWindowRect → setGeometry；失败则 hide_highlight（窗口关闭不崩溃）
-  - [ ] 实现 `show_highlight()` / `hide_highlight()` — 显示/隐藏 + 100ms QTimer 启停
-  - [ ] 集成测试：边框跟随 Notepad 窗口移动；关闭 Notepad 后边框消失不崩溃
+- [x] **window_highlighter.py — 边框高亮重写**
+  - [x] 删除 v1.2 所有注释代码
+  - [x] `import ctypes; import ctypes.wintypes` + `Qt.WA_TransparentForMouseEvents`（修复拼写 Bug）
+  - [x] 实现 `__init__` — FramelessWindowHint | StaysOnTop | Tool | WindowTransparentForInput + WA_TransparentForMouseEvents
+  - [x] 实现 `paintEvent` — QPainter 绿色虚线边框（#00e676, 2px, Qt.DashLine）
+  - [x] 实现 `_update_position()` — GetWindowRect → setGeometry；失败则 hide_highlight（窗口关闭不崩溃）
+  - [x] 实现 `show_highlight()` / `hide_highlight()` — 显示/隐藏 + 100ms QTimer 启停
+  - [x] 集成测试：边框跟随 Notepad 窗口移动；关闭 Notepad 后边框消失不崩溃
 
 #### 入口集成
 
-- [ ] **main.py — 窗口录制恢复 + DPI**
-  - [ ] 在 `main()` 中 `QApplication` 创建前添加 DPI 两行：`AA_EnableHighDpiScaling` + `AA_UseHighDpiPixmaps`
-  - [ ] 恢复 `_HotkeyBridge.window_requested` 信号及快捷键注册（Ctrl+Shift+W → `_setup_hotkeys()`）
-  - [ ] 恢复 `_WindowBridge`、`_WindowLostBridge` 信号桥类定义
-  - [ ] 实现 `_on_start_window()` — WindowSelector 创建显示（保存为 `self._window_selector` 防 GC）
-  - [ ] 实现 `_on_window_selected(hwnd, title)` — 最小化恢复 + SetForeground → WindowHighlighter → 倒计时/直接录制
-  - [ ] 实现 `_do_start_window(hwnd)` — `recorder.start_window()` → `_update_highlight_state()`
-  - [ ] 实现 `_on_window_lost(reason)` — closed 自动停止保存 + 托盘通知；minimized 暂停 + 托盘通知
-  - [ ] 实现 `_on_window_cancelled()` — `self._window_selector = None` 清理引用
-  - [ ] 恢复 `__init__` 中 `_window_bridge`、`_window_lost_bridge` 信号连接
-  - [ ] 恢复 `_handle_saved()` / `_on_exit()` / `_on_cancel_recording()` 中 `_window_highlighter = None` 清理
+- [x] **main.py — 窗口录制恢复 + DPI**
+  - [x] 在 `main()` 中 `QApplication` 创建前添加 DPI 两行：`AA_EnableHighDpiScaling` + `AA_UseHighDpiPixmaps`
+  - [x] 恢复 `_HotkeyBridge.window_requested` 信号及快捷键注册（Ctrl+Shift+W → `_setup_hotkeys()`）
+  - [x] 恢复 `_WindowBridge`、`_WindowLostBridge` 信号桥类定义
+  - [x] 实现 `_on_start_window()` — WindowSelector 创建显示（保存为 `self._window_selector` 防 GC）
+  - [x] 实现 `_on_window_selected(hwnd, title)` — 最小化恢复 + SetForeground → WindowHighlighter → 倒计时/直接录制
+  - [x] 实现 `_do_start_window(hwnd)` — `recorder.start_window()` → `_update_highlight_state()`
+  - [x] 实现 `_on_window_lost(reason)` — closed 自动停止保存 + 托盘通知；minimized 暂停 + 托盘通知
+  - [x] 实现 `_on_window_cancelled()` — `self._window_selector = None` 清理引用
+  - [x] 恢复 `__init__` 中 `_window_bridge`、`_window_lost_bridge` 信号连接
+  - [x] 恢复 `_handle_saved()` / `_on_exit()` / `_on_cancel_recording()` 中 `_window_highlighter = None` 清理
   - [ ] 集成测试：窗口选择→高亮→录制→停止 全链路
 
 #### UI 小改
 
-- [ ] **settings_dialog.py — 恢复窗口录制快捷键**
-  - [ ] 取消注释 `_shortcut_window` 控件定义行
-  - [ ] 恢复 `_load_config()` 中 `shortcut_window` 加载
-  - [ ] 恢复 `_save_config()` 中 `shortcut_window` 保存
+- [x] **settings_dialog.py — 恢复窗口录制快捷键**
+  - [x] 取消注释 `_shortcut_window` 控件定义行
+  - [x] 恢复 `_load_config()` 中 `shortcut_window` 加载
+  - [x] 恢复 `_save_config()` 中 `shortcut_window` 保存
   - [ ] 手工验证：打开设置→窗口录制快捷键出现→修改→保存→重启→新快捷键生效
 
-- [ ] **tray_icon.py — 恢复窗口录制菜单项**
-  - [ ] 恢复 `_build_idle_menu()` 中 `pystray.MenuItem("🖥 窗口录制", ...)` 行
-  - [ ] 恢复 `_SignalBridge.start_window_requested` 信号
-  - [ ] 恢复 `_handle_start_window()` 回调
+- [x] **tray_icon.py — 恢复窗口录制菜单项**
+  - [x] 恢复 `_build_idle_menu()` 中 `pystray.MenuItem("🖥 窗口录制", ...)` 行
+  - [x] 恢复 `_SignalBridge.start_window_requested` 信号
+  - [x] 恢复 `_handle_start_window()` 回调
   - [ ] 手工验证：右键托盘→菜单中有"窗口录制"→点击→弹窗选择器
 
 #### 打包与优化
@@ -439,10 +439,10 @@ setup (最先)
 | 阶段 | 内容 | 依赖 | 状态 |
 |-----|------|------|------|
 | 1 | video_encoder.py + temp_cleaner.py + disk_checker.py | 无 | ✅ |
-| 2 | window_selector.py + window_highlighter.py | 无 | 🔄 |
-| 3 | recorder_manager.py 重构 | 1 | ⏳ |
-| 4 | main.py 窗口录制集成 | 2, 3 | ⏳ |
-| 5 | settings_dialog.py + tray_icon.py 小改 | 无 | ⏳ |
+| 2 | window_selector.py + window_highlighter.py | 无 | ✅ |
+| 3 | recorder_manager.py 重构 | 1 | ✅ |
+| 4 | main.py 窗口录制集成 | 2, 3 | ✅ |
+| 5 | settings_dialog.py + tray_icon.py 小改 | 无 | ✅ |
 | 6 | build_std.spec 优化 + DPI | 无 | ⏳ |
 | 7 | 集成测试 + 打包验证 | 全部 | ⏳ |
 
