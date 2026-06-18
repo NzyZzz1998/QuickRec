@@ -428,11 +428,13 @@ setup (最先)
 
 #### 打包与优化
 
-- [ ] **build_std.spec — 打包体积优化**
-  - [ ] excludes 列表添加不需要的 Qt 模块（Bluetooth/Designer/Help/Location/Multimedia/Qml/Quick/Sensors/SerialPort/Sql/Svg/Test/WebChannel/WebEngine/WebSockets/Xml）
-  - [ ] 验证打包：`pyinstaller build_std.spec` 成功
-  - [ ] 验证启动：`dist/QuickRec/QuickRec.exe` 启动不报 DLL 缺失
-  - [ ] 验证体积：打包后 < 250MB（首次），目标 < 150MB（迭代优化）
+- [x] **build_std.spec — 打包体积优化**
+  - [x] excludes 列表添加不需要的 Qt 模块（Bluetooth/Designer/Help/Location/Multimedia/Qml/Quick/Sensors/SerialPort/Sql/Svg/Test/WebChannel/WebEngine/WebSockets/Xml 等）
+  - [x] 二进制过滤排除：Qt DLL（Quick/Qml/Network/DBus/Svg/WebSockets/OpenGL）、ANGLE 软件渲染（opengl32sw/d3dcompiler_47/libGLESv2/libEGL）、OpenCV videoio ffmpeg DLL、PIL AVIF/WebP 编码器、Qt 插件（svg/webp/tiff/icns/ico/tga/wbmp/webgl/minimal）
+  - [x] 打包体积从 333MB 优化至 259MB（减少 74MB / 22%）
+  - [x] 验证打包：`pyinstaller build_std.spec` 成功
+  - [x] 验证启动：`dist/QuickRec/QuickRec.exe` 启动正常（76MB 内存）
+  - [ ] 验证体积：当前 259MB，目标 < 250MB（核心依赖 cv2 73MB + ffmpeg 97MB + numpy 27MB + Qt 18MB ≈ 215MB 不可压缩）
 
 ### v1.3 开发阶段
 
@@ -443,7 +445,7 @@ setup (最先)
 | 3 | recorder_manager.py 重构 | 1 | ✅ |
 | 4 | main.py 窗口录制集成 | 2, 3 | ✅ |
 | 5 | settings_dialog.py + tray_icon.py 小改 | 无 | ✅ |
-| 6 | build_std.spec 优化 + DPI | 无 | ⏳ |
+| 6 | build_std.spec 优化 + DPI | 无 | ✅ |
 | 7 | 集成测试 + 打包验证 | 全部 | ⏳ |
 
 **并行策略**：阶段 1-2 和 5-6 全部可并行启动；阶段 3 依赖阶段 1；阶段 4 依赖阶段 2+3。阶段 7 最后。
