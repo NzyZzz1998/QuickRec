@@ -80,15 +80,16 @@ class VideoEncoder:
         except (BrokenPipeError, OSError):
             pass
         try:
-            self._proc.wait(timeout=30)
+            self._proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            err = self._proc.stderr.read().decode(errors="replace") if self._proc.stderr else ""
             self._proc.kill()
             self._proc.wait()
-            logger.error("FFmpeg 编码超时，已强制终止")
+            logger.error(f"FFmpeg 编码超时，已强制终止 (stderr: {err[:500]})")
             return False
         if self._proc.returncode != 0:
             err = self._proc.stderr.read().decode(errors="replace")
-            logger.error(f"FFmpeg 编码失败 (returncode={self._proc.returncode}): {err}")
+            logger.error(f"FFmpeg 编码失败 (returncode={self._proc.returncode}): {err[:500]}")
             return False
         logger.info(f"视频编码完成: {self._output_path} ({self._frame_count} 帧)")
         return True

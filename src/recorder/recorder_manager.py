@@ -326,8 +326,9 @@ class RecorderManager:
         logger.info(f"录制线程结束，frames={frames_written}")
 
     def _stop_and_encode(self):
+        # 等待录制线程完成 encoder.close()（FFmpeg flush 可能需要数十秒）
         if self._record_thread and self._record_thread.is_alive():
-            self._record_thread.join(timeout=10.0)
+            self._record_thread.join()
 
         # 停止音频
         self._audio_temp_paths = []
@@ -364,7 +365,6 @@ class RecorderManager:
 
             shutil.move(video_path, self._output_path)
             result_path = self._output_path
-            logger.info(f"录制已保存: {result_path}")
         except Exception as e:
             logger.error(f"最终化失败: {e}")
         finally:
