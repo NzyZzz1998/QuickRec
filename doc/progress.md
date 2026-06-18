@@ -324,34 +324,34 @@ setup (最先)
 
 #### 编码模块
 
-- [ ] **video_encoder.py — FFmpeg pipe H.264 重写**
-  - [ ] 删除旧 OpenCV VideoWriter 代码
-  - [ ] 实现 `_build_cmd()` — 构造 FFmpeg 命令行（rawvideo → libx264 CRF23 preset medium）
-  - [ ] 实现 `__init__()` — subprocess.Popen 启动 FFmpeg，stdin=PIPE
-  - [ ] 实现 `write_frame(frame)` — BGR24 `tobytes()` 写入 stdin，捕获 BrokenPipeError 返回 False
-  - [ ] 实现 `close()` — stdin.close + proc.wait(30s) + 检查 returncode
-  - [ ] 实现 `__del__()` — terminate 保底
-  - [ ] 错误处理：FileNotFoundError（抛异常）→ 调用方降级；TimeoutExpired（kill）
-  - [ ] 单元测试：mock Popen 验证命令行参数（帧尺寸、帧率、CRF、preset、pix_fmt）
-  - [ ] 集成测试：写入 100 帧 1920×1080 BGR24 → 输出可播放 H.264 MP4 → close 后 write_frame 返回 False
+- [x] **video_encoder.py — FFmpeg pipe H.264 重写**
+  - [x] 删除旧 OpenCV VideoWriter 代码
+  - [x] 实现 `_build_cmd()` — 构造 FFmpeg 命令行（rawvideo → libx264 CRF23 preset medium）
+  - [x] 实现 `__init__()` — subprocess.Popen 启动 FFmpeg，stdin=PIPE
+  - [x] 实现 `write_frame(frame)` — BGR24 `tobytes()` 写入 stdin，捕获 BrokenPipeError 返回 False
+  - [x] 实现 `close()` — stdin.close + proc.wait(30s) + 检查 returncode
+  - [x] 实现 `__del__()` — terminate 保底
+  - [x] 错误处理：FileNotFoundError（抛异常）→ 调用方降级；TimeoutExpired（kill）
+  - [x] 单元测试：mock Popen 验证命令行参数（帧尺寸、帧率、CRF、preset、pix_fmt）
+  - [x] 集成测试：写入 100 帧 1920×1080 BGR24 → 输出可播放 H.264 MP4 → close 后 write_frame 返回 False
 
 #### 工具模块
 
-- [ ] **temp_cleaner.py — 三层临时文件清理（新增）**
-  - [ ] 创建 TempCleaner 类，定义 BASE_DIR = %TEMP%/QuickRec
-  - [ ] 实现 `create_session_dir()` — 创建 `session_{pid}_{ts}/` 目录，返回绝对路径
-  - [ ] 实现 `_is_pid_alive(pid)` — `os.kill(pid, 0)` 不依赖 psutil
-  - [ ] 实现 `cleanup_session(dir)` — `shutil.rmtree`，忽略 OSError
-  - [ ] 实现 `cleanup_stale()` — 遍历 session_* 目录，解析 PID，清理非活跃进程遗留
-  - [ ] 实现 `register_atexit(dir)` — `atexit.register(cleanup_session, dir)`
-  - [ ] 单元测试：创建/清理目录正常；cleanup_stale 删除 dead PID 目录、保留 live PID 目录
+- [x] **temp_cleaner.py — 三层临时文件清理（新增）**
+  - [x] 创建 TempCleaner 类，定义 BASE_DIR = %TEMP%/QuickRec
+  - [x] 实现 `create_session_dir()` — 创建 `session_{pid}_{ts}/` 目录，返回绝对路径
+  - [x] 实现 `_is_pid_alive(pid)` — `os.kill(pid, 0)` 不依赖 psutil
+  - [x] 实现 `cleanup_session(dir)` — `shutil.rmtree`，忽略 OSError
+  - [x] 实现 `cleanup_stale()` — 遍历 session_* 目录，解析 PID，清理非活跃进程遗留
+  - [x] 实现 `register_atexit(dir)` — `atexit.register(cleanup_session, dir)`
+  - [x] 单元测试：创建/清理目录正常；cleanup_stale 删除 dead PID 目录、保留 live PID 目录
 
-- [ ] **disk_checker.py — 磁盘空间预警（扩展）**
-  - [ ] 新增 `WARN_THRESHOLD_MB = 1024`、`BLOCK_THRESHOLD_MB = 200` 常量
-  - [ ] 实现 `check_before_recording(save_path)` → ("ok"|"warn"|"block", free_mb)
-  - [ ] 实现 `show_disk_warning(free_mb, block, parent)` → bool（block=True 返回 False，False 返回用户选择）
-  - [ ] 在 main.py 三种录制入口（全屏/区域/窗口）的 `_start()` 前接入 `_check_disk_space()` 勾子
-  - [ ] 单元测试：mock get_free_space 验证三种返回值；阈值边界值（1024MB/199MB）
+- [x] **disk_checker.py — 磁盘空间预警（扩展）**
+  - [x] 新增 `WARN_THRESHOLD_MB = 1024`、`BLOCK_THRESHOLD_MB = 200` 常量
+  - [x] 实现 `check_before_recording(save_path)` → ("ok"|"warn"|"block", free_mb)
+  - [x] 实现 `show_disk_warning(free_mb, block, parent)` → bool（block=True 返回 False，False 返回用户选择）
+  - [x] 在 main.py 三种录制入口（全屏/区域/窗口）的 `_start()` 前接入 `_check_disk_space()` 勾子
+  - [x] 单元测试：mock get_free_space 验证三种返回值；阈值边界值（1024MB/199MB）
   - [ ] 集成测试：QMessageBox.warning/critical 在托盘应用中正常显示
 
 #### 录制核心
@@ -438,7 +438,7 @@ setup (最先)
 
 | 阶段 | 内容 | 依赖 | 状态 |
 |-----|------|------|------|
-| 1 | video_encoder.py + temp_cleaner.py + disk_checker.py | 无 | 🔄 |
+| 1 | video_encoder.py + temp_cleaner.py + disk_checker.py | 无 | ✅ |
 | 2 | window_selector.py + window_highlighter.py | 无 | 🔄 |
 | 3 | recorder_manager.py 重构 | 1 | ⏳ |
 | 4 | main.py 窗口录制集成 | 2, 3 | ⏳ |
