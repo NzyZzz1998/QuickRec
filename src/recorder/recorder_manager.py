@@ -1,27 +1,24 @@
 """
-录制控制模块
+录制控制模块（v1.3 重构）
 
-协调屏幕捕获和视频编码，管理录制生命周期。
-帧缓存模式：录制时帧以JPEG压缩写入临时文件，停止后后台解码写入VideoWriter。
-内存占用始终为MB级（仅文件句柄+单帧缓冲），适合长时间录制。
-
-v1.1 新增：录制模式（全屏/区域）、音频集成、FFmpeg 混合。
+v1.3 变更：
+- 去除 JPEG 临时文件方案，改为 FFmpeg pipe 实时编码
+- 接入 TempCleaner 会话目录管理
+- 恢复 RecordMode.WINDOW 窗口录制模式
 """
 
+import ctypes
+import ctypes.wintypes
 import logging
 import os
 import shutil
-import struct
 import subprocess
 import sys
 import threading
 import time
 from enum import Enum
 
-import ctypes
-import ctypes.wintypes
 import cv2
-import numpy as np
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -31,22 +28,17 @@ from recorder.video_encoder import VideoEncoder
 from recorder.audio_capturer import AudioCapturer, AudioSource
 from utils.disk_checker import DiskChecker
 from utils.file_namer import FileNamer
+from utils.temp_cleaner import TempCleaner
 
 logger = logging.getLogger("QuickRec")
 
-# Windows 高精度定时器：将系统计时器分辨率提升到 1ms
 try:
     ctypes.windll.winmm.timeBeginPeriod(1)
 except Exception:
     pass
 
-# JPEG 压缩参数
-_JPEG_QUALITY = 95
-_JPEG_PARAMS = [cv2.IMWRITE_JPEG_QUALITY, _JPEG_QUALITY]
-
 
 class RecorderState(Enum):
-    """录制状态枚举"""
     IDLE = "idle"
     RECORDING = "recording"
     PAUSED = "paused"
@@ -55,19 +47,17 @@ class RecorderState(Enum):
 
 
 class RecordMode(Enum):
-    """录制模式枚举"""
     FULLSCREEN = "fullscreen"
     REGION = "region"
-    # WINDOW = "window"  # v1.2 新增 → 延期：窗口录制
+    WINDOW = "window"
 
 
-# class _WindowLostBridge(QObject):
-#     """窗口丢失信号桥（录制线程 → Qt 主线程）"""
-#     window_lost = pyqtSignal(str)  # "closed" / "minimized"
+class _WindowLostBridge(QObject):
+    window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
 class RecorderManager:
-    """录制管理器"""
+    """录制管理器（v1.3：FFmpeg pipe + TempCleaner + 窗口录制）"""
 
     def __init__(self, config: ConfigManager = None, on_saved=None):
         self._config = config or ConfigManager()
@@ -76,10 +66,9 @@ class RecorderManager:
         self._capturer: ScreenCapturer = None
         self._encoder: VideoEncoder = None
         self._record_thread: threading.Thread = None
-        self._encode_thread: threading.Thread = None
+        self._finalize_thread: threading.Thread = None
         self._stop_thread: threading.Thread = None
         self._stop_event = threading.Event()
-        # _resume_event: set() = 可以录制, clear() = 暂停中（线程等待）
         self._resume_event = threading.Event()
         self._start_time: float = 0
         self._pause_duration: float = 0
@@ -87,206 +76,98 @@ class RecorderManager:
         self._output_path: str = ""
         self._lock = threading.Lock()
         self._cancelled = False
-        # self._window_lost_notified = False  # 延期：窗口录制
-
-        # 临时文件缓存（JPEG帧写入磁盘，非内存）
-        self._temp_file: str = ""
-        self._temp_file_handle = None
-        self._total_frames: int = 0
         self._fps: int = 30
         self._frame_size: tuple = (0, 0)
         self._encode_size: tuple = (0, 0)
+        self._ffmpeg_path: str = ""
 
-        # v1.1: 音频相关字段
+        # TempCleaner 会话目录
+        self._session_dir: str = ""
+        self._video_temp_path: str = ""
+
+        # 音频
         self._audio_capturer: AudioCapturer = None
         self._audio_source: str = AudioSource.NONE
-        self._ffmpeg_path: str = ""
         self._audio_temp_paths: list = []
 
-        # v1.2: 窗口录制相关字段（延期：窗口录制）
-        # self._window_hwnd: int = None
-        # self._window_title: str = ""
-        # self._window_lost_bridge = _WindowLostBridge()
-        # self._window_lost_notified = False  # 防止重复 emit 窗口丢失信号
+        # 窗口录制
+        self._window_hwnd: int = None
+        self._window_title: str = ""
+        self._window_lost_bridge = _WindowLostBridge()
 
-        # 编码完成回调
         self._on_saved = on_saved
 
+    # --- 公共接口 ---
+
     def start_fullscreen(self) -> bool:
-        """开始全屏录制"""
         self._mode = RecordMode.FULLSCREEN
         return self._start(region=None)
 
     def start_region(self, region: tuple) -> bool:
-        """开始区域录制
-
-        Args:
-            region: (left, top, width, height)
-        """
         self._mode = RecordMode.REGION
         return self._start(region=region)
 
-    # def start_window(self, hwnd: int) -> bool:
-    #     """开始窗口录制（v1.2 新增 → 延期：窗口录制）
-    #
-    #     Args:
-    #         hwnd: 目标窗口句柄
-    #
-    #     Returns:
-    #         True 如果成功开始录制
-    #     """
-    #     # 验证窗口有效性
-    #     if not ctypes.windll.user32.IsWindow(hwnd):
-    #         logger.error(f"无效窗口句柄: {hwnd}")
-    #         return False
-    #
-    #     # 获取窗口标题
-    #     self._window_title = self._get_window_title(hwnd)
-    #     self._mode = RecordMode.WINDOW
-    #     self._window_hwnd = hwnd
-    #
-    #     # 获取初始窗口区域（客户区，不含边框阴影）
-    #     rect = self._get_window_rect(hwnd)
-    #     if rect is None:
-    #         logger.error(f"无法获取窗口位置: hwnd={hwnd}")
-    #         return False
-    #
-    #     region = (rect.left(), rect.top(), rect.width(), rect.height())
-    #     logger.info(f"窗口录制: hwnd={hwnd}, title={self._window_title}, region={region}")
-    #     return self._start(region=region, hwnd=hwnd)
+    def start_window(self, hwnd: int) -> bool:
+        if not ctypes.windll.user32.IsWindow(hwnd):
+            logger.error(f"无效窗口句柄: {hwnd}")
+            return False
+        self._window_title = self._get_window_title(hwnd)
+        self._window_hwnd = hwnd
+        self._mode = RecordMode.WINDOW
+        rect = self._get_window_rect(hwnd)
+        if rect is None:
+            logger.error(f"无法获取窗口位置: hwnd={hwnd}")
+            return False
+        region = (rect.left(), rect.top(), rect.width(), rect.height())
+        return self._start(region=region)
 
     def pause(self) -> bool:
-        """暂停录制"""
         with self._lock:
             if self._state != RecorderState.RECORDING:
                 return False
             self._state = RecorderState.PAUSED
             self._pause_start = time.time()
-        # clear 使录制线程在 wait() 处阻塞
         self._resume_event.clear()
         return True
 
     def resume(self) -> bool:
-        """恢复录制"""
         with self._lock:
             if self._state != RecorderState.PAUSED:
                 return False
             self._state = RecorderState.RECORDING
             self._pause_duration += time.time() - self._pause_start
-            # self._window_lost_notified = False  # 允许再次通知窗口丢失（延期：窗口录制）
-        # set 唤醒录制线程继续执行
         self._resume_event.set()
         return True
 
     def stop(self, cancel: bool = False) -> str:
-        """停止录制，立即返回（不阻塞主线程）
-
-        录制线程的等待、文件清理和编码启动全部在后台线程中完成。
-
-        Args:
-            cancel: True 表示取消录制，不保存文件
-
-        Returns:
-            始终返回空字符串（编码异步进行），通过 on_saved 回调通知结果
-        """
         with self._lock:
-            if self._state == RecorderState.IDLE:
-                return ""
-            if self._state == RecorderState.SAVING:
-                return ""
-            if self._state == RecorderState.STOPPING:
+            if self._state in (RecorderState.IDLE, RecorderState.SAVING, RecorderState.STOPPING):
                 return ""
             self._state = RecorderState.STOPPING
-
         self._cancelled = cancel
-
-        # 设置停止事件，并唤醒可能阻塞在暂停等待的线程
         self._stop_event.set()
         self._resume_event.set()
-
-        # 在后台线程中等待录制结束、清理并启动编码，不阻塞主线程
-        self._stop_thread = threading.Thread(
-            target=self._stop_and_encode, daemon=True
-        )
+        self._stop_thread = threading.Thread(target=self._stop_and_encode, daemon=True)
         self._stop_thread.start()
         return ""
 
-    def _stop_and_encode(self):
-        """后台线程：等待录制结束、清理文件、启动编码"""
-        # 等待录制线程结束
-        if self._record_thread and self._record_thread.is_alive():
-            self._record_thread.join(timeout=5.0)
-
-        # 关闭临时文件
-        if self._temp_file_handle:
-            self._temp_file_handle.close()
-            self._temp_file_handle = None
-
-        # 关闭捕获器
-        if self._capturer:
-            self._capturer.close()
-            self._capturer = None
-
-        # v1.1: 停止音频捕获
-        self._audio_temp_paths = []
-        if self._audio_capturer:
-            try:
-                paths = self._audio_capturer.stop()
-                self._audio_temp_paths = paths if isinstance(paths, list) else [paths]
-            except Exception as e:
-                logger.error(f"停止音频捕获异常: {e}")
-            self._audio_capturer = None
-
-        # 取消录制时：删除临时文件和音频临时文件
-        if self._cancelled:
-            for p in self._audio_temp_paths:
-                if os.path.exists(p):
-                    try:
-                        os.remove(p)
-                    except OSError:
-                        pass
-            self._audio_temp_paths = []
-            self._cleanup_temp_file()
-            with self._lock:
-                self._state = RecorderState.IDLE
-            return
-
-        # 启动后台编码线程
-        with self._lock:
-            self._state = RecorderState.SAVING
-
-        self._encode_thread = threading.Thread(
-            target=self._encode_loop, daemon=True
-        )
-        self._encode_thread.start()
-
     def get_state(self) -> RecorderState:
-        """获取当前状态"""
         return self._state
 
     def get_elapsed(self) -> str:
-        """获取已录制时长，格式 MM:SS"""
         if self._state == RecorderState.IDLE:
             return "00:00"
-
         elapsed = time.time() - self._start_time - self._pause_duration
         if self._state == RecorderState.PAUSED:
             elapsed -= (time.time() - self._pause_start)
-
         minutes = int(elapsed) // 60
         seconds = int(elapsed) % 60
         return f"{minutes:02d}:{seconds:02d}"
 
     def is_saving(self) -> bool:
-        """是否正在后台编码保存中"""
         return self._state == RecorderState.SAVING
 
     def wait_until_idle(self, timeout: float = 60.0):
-        """等待录制器回到 IDLE 状态（用于退出时等待编码完成）
-
-        Args:
-            timeout: 最大等待时间（秒）
-        """
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._state == RecorderState.IDLE:
@@ -294,192 +175,85 @@ class RecorderManager:
             time.sleep(0.1)
 
     def get_mode(self) -> RecordMode:
-        """获取当前录制模式"""
         return self._mode
 
-    @staticmethod
-    def _get_ffmpeg_path() -> str:
-        """定位 FFmpeg 可执行文件
+    # --- 内部实现 ---
 
-        搜索顺序:
-        1. 应用目录下的 ffmpeg/ffmpeg.exe（打包内置）
-        2. 项目目录下的 ffmpeg/ffmpeg.exe（开发环境）
-        3. 系统 PATH 环境变量
-        4. 返回空字符串（无音频混合能力）
-        """
-        # 1. 打包后：优先 sys._MEIPASS（PyInstaller 资源目录，onedir 下为 _internal），
-        #    再 fallback 到 sys.executable 同级目录
-        if getattr(sys, 'frozen', False):
-            candidates = []
-            meipass = getattr(sys, '_MEIPASS', None)
-            if meipass:
-                candidates.append(os.path.join(meipass, "ffmpeg", "ffmpeg.exe"))
-            app_dir = os.path.dirname(sys.executable)
-            candidates.append(os.path.join(app_dir, "ffmpeg", "ffmpeg.exe"))
-            for local_ffmpeg in candidates:
-                if os.path.isfile(local_ffmpeg):
-                    return local_ffmpeg
-
-        # 2. 开发环境：项目根目录（src/recorder/ → src/ → 项目根）
-        dev_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        local_ffmpeg = os.path.join(dev_dir, "ffmpeg", "ffmpeg.exe")
-        if os.path.isfile(local_ffmpeg):
-            return local_ffmpeg
-
-        # 3. 系统 PATH
-        system_ffmpeg = shutil.which("ffmpeg")
-        if system_ffmpeg:
-            return system_ffmpeg
-
-        # 4. 未找到
-        return ""
-
-    @staticmethod
-    def _compress_frame(frame):
-        """将BGR帧压缩为JPEG字节"""
-        _, encoded = cv2.imencode('.jpg', frame, _JPEG_PARAMS)
-        return encoded.tobytes()
-
-    def _get_target_size(self):
-        """根据画质配置获取目标分辨率 (width, height)，None 表示原始尺寸
-
-        区域录制时保持选区宽高比，不强制拉伸到 16:9。
-        """
-        quality = self._config.get("quality", "native")
-        target = ConfigManager.QUALITY_SIZES.get(quality)
-        if target is None:
-            return None
-
-        # 区域录制时保持选区宽高比
-        if self._mode == RecordMode.REGION and self._frame_size:
-            fw, fh = self._frame_size
-            tw, th = target
-            # 按宽高比缩放：选区宽高比 vs 目标宽高比
-            src_ratio = fw / fh
-            dst_ratio = tw / th
-            if src_ratio > dst_ratio:
-                # 选区更宽，以目标宽度为准，高度按比例缩放
-                new_w = tw
-                new_h = int(tw / src_ratio)
-            else:
-                # 选区更高，以目标高度为准，宽度按比例缩放
-                new_h = th
-                new_w = int(th * src_ratio)
-            # 确保偶数（编码要求）
-            return (new_w & ~1, new_h & ~1)
-
-        return target
-
-    def _start(self, region=None, hwnd=None) -> bool:
-        """内部启动录制"""
+    def _start(self, region=None) -> bool:
         with self._lock:
             if self._state != RecorderState.IDLE:
                 return False
 
-            # v1.2: 窗口模式设置（延期：窗口录制）
-            # if hwnd:
-            #     self._window_hwnd = hwnd
-            #     if self._mode != RecordMode.WINDOW:
-            #         self._mode = RecordMode.WINDOW
-
-            # 检查磁盘空间
             save_path = self._config.get("save_path")
-            quality = self._config.get("quality")
+            quality = self._config.get("quality", "high")
             if DiskChecker.is_low_space(save_path, quality):
                 return False
 
-            # 创建捕获器（延迟启动，在录制线程中调用 start()）
             self._capturer = ScreenCapturer(region=region)
             self._frame_size = self._capturer.get_monitor_size()
-
-            # 计算编码用的目标尺寸（画质缩放）
-            target = self._get_target_size()
-            if target:
-                self._encode_size = target
-            else:
-                self._encode_size = self._frame_size
-
-            fps = self._config.get("fps", 30)
+            self._encode_size = self._get_target_size() or self._frame_size
+            self._fps = self._config.get("fps", 30)
             self._output_path = FileNamer.generate(save_path)
+            self._ffmpeg_path = self._get_ffmpeg_path()
 
-            # 创建临时文件（与输出文件同目录）
-            self._temp_file = self._output_path + ".tmp"
-            try:
-                self._temp_file_handle = open(self._temp_file, "wb")
-            except OSError as e:
-                logger.error(f"创建临时文件失败: {e}")
-                self._capturer.close()
-                self._capturer = None
-                return False
+            # 创建会话目录
+            self._session_dir = TempCleaner.create_session_dir()
+            TempCleaner.register_atexit(self._session_dir)
+            self._video_temp_path = os.path.join(self._session_dir, "video.mp4")
 
-            # 初始化帧计数
-            self._total_frames = 0
-            self._fps = fps
+            # 音频初始化（输出到会话目录）
+            self._audio_temp_paths = []
+            self._audio_capturer = None
+            audio_source_str = self._config.get("audio_source", "none")
+            self._audio_source = audio_source_str
+            if audio_source_str != AudioSource.NONE and self._ffmpeg_path:
+                try:
+                    self._audio_capturer = AudioCapturer(
+                        source=audio_source_str,
+                        output_dir=self._session_dir,
+                    )
+                    if not self._audio_capturer.start(output_stem="audio"):
+                        logger.warning("音频捕获初始化失败，继续无声录制")
+                        self._audio_capturer = None
+                except Exception as e:
+                    logger.warning(f"音频捕获初始化异常: {e}")
+                    self._audio_capturer = None
 
             self._stop_event.clear()
             self._resume_event.set()
             self._pause_duration = 0
             self._cancelled = False
-            # self._window_lost_notified = False  # 延期：窗口录制
             self._start_time = time.time()
             self._state = RecorderState.RECORDING
 
-            # v1.1: 音频初始化
-            self._audio_temp_paths = []
-            self._audio_capturer = None
-            audio_source_str = self._config.get("audio_source", "none")
-            self._audio_source = audio_source_str  # 保存配置值
-            self._ffmpeg_path = self._get_ffmpeg_path()
-
-            if audio_source_str != AudioSource.NONE:
-                try:
-                    output_dir = os.path.dirname(self._output_path)
-                    output_stem = os.path.splitext(os.path.basename(self._output_path))[0]
-                    self._audio_capturer = AudioCapturer(
-                        source=audio_source_str,
-                        output_dir=output_dir,
-                    )
-                    if not self._audio_capturer.start(output_stem=output_stem):
-                        logger.warning("音频捕获初始化失败，继续无声录制")
-                        self._audio_capturer = None
-                        self._audio_source = AudioSource.NONE
-                except Exception as e:
-                    logger.warning(f"音频捕获初始化异常，继续无声录制: {e}")
-                    self._audio_capturer = None
-                    self._audio_source = AudioSource.NONE
-
-            # 启动录制线程
-            self._record_thread = threading.Thread(
-                target=self._record_loop, daemon=True
-            )
+            self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
             self._record_thread.start()
-
         return True
 
     def _record_loop(self):
-        """录制线程主循环
-
-        帧以JPEG压缩后写入临时文件（TLV格式：4字节长度+帧数据）。
-        录制循环仅包含截图+压缩+写盘，无编码开销，足以稳定60fps。
-        暂停期间保留帧计数，恢复时调整时间基准使帧号连续。
-        """
-        # 在录制线程中启动 dxcam，避免在主线程中初始化导致阻塞
+        """录制线程：dxcam → cv2.resize（如需）→ FFmpeg pipe"""
         try:
             self._capturer.start()
         except Exception as e:
             logger.error(f"屏幕捕获器启动失败: {e}")
             self._stop_event.set()
+            return
+
+        self._encoder = VideoEncoder(
+            output_path=self._video_temp_path,
+            fps=self._fps,
+            frame_size=self._encode_size,
+            ffmpeg_path=self._ffmpeg_path,
+        )
 
         fps = self._fps
         frame_interval = 1.0 / fps
         rec_start = time.time()
         frames_written = 0
         was_paused = False
-        fh = self._temp_file_handle
-        # last_window_update = 0  # v1.2: 窗口位置更新时间戳（延期：窗口录制）
+        last_window_update = 0
 
         while not self._stop_event.is_set():
-            # 暂停等待
             if not self._resume_event.wait(timeout=0.1):
                 if self._stop_event.is_set():
                     break
@@ -489,319 +263,198 @@ class RecorderManager:
             if self._stop_event.is_set():
                 break
 
-            # 从暂停恢复：调整时间基准使帧号连续
             if was_paused:
                 rec_start = time.time() - frames_written * frame_interval
                 was_paused = False
 
-            # v1.2: 窗口模式下定期更新捕获区域（延期：窗口录制）
-            # if self._mode == RecordMode.WINDOW and self._window_hwnd:
-            #     now = time.time()
-            #     if now - last_window_update >= 0.2:
-            #         rect = self._get_window_rect(self._window_hwnd)
-            #         if rect is None:
-            #             user32 = ctypes.windll.user32
-            #             if not user32.IsWindow(self._window_hwnd):
-            #                 reason = "closed"
-            #             elif user32.IsIconic(self._window_hwnd):
-            #                 reason = "minimized"
-            #             else:
-            #                 reason = "closed"
-            #             reason_text = "关闭" if reason == "closed" else "最小化"
-            #             logger.info(f"录制窗口已{reason_text} (hwnd={self._window_hwnd})")
-            #             self._total_frames = frames_written
-            #             if fh and not fh.closed:
-            #                 fh.flush()
-            #             self._resume_event.clear()
-            #             with self._lock:
-            #                 self._state = RecorderState.PAUSED
-            #                 self._pause_start = time.time()
-            #             if not self._window_lost_notified:
-            #                 self._window_lost_notified = True
-            #                 self._window_lost_bridge.window_lost.emit(reason)
-            #             continue
-            #         self._capturer.update_region(
-            #             (rect.left(), rect.top(), rect.width(), rect.height())
-            #         )
-            #         last_window_update = now
-
-            # 计算应该写到第几帧
-            target_frame = int((time.time() - rec_start) / frame_interval)
+            # 窗口模式：200ms 更新捕获区域
+            if self._mode == RecordMode.WINDOW and self._window_hwnd:
+                now = time.time()
+                if now - last_window_update >= 0.2:
+                    rect = self._get_window_rect(self._window_hwnd)
+                    if rect is None:
+                        user32 = ctypes.windll.user32
+                        reason = "closed" if not user32.IsWindow(self._window_hwnd) else "minimized"
+                        logger.info(f"录制窗口丢失: {reason}")
+                        self._window_lost_bridge.window_lost.emit(reason)
+                        break
+                    self._capturer.update_region(
+                        (rect.left(), rect.top(), rect.width(), rect.height())
+                    )
+                    last_window_update = now
 
             try:
                 frame = self._capturer.capture_frame()
-                if frame is None:
-                    # 捕获器可能因窗口移动重建失败而停止
-                    if not self._capturer._started:
-                        logger.error("屏幕捕获器已停止，终止录制")
-                        break
-                    continue
             except Exception:
                 break
+            if frame is None:
+                if not self._capturer._started:
+                    break
+                continue
 
-            # JPEG压缩
-            compressed = self._compress_frame(frame)
-            size = len(compressed)
+            # 画质缩放（写 pipe 前）
+            if self._encode_size != self._frame_size:
+                frame = cv2.resize(frame, self._encode_size, interpolation=cv2.INTER_LINEAR)
 
-            # 补齐跳过的帧：用当前压缩帧填充时间间隙
+            target_frame = int((time.time() - rec_start) / frame_interval)
             while frames_written < target_frame:
-                fh.write(struct.pack("<I", size))
-                fh.write(compressed)
+                if not self._encoder.write_frame(frame):
+                    break
                 frames_written += 1
 
-            # 写入当前帧
-            fh.write(struct.pack("<I", size))
-            fh.write(compressed)
+            if not self._encoder.write_frame(frame):
+                break
             frames_written += 1
 
-            # 等待到下一帧时刻（使用 time.sleep 释放 GIL，避免忙等待冻结主线程）
             next_time = rec_start + frames_written * frame_interval
             wait = next_time - time.time()
             if wait > 0.002:
                 time.sleep(max(wait - 0.001, 0.001))
 
-        self._total_frames = frames_written
+        # 关闭编码器（FFmpeg flush）
+        if self._encoder:
+            self._encoder.close()
+            self._encoder = None
 
-        # 确保数据刷盘
-        if fh and not fh.closed:
-            fh.flush()
-
-        # 释放 dxcam 捕获器（必须在录制线程中释放，避免跨线程问题）
         if self._capturer:
             try:
                 self._capturer.close()
-            except Exception as e:
-                logger.error(f"释放捕获器异常: {e}")
+            except Exception:
+                pass
             self._capturer = None
 
-        logger.info(
-            f"录制结束，写入 {self._total_frames} 帧到临时文件 "
-            f"({os.path.getsize(self._temp_file) // (1024*1024)}MB)"
-        )
+        logger.info(f"录制线程结束，frames={frames_written}")
 
-    def _encode_loop(self):
-        """后台编码线程：从临时文件读取JPEG帧并写入VideoWriter，然后混入音频"""
-        try:
-            total = self._total_frames
-            logger.info(f"开始编码保存，共 {total} 帧...")
+    def _stop_and_encode(self):
+        if self._record_thread and self._record_thread.is_alive():
+            self._record_thread.join(timeout=10.0)
 
-            encoder = VideoEncoder(self._output_path, self._fps, self._encode_size)
+        # 停止音频
+        self._audio_temp_paths = []
+        if self._audio_capturer:
+            try:
+                paths = self._audio_capturer.stop()
+                self._audio_temp_paths = [p for p in (paths if isinstance(paths, list) else [paths]) if p and os.path.exists(p)]
+            except Exception as e:
+                logger.error(f"停止音频捕获异常: {e}")
+            self._audio_capturer = None
 
-            with open(self._temp_file, "rb") as fh:
-                for i in range(total):
-                    # 读取帧长度（4字节小端无符号整数）
-                    size_data = fh.read(4)
-                    if len(size_data) < 4:
-                        logger.error(f"读取帧长度失败，第 {i} 帧")
-                        raise RuntimeError(f"临时文件读取失败，第 {i} 帧")
-
-                    size = struct.unpack("<I", size_data)[0]
-                    # 读取JPEG帧数据
-                    jpeg_data = fh.read(size)
-                    if len(jpeg_data) < size:
-                        logger.error(f"读取帧数据失败，第 {i} 帧")
-                        raise RuntimeError(f"临时文件读取失败，第 {i} 帧")
-
-                    # 解压并缩放帧
-                    frame = cv2.imdecode(
-                        np.frombuffer(jpeg_data, dtype=np.uint8),
-                        cv2.IMREAD_COLOR
-                    )
-                    if frame is None:
-                        logger.error(f"解码失败，第 {i} 帧")
-                        raise RuntimeError("JPEG 解码失败")
-
-                    # 按画质缩放
-                    if self._encode_size != self._frame_size:
-                        frame = cv2.resize(
-                            frame, self._encode_size,
-                            interpolation=cv2.INTER_LINEAR
-                        )
-
-                    if not encoder.write_frame(frame):
-                        logger.error(f"解码/编码失败，第 {i} 帧")
-                        raise RuntimeError("解码/编码写入失败")
-
-            encoder.close()
-
-            logger.info(f"视频编码完成: {self._output_path} ({total} 帧)")
-
-            # v1.1: 音频混合步骤
-            result_path = self._mix_audio_if_available()
-
-            if not result_path:
-                result_path = self._output_path
-
-        except Exception as e:
-            logger.error(f"编码失败: {e}")
-            result_path = ""
-            if self._output_path and os.path.exists(self._output_path):
-                try:
-                    os.remove(self._output_path)
-                except OSError:
-                    pass
-
-        finally:
-            # 清理临时文件
-            self._cleanup_temp_file()
-
-            # v1.1: 清理音频临时文件
-            for p in self._audio_temp_paths:
-                if os.path.exists(p):
-                    try:
-                        os.remove(p)
-                    except OSError:
-                        pass
-            self._audio_temp_paths = []
-
+        if self._cancelled:
+            TempCleaner.cleanup_session(self._session_dir)
             with self._lock:
                 self._state = RecorderState.IDLE
+            return
 
-            # 通知主线程编码完成
+        with self._lock:
+            self._state = RecorderState.SAVING
+
+        self._finalize_thread = threading.Thread(target=self._finalize, daemon=True)
+        self._finalize_thread.start()
+
+    def _finalize(self):
+        """最终化：音频混合 → 移动到输出路径 → 清理"""
+        result_path = ""
+        try:
+            video_path = self._video_temp_path
+
+            if self._audio_temp_paths and self._ffmpeg_path:
+                mixed = self._mix_audio(video_path, self._audio_temp_paths)
+                if mixed:
+                    video_path = mixed
+
+            shutil.move(video_path, self._output_path)
+            result_path = self._output_path
+            logger.info(f"录制已保存: {result_path}")
+        except Exception as e:
+            logger.error(f"最终化失败: {e}")
+        finally:
+            TempCleaner.cleanup_session(self._session_dir)
+            with self._lock:
+                self._state = RecorderState.IDLE
             if self._on_saved:
                 try:
-                    logger.info(f"编码完成回调，即将通知主线程: {result_path}")
                     self._on_saved(result_path)
                 except Exception as e:
-                    logger.error(f"编码完成回调异常: {e}")
+                    logger.error(f"on_saved 回调异常: {e}")
 
-    def _mix_audio_if_available(self) -> str:
-        """尝试将音频混入视频文件
-
-        Returns:
-            混合后的文件路径，无音频时返回空字符串
-        """
-        if not self._audio_temp_paths:
-            return ""
-
-        if not self._ffmpeg_path:
-            logger.warning("FFmpeg 不可用，无法混入音频，保留纯视频")
-            return ""
-
-        temp_video = self._output_path + ".video_only.mp4"
-        try:
-            os.rename(self._output_path, temp_video)
-        except OSError as e:
-            logger.error(f"重命名视频文件失败: {e}")
-            return ""
-
-        try:
-            self._mix_audio_video(temp_video, self._audio_temp_paths, self._output_path)
-            # 成功：删除临时纯视频文件
-            try:
-                os.remove(temp_video)
-            except OSError:
-                pass
-            logger.info(f"音频混合完成: {self._output_path}")
-            return self._output_path
-        except Exception as e:
-            logger.error(f"音频混合失败，恢复纯视频: {e}")
-            # 降级：恢复纯视频文件
-            if os.path.exists(temp_video):
-                try:
-                    os.replace(temp_video, self._output_path)
-                except OSError:
-                    pass
-            return ""
-
-    def _mix_audio_video(self, video_path: str, audio_paths: list, output_path: str):
-        """使用 FFmpeg 混合音视频
-
-        Args:
-            video_path: 纯视频文件路径
-            audio_paths: 音频 WAV 文件路径列表（1或2个）
-            output_path: 最终输出文件路径
-        """
+    def _mix_audio(self, video_path: str, audio_paths: list) -> str:
+        """FFmpeg 混合音视频，返回混合后路径（session_dir/mixed.mp4）"""
+        mixed = os.path.join(self._session_dir, "mixed.mp4")
         cmd = [self._ffmpeg_path, "-y", "-i", video_path]
-
-        # 每个音频源作为独立输入
-        for audio_path in audio_paths:
-            cmd.extend(["-i", audio_path])
-
+        for ap in audio_paths:
+            cmd.extend(["-i", ap])
         if len(audio_paths) == 1:
-            # 单音频源：直接混入
-            cmd.extend([
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-shortest",
-            ])
-        elif len(audio_paths) == 2:
-            # BOTH 模式：使用 amerge 滤镜合并系统声音和麦克风
+            cmd.extend(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", mixed])
+        else:
             cmd.extend([
                 "-filter_complex", "[1:a][2:a]amerge=inputs=2[a]",
                 "-map", "0:v", "-map", "[a]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-shortest",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", mixed,
             ])
+        try:
+            subprocess.run(cmd, check=True, timeout=120,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            return mixed
+        except Exception as e:
+            logger.error(f"音频混合失败: {e}")
+            return ""
 
-        cmd.append(output_path)
+    def _get_target_size(self):
+        quality = self._config.get("quality", "native")
+        target = ConfigManager.QUALITY_SIZES.get(quality)
+        if target is None:
+            return None
+        if self._mode == RecordMode.REGION and self._frame_size:
+            fw, fh = self._frame_size
+            tw, th = target
+            src_ratio = fw / fh
+            dst_ratio = tw / th
+            if src_ratio > dst_ratio:
+                new_w, new_h = tw, int(tw / src_ratio)
+            else:
+                new_w, new_h = int(th * src_ratio), th
+            return (new_w & ~1, new_h & ~1)
+        return target
 
-        logger.info(f"FFmpeg 混合命令: {' '.join(cmd)}")
-        result = subprocess.run(
-            cmd, check=True, timeout=120,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
-        )
-        logger.info(f"FFmpeg 混合完成, 返回码: {result.returncode}")
+    @staticmethod
+    def _get_ffmpeg_path() -> str:
+        if getattr(sys, 'frozen', False):
+            candidates = []
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
+                candidates.append(os.path.join(meipass, "ffmpeg", "ffmpeg.exe"))
+            candidates.append(os.path.join(os.path.dirname(sys.executable), "ffmpeg", "ffmpeg.exe"))
+            for p in candidates:
+                if os.path.isfile(p):
+                    return p
+        dev_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        local = os.path.join(dev_dir, "ffmpeg", "ffmpeg.exe")
+        if os.path.isfile(local):
+            return local
+        import shutil as _sh
+        return _sh.which("ffmpeg") or ""
 
-    def _cleanup_temp_file(self):
-        """清理临时文件"""
-        if self._temp_file and os.path.exists(self._temp_file):
-            try:
-                os.remove(self._temp_file)
-                logger.info(f"已删除临时文件: {self._temp_file}")
-            except OSError:
-                pass
-        self._temp_file = ""
+    @staticmethod
+    def _get_window_rect(hwnd: int):
+        """获取窗口客户区屏幕坐标（GetClientRect + ClientToScreen）"""
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+            return None
+        client_rect = ctypes.wintypes.RECT()
+        user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+        w, h = client_rect.right, client_rect.bottom
+        if w < 10 or h < 10:
+            return None
+        pt = ctypes.wintypes.POINT()
+        user32.ClientToScreen(hwnd, ctypes.byref(pt))
+        from PyQt5.QtCore import QRect
+        return QRect(pt.x, pt.y, w, h)
 
-    # @staticmethod
-    # def _get_window_rect(hwnd: int):
-    #     """获取窗口客户区位置和尺寸（不含边框阴影）（延期：窗口录制）
-    #
-    #     使用 ClientRect + ClientToScreen 获取客户区在屏幕上的坐标，
-    #     避免最大化窗口 GetWindowRect 返回负坐标或超出屏幕。
-    #
-    #     Args:
-    #         hwnd: 窗口句柄
-    #
-    #     Returns:
-    #         QRect 或 None（窗口无效/不可见/最小化时）
-    #     """
-    #     user32 = ctypes.windll.user32
-    #     if not user32.IsWindow(hwnd):
-    #         return None
-    #     if not user32.IsWindowVisible(hwnd):
-    #         return None
-    #     if user32.IsIconic(hwnd):
-    #         return None
-    #     client_rect = ctypes.wintypes.RECT()
-    #     user32.GetClientRect(hwnd, ctypes.byref(client_rect))
-    #     width = client_rect.right
-    #     height = client_rect.bottom
-    #     if width < 10 or height < 10:
-    #         return None
-    #     point = ctypes.wintypes.POINT()
-    #     point.x = client_rect.left
-    #     point.y = client_rect.top
-    #     user32.ClientToScreen(hwnd, ctypes.byref(point))
-    #     from PyQt5.QtCore import QRect
-    #     return QRect(point.x, point.y, width, height)
-
-    # @staticmethod
-    # def _get_window_title(hwnd: int) -> str:
-    #     """获取窗口标题（延期：窗口录制）
-    #
-    #     Args:
-    #         hwnd: 窗口句柄
-    #
-    #     Returns:
-    #         窗口标题字符串
-    #     """
-    #     title_length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-    #     if title_length == 0:
-    #         return ""
-    #     title = ctypes.create_unicode_buffer(title_length + 1)
-    #     ctypes.windll.user32.GetWindowTextW(hwnd, title, title_length + 1)
-    #     return title.value
+    @staticmethod
+    def _get_window_title(hwnd: int) -> str:
+        n = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        if n == 0:
+            return ""
+        buf = ctypes.create_unicode_buffer(n + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, n + 1)
+        return buf.value
