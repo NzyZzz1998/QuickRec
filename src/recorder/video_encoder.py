@@ -14,8 +14,9 @@ import numpy as np
 logger = logging.getLogger("QuickRec")
 
 # H.264 固定编码参数（不暴露给用户）
+# preset=superfast 降低编码缓冲，停止时 flush 近乎瞬时（lookahead=0）
 _CRF = 23
-_PRESET = "medium"
+_PRESET = "superfast"
 
 
 class VideoEncoder:
@@ -46,6 +47,7 @@ class VideoEncoder:
             "-c:v", "libx264",
             "-crf", str(_CRF),
             "-preset", _PRESET,
+            "-tune", "zerolatency",
             "-pix_fmt", "yuv420p",
             output_path,
         ]
@@ -54,7 +56,10 @@ class VideoEncoder:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            # stderr 必须丢到 DEVNULL；用 PIPE 而不读会让 FFmpeg 的进度日志
+            # 填满 OS 缓冲（~64KB）后阻塞 FFmpeg 写 stderr，最终录制看似卡死、
+            # 关闭时 wait 超时被 kill（v1.3 实测的 Bug）。
+            stderr=subprocess.DEVNULL,
         )
         self._is_open = True
 
@@ -80,16 +85,14 @@ class VideoEncoder:
         except (BrokenPipeError, OSError):
             pass
         try:
-            self._proc.wait(timeout=10)
+            self._proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            err = self._proc.stderr.read().decode(errors="replace") if self._proc.stderr else ""
             self._proc.kill()
             self._proc.wait()
-            logger.error(f"FFmpeg 编码超时，已强制终止 (stderr: {err[:500]})")
+            logger.error(f"FFmpeg 编码超时，已强制终止（{self._frame_count} 帧；stderr 已丢弃无法诊断）")
             return False
         if self._proc.returncode != 0:
-            err = self._proc.stderr.read().decode(errors="replace")
-            logger.error(f"FFmpeg 编码失败 (returncode={self._proc.returncode}): {err[:500]}")
+            logger.error(f"FFmpeg 编码失败 (returncode={self._proc.returncode})")
             return False
         logger.info(f"视频编码完成: {self._output_path} ({self._frame_count} 帧)")
         return True

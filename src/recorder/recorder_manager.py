@@ -94,6 +94,7 @@ class RecorderManager:
         self._window_hwnd: int = None
         self._window_title: str = ""
         self._window_lost_bridge = _WindowLostBridge()
+        self._window_lost_emitted = False  # 防止窗口丢失信号重复 emit
 
         self._on_saved = on_saved
 
@@ -108,15 +109,17 @@ class RecorderManager:
         return self._start(region=region)
 
     def start_window(self, hwnd: int) -> bool:
-        if not ctypes.windll.user32.IsWindow(hwnd):
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(hwnd):
             logger.error(f"无效窗口句柄: {hwnd}")
             return False
         self._window_title = self._get_window_title(hwnd)
         self._window_hwnd = hwnd
         self._mode = RecordMode.WINDOW
+        self._window_lost_emitted = False
         rect = self._get_window_rect(hwnd)
         if rect is None:
-            logger.error(f"无法获取窗口位置: hwnd={hwnd}")
+            logger.error(f"无法获取窗口位置（可能为游戏全屏/UWP 等特殊窗口）: hwnd={hwnd}")
             return False
         region = (rect.left(), rect.top(), rect.width(), rect.height())
         return self._start(region=region)
@@ -176,6 +179,9 @@ class RecorderManager:
 
     def get_mode(self) -> RecordMode:
         return self._mode
+
+    def get_window_hwnd(self) -> int:
+        return self._window_hwnd
 
     # --- 内部实现 ---
 
@@ -267,21 +273,42 @@ class RecorderManager:
                 rec_start = time.time() - frames_written * frame_interval
                 was_paused = False
 
-            # 窗口模式：200ms 更新捕获区域
+            # 窗口模式：100ms 更新捕获区域（与高亮边框同步）
             if self._mode == RecordMode.WINDOW and self._window_hwnd:
                 now = time.time()
-                if now - last_window_update >= 0.2:
+                if now - last_window_update >= 0.1:
                     rect = self._get_window_rect(self._window_hwnd)
                     if rect is None:
                         user32 = ctypes.windll.user32
-                        reason = "closed" if not user32.IsWindow(self._window_hwnd) else "minimized"
-                        logger.info(f"录制窗口丢失: {reason}")
-                        self._window_lost_bridge.window_lost.emit(reason)
-                        break
+                        if not user32.IsWindow(self._window_hwnd):
+                            reason = "closed"
+                        elif user32.IsIconic(self._window_hwnd):
+                            reason = "minimized"
+                        else:
+                            reason = "closed"
+                        if not self._window_lost_emitted:
+                            logger.info(f"录制窗口丢失: {reason}")
+                            self._window_lost_bridge.window_lost.emit(reason)
+                            self._window_lost_emitted = True
+                        if reason == "closed":
+                            break
+                        # minimized：录制线程立即自己同步暂停（不依赖 main 异步 pause）
+                        # 清除 _resume_event 使下方 wait 阻塞，直到用户点"继续"
+                        # main 线程会处理 UI 暂停；resume() 置位 event 唤醒
+                        self._resume_event.clear()
+                        while not self._stop_event.is_set():
+                            if self._resume_event.wait(timeout=0.2):
+                                break
+                        self._window_lost_emitted = False
+                        was_paused = True
+                        continue
+                    # 窗口恢复后清除标志
+                    self._window_lost_emitted = False
+                    last_window_update = now
+                    # 窗口移动或恢复后更新捕获区域
                     self._capturer.update_region(
                         (rect.left(), rect.top(), rect.width(), rect.height())
                     )
-                    last_window_update = now
 
             try:
                 frame = self._capturer.capture_frame()
@@ -436,9 +463,18 @@ class RecorderManager:
 
     @staticmethod
     def _get_window_rect(hwnd: int):
-        """获取窗口客户区屏幕坐标（GetClientRect + ClientToScreen）"""
+        """获取窗口客户区屏幕坐标（GetClientRect + ClientToScreen）
+
+        仅在窗口可见且非最小化时返回有效矩形，否则返回 None。
+        窗口关闭/最小化判断由调用方通过 IsWindow/IsIconic 处理。
+        """
         user32 = ctypes.windll.user32
-        if not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        if not user32.IsWindow(hwnd):
+            return None
+        if not user32.IsWindowVisible(hwnd):
+            # 最小化窗口 IsWindowVisible 返回 False（WS_MINIMIZE 时不可见）
+            return None
+        if user32.IsIconic(hwnd):
             return None
         client_rect = ctypes.wintypes.RECT()
         user32.GetClientRect(hwnd, ctypes.byref(client_rect))

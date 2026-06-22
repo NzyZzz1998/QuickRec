@@ -51,14 +51,20 @@ class WindowHighlighter(QWidget):
         return self._hwnd
 
     def _update_position(self):
-        rect = ctypes.wintypes.RECT()
-        if not ctypes.windll.user32.GetWindowRect(self._hwnd, ctypes.byref(rect)):
+        # 使用客户区坐标（GetClientRect + ClientToScreen），与 recorder_manager 保持一致
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(self._hwnd) or user32.IsIconic(self._hwnd):
             self.hide_highlight()
             return
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        if w > 0 and h > 0:
-            self.setGeometry(rect.left, rect.top, w, h)
+        client_rect = ctypes.wintypes.RECT()
+        user32.GetClientRect(self._hwnd, ctypes.byref(client_rect))
+        w = client_rect.right
+        h = client_rect.bottom
+        if w < 10 or h < 10:
+            return
+        pt = ctypes.wintypes.POINT()
+        user32.ClientToScreen(self._hwnd, ctypes.byref(pt))
+        self.setGeometry(pt.x, pt.y, w, h)
 
     def paintEvent(self, event):
         painter = QPainter(self)

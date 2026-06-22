@@ -9,7 +9,6 @@
 
 import ctypes
 import ctypes.wintypes
-import time
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -103,11 +102,9 @@ class WindowSelector(QDialog):
         if item is None:
             return
         hwnd, title, is_min = item.data(Qt.UserRole)
-        user32 = ctypes.windll.user32
+        # 仅恢复最小化窗口到可见，置前台交由 main._on_window_selected 统一处理
         if is_min:
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-            time.sleep(0.1)
-        user32.SetForegroundWindow(hwnd)
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         self.window_selected.emit(hwnd, title)
         self.accept()
 

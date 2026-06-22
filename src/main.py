@@ -184,9 +184,7 @@ class QuickRecApp:
         if self._recorder.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
+            self._on_countdown_esc()
             return
         if not self._check_disk_space():
             return
@@ -223,9 +221,7 @@ class QuickRecApp:
         if self._recorder.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
+            self._on_countdown_esc()
             return
         if not self._check_disk_space():
             return
@@ -275,6 +271,10 @@ class QuickRecApp:
             self._toolbar.cancel_countdown()
             self._hide_toolbar()
             self._hotkey.set_esc_callback(None)
+            # 窗口录制模式下取消倒计时需同时隐藏边框高亮
+            if self._window_highlighter:
+                self._window_highlighter.hide_highlight()
+                self._window_highlighter = None
 
     # --- 窗口录制 ---
 
@@ -283,9 +283,7 @@ class QuickRecApp:
         if self._recorder.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
+            self._on_countdown_esc()
             return
         if not self._check_disk_space():
             return
@@ -300,10 +298,25 @@ class QuickRecApp:
         """窗口选择完成"""
         self._window_selector = None
         user32 = ctypes.windll.user32
+        # 恢复最小化窗口（同步一次，主线程不阻塞）
         if user32.IsIconic(hwnd):
-            user32.ShowWindow(hwnd, 9)
-            time.sleep(0.2)
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        # 绕过 Windows 前台锁定：模拟 Alt 键 + 置前台
+        user32.keybd_event(0x12, 0x38, 0, 0)         # VK_MENU down
+        user32.keybd_event(0x12, 0x38, 0x0002, 0)    # VK_MENU up
         user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+        # 用异步延迟等待窗口激活与绘制完成，避免主线程长阻塞导致 GUI 卡死/闪退
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(400, lambda: self._after_window_foreground(hwnd))
+
+    def _after_window_foreground(self, hwnd: int):
+        """窗口置前台后的异步续逻辑（主线程，已让出事件循环）"""
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(hwnd):
+            logger.warning("目标窗口已不存在，取消窗口录制")
+            self._tray.show_notification("目标窗口已关闭")
+            return
         self._window_highlighter = WindowHighlighter(hwnd)
         self._window_highlighter.show_highlight()
         if self._config.get("show_countdown", False):
@@ -324,6 +337,8 @@ class QuickRecApp:
             if self._window_highlighter:
                 self._window_highlighter.hide_highlight()
                 self._window_highlighter = None
+            # 告知用户失败原因（特殊窗口/最小化恢复未完成）
+            self._tray.show_notification("窗口录制启动失败：无法获取窗口区域")
             return
         if self._toolbar:
             self._toolbar.start_recording_timer()
@@ -376,6 +391,14 @@ class QuickRecApp:
             if self._toolbar:
                 self._toolbar.set_paused(False)
             self._tray.set_recording_state(True, paused=False)
+            # 窗口录制：最小化暂停后恢复，重建边框高亮（_on_window_lost 中已置空）
+            if self._recorder.get_mode() == RecordMode.WINDOW:
+                hwnd = self._recorder.get_window_hwnd()
+                if hwnd and self._window_highlighter is None:
+                    user32 = ctypes.windll.user32
+                    if user32.IsWindow(hwnd) and not user32.IsIconic(hwnd):
+                        self._window_highlighter = WindowHighlighter(hwnd)
+                        self._window_highlighter.show_highlight()
 
     # --- 工具栏 ---
 
