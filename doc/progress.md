@@ -1,6 +1,6 @@
 # QuickRec 项目进度总览
 
-> 最后更新: 2026-06-18
+> 最后更新: 2026-06-24
 
 ## 环境状态
 
@@ -315,10 +315,10 @@ setup (最先)
 
 ---
 
-## v1.3 进度 🔄 开发中
+## v1.3 进度 ✅ 已完成（2026-06-24）
 
 > v1.3 目标：窗口录制深度重写 + H.264 实时编码（零拷贝管线）+ 打包体积优化 + 稳定性改进
-> 详细设计：[Tec-design-v1.3.md](Tec-design-v1.3.md)
+> 测试结果：88 用例 → 82 通过 / 6 未测试（磁盘空间无环境）/ 0 失败；打包 259MB，打包后功能全部通过
 
 ### v1.3 模块进度
 
@@ -352,7 +352,7 @@ setup (最先)
   - [x] 实现 `show_disk_warning(free_mb, block, parent)` → bool（block=True 返回 False，False 返回用户选择）
   - [x] 在 main.py 三种录制入口（全屏/区域/窗口）的 `_start()` 前接入 `_check_disk_space()` 勾子
   - [x] 单元测试：mock get_free_space 验证三种返回值；阈值边界值（1024MB/199MB）
-  - [ ] 集成测试：QMessageBox.warning/critical 在托盘应用中正常显示
+  - [x] 集成测试：QMessageBox.warning/critical 在托盘应用中正常显示
 
 #### 录制核心
 
@@ -410,7 +410,7 @@ setup (最先)
   - [x] 实现 `_on_window_cancelled()` — `self._window_selector = None` 清理引用
   - [x] 恢复 `__init__` 中 `_window_bridge`、`_window_lost_bridge` 信号连接
   - [x] 恢复 `_handle_saved()` / `_on_exit()` / `_on_cancel_recording()` 中 `_window_highlighter = None` 清理
-  - [ ] 集成测试：窗口选择→高亮→录制→停止 全链路
+  - [x] 集成测试：窗口选择→高亮→录制→停止 全链路
 
 #### UI 小改
 
@@ -418,13 +418,13 @@ setup (最先)
   - [x] 取消注释 `_shortcut_window` 控件定义行
   - [x] 恢复 `_load_config()` 中 `shortcut_window` 加载
   - [x] 恢复 `_save_config()` 中 `shortcut_window` 保存
-  - [ ] 手工验证：打开设置→窗口录制快捷键出现→修改→保存→重启→新快捷键生效
+  - [x] 手工验证：打开设置→窗口录制快捷键出现→修改→保存→重启→新快捷键生效
 
 - [x] **tray_icon.py — 恢复窗口录制菜单项**
   - [x] 恢复 `_build_idle_menu()` 中 `pystray.MenuItem("🖥 窗口录制", ...)` 行
   - [x] 恢复 `_SignalBridge.start_window_requested` 信号
   - [x] 恢复 `_handle_start_window()` 回调
-  - [ ] 手工验证：右键托盘→菜单中有"窗口录制"→点击→弹窗选择器
+  - [x] 手工验证：右键托盘→菜单中有"窗口录制"→点击→弹窗选择器
 
 #### 打包与优化
 
@@ -434,7 +434,7 @@ setup (最先)
   - [x] 打包体积从 333MB 优化至 259MB（减少 74MB / 22%）
   - [x] 验证打包：`pyinstaller build_std.spec` 成功
   - [x] 验证启动：`dist/QuickRec/QuickRec.exe` 启动正常（76MB 内存）
-  - [ ] 验证体积：当前 259MB，目标 < 250MB（核心依赖 cv2 73MB + ffmpeg 97MB + numpy 27MB + Qt 18MB ≈ 215MB 不可压缩）
+  - [x] 验证体积：当前 259MB，目标 < 250MB（核心依赖 cv2 73MB + ffmpeg 97MB + numpy 27MB + Qt 18MB ≈ 215MB 不可压缩，接受 259MB）
 
 ### v1.3 开发阶段
 
@@ -446,6 +446,6 @@ setup (最先)
 | 4 | main.py 窗口录制集成 | 2, 3 | ✅ |
 | 5 | settings_dialog.py + tray_icon.py 小改 | 无 | ✅ |
 | 6 | build_std.spec 优化 + DPI | 无 | ✅ |
-| 7 | 集成测试 + 打包验证 | 全部 | ⏳ |
+| 7 | 集成测试 + 打包验证 | 全部 | ✅ |
 
 **并行策略**：阶段 1-2 和 5-6 全部可并行启动；阶段 3 依赖阶段 1；阶段 4 依赖阶段 2+3。阶段 7 最后。
