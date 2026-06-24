@@ -698,3 +698,148 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 
 **修复** (`src/ui/tray_icon.py`):
 - `_on_open_folder()` 中用 `os.path.normpath()` 统一路径分隔符为反斜杠后再传给 `explorer.exe`
+
+---
+
+## v1.3 Bug 修复
+
+### Bug #50: FFmpeg 编码超时 + 保存文件竞态条件 [严重]
+
+**症状**: 录制15秒后停止，保存成功但日志出现"FFmpeg 编码超时，已强制终止"错误；日志中"录制已保存"重复打印两次
+
+**根因**:
+1. `_stop_and_encode()` 中 `self._record_thread.join(timeout=10.0)` 只等10秒就超时返回，但录制线程中 `encoder.close()` 的 FFmpeg flush 可能需要更长时间。join 超时后 `_finalize()` 开始执行 `shutil.move()`，移动了一个 FFmpeg 还在写入的文件
+2. `_finalize()` 和 `_handle_saved()` 中各打了一条"录制已保存"日志，造成重复
+
+**修复** (`src/recorder/recorder_manager.py`):
+- `join(timeout=10.0)` 改为 `join()`（无限等待），确保录制线程完成 encoder.close() 后再执行 _finalize
+- 移除 `_finalize()` 中重复的 `logger.info(f"录制已保存: {result_path}")`
+
+**修复** (`src/recorder/video_encoder.py`):
+- `close()` 超时从 30 秒降为 10 秒（无音频时 FFmpeg flush 通常 < 2 秒）
+- 超时和失败时输出 stderr 前 500 字符，便于诊断
+
+### Bug #51: 选最小化窗口录制启动失败 [严重] (T2.9)
+
+**症状**: 选择最小化窗口录制后日志显示 "无法获取窗口位置: hwnd=xxx" + "窗口录制启动失败"；后续测试发现选最小化窗口时程序未正常把窗口置前台就开启录制
+
+**根因**:
+1. `WindowSelector._select` 中最小化窗口恢复 `ShowWindow(hwnd, SW_RESTORE)` 后仅 `time.sleep(0.1)`，窗口尚未完全可见
+2. `_on_window_selected` 中虽然有 `time.sleep(0.2)` 等待，但还是不够稳定
+3. `_get_window_rect` 同时检查 `IsWindowVisible` 和 `IsIconic`，窗口恢复动画期间这些状态可能尚未就绪
+4. `SetForegroundWindow` 受 Windows 前台锁定（SetForegroundWindow restriction）限制，托盘应用无前台窗口时被静默拒绝，目标窗口未真正置前台
+
+**修复** (`src/recorder/recorder_manager.py`):
+- `start_window()` 在 rect 获取失败时重试：若 `IsIconic` 则 `SW_RESTORE` 后重试最多 10 次（每次 100ms），总等待 1 秒
+- `_get_window_rect()` 去掉对 `IsWindowVisible` 的过度严格检查（仅保留 `IsWindow` + `IsIconic`），避免恢复动画期间被误判
+
+**修复** (`src/ui/window_selector.py`):
+- `_select()` 不再自行置前台，仅恢复最小化窗口；置前台统一交由 main 处理，避免重复调用造成时序混乱
+- 移除不再使用的 `import time`
+
+**修复** (`src/main.py`):
+- `_on_window_selected()` 最小化窗口后改为轮询等待窗口可见（最多 1.5 秒）：`not IsIconic and IsWindowVisible`
+- 在 `SetForegroundWindow` 前模拟 Alt 键（`keybd_event VK_MENU scan=0x38`）释放前台锁定
+- 多重置前台策略：`SetForegroundWindow` + `BringWindowToTop` + `ShowWindow(SW_SHOW)` 组合调用
+- 用 `GetForegroundWindow()` 轮询确认目标窗口真正成为前台（最多 10 次，每次 50ms 重试），不成功不继续
+- 置前台确认后 `time.sleep(0.3)` 等窗口绘制完成，避免 dxcam 捕获到背景内容
+- 恢复可见后再 `SetForegroundWindow`，确保后续录制区域稳定
+
+### Bug #52: 窗口录制边框/捕获区域跟随不稳定 [中等] (T2.10/T2.14)
+
+**症状**: 窗口移动时绿色高亮边框和录制内容无法稳定跟随
+
+**根因**:
+1. `WindowHighlighter` 用 `GetWindowRect`（含阴影边框），`RecorderManager` 用 `GetClientRect + ClientToScreen`（客户区），两者坐标不一致，视觉上边框覆盖范围与录制内容范围对不上
+2. 录制 region 更新间隔 200ms，高亮边框 100ms，两者更新频率不同导致跟随相位差
+
+**修复** (`src/ui/window_highlighter.py`):
+- `_update_position()` 改用 `GetClientRect + ClientToScreen`，与 recorder_manager 使用同一坐标体系
+- `_update_position()` 增加 `IsIconic` 检查：窗口最小化时隐藏高亮而非画到 (0,0)
+
+**修复** (`src/recorder/recorder_manager.py`):
+- 窗口 region 更新间隔从 200ms 降为 100ms，与高亮边框保持同步
+
+**说明**: 移动窗口时 dxcam 需重建（`update_region` 中 `camera.stop/release + create/start`），仍有轻微延迟，属 dxcam 固有限制，已最小化到 100ms 级。
+
+### Bug #53: 窗口关闭时录制暂停而非停止保存 [严重] (T2.16)
+
+**症状**: 录制中关闭目标窗口，提示与最小化相同，且未进行保存动作而是暂停
+
+**根因**: `_record_loop` 中 reason 判断逻辑 `not IsWindow(hwnd) ? "closed" : "minimized"` 不准确：
+1. 窗口关闭后 `IsWindow` 短时间内仍可能返回 True（句柄未立即销毁），导致误判为 minimized
+2. 误判后走 minimized 分支调 pause() 而非自停保存
+
+**修复** (`src/recorder/recorder_manager.py`):
+- reason 判断改为三级：`IsWindow==False → closed`；`IsIconic → minimized`；其余（rect 无效但窗口存在）→ closed
+- minimized 时不再 break，改为同步暂停循环：`self._resume_event.clear()` 后在内部 `while` 中 `wait(timeout=0.2)` 阻塞，直到 main 线程 `resume()` 置位 event 唤醒（用户点"继续"触发）；closed 时 `break` 退出并保存
+- 录制线程自己 clear `_resume_event` 消除"emit 异步未及时 pause 导致线程空转"竞态
+- 增加 `_window_lost_emitted` 标志，避免每 100ms 重复 emit window_lost 信号（窗口恢复时清除）
+
+### Bug #54: 最小化暂停后恢复继续录制无边框无内容 [严重] (T2.18)
+
+**症状**: 窗口最小化触发暂停后，恢复窗口点"继续"，高亮边框不出现，且最终输出文件无恢复后的录制内容
+
+**根因**:
+1. minimized 时 `_record_loop` 直接 break，录制线程结束，`resume()` 置位 `_resume_event` 无线程接收 —— 后续内容无法录制
+2. `_on_window_lost` minimized 分支中 `self._window_highlighter = None` 清空了边框，恢复后未重建
+
+**修复** (`src/recorder/recorder_manager.py`):
+- minimized 分支不再 break，改为 `self._resume_event.clear()` + 内部 `while` `wait(timeout=0.2)` 同步阻塞
+- main 线程 `pause()` 也会 clear `_resume_event`（幂等）；用户点"继续" → `_on_pause_resume` → `resume()` set `_resume_event` 唤醒录制线程
+- 唤醒后外层循环走 `was_paused` 重置 rec_start，下一轮 `update_region` 拿新 rect；窗口恢复时清除 `_window_lost_emitted` 标志
+- 新增 `get_window_hwnd()` 暴露窗口句柄
+
+**修复** (`src/main.py`):
+- `_on_pause_resume()` 恢复分支增加：窗口录制模式且 highlighter 为 None 时，检查窗口可见后重建 `WindowHighlighter`
+
+### Bug #55: 无音频录制停止后文件保存 > 1 秒 [轻微] (T3.1)
+
+**症状**: 全屏录制 5 秒后停止，文件保存时间超过 1 秒（预期实时编码应 < 1 秒生成）
+
+**根因**: `video_encoder.py` 中 libx264 使用 `preset=medium`，medium 预设有 lookahead 缓冲（约 40 帧），录制停止时 stdin.close 后仍需 flush 这些缓冲帧才能退出，导致 close() 等待时间超过 1 秒
+
+**修复** (`src/recorder/video_encoder.py`):
+- `_PRESET` 从 `medium` 改为 `superfast`：lookahead=0，停止时 flush 近乎瞬时
+- FFmpeg 命令增加 `-tune zerolatency`：进一步消除延迟缓冲（与 superfast 配合）
+- 影响：CRF=23 不变，文件略大（录屏场景 ~30%），换快停止写入
+
+### Bug #56: 倒计时期间按 ESC 取消后窗口边框未消失 [中等] (T4.2)
+
+**症状**: 窗口录制 + 倒计时，倒计时期间按 ESC 取消，绿色边框高亮仍留在屏幕上不消失
+
+**根因**: `_on_countdown_esc()` 只处理了 `cancel_countdown` + 隐藏工具栏 + 清 ESC 回调，没有清理 `self._window_highlighter`。窗口录制在 `_on_window_selected` 中已创建并显示了 highlighter，倒计时取消路径未隐藏它
+
+**修复** (`src/main.py`):
+- `_on_countdown_esc()` 增加 highlighter 清理：`hide_highlight() + = None`
+- 统一三个录制入口（全屏/区域/窗口）的倒计时取消分支，统一调用 `_on_countdown_esc()`，避免各自重复实现且遗漏清理
+
+### Bug #57: 特殊窗口（游戏全屏/UWP）选中后软件闪退 [严重] (T2.9)
+
+**症状**: 选择米哈游启动器等特殊窗口录制，日志显示"窗口位置获取失败，尝试恢复窗口...无法获取窗口位置...启动失败"，伴随软件闪退
+
+**根因**: 两个问题叠加：
+1. `start_window()` 中失败时做最多 10 次×100ms 的重试循环（time.sleep），全程阻塞 Qt 主线程长达 1 秒，事件循环冻结
+2. `_on_window_selected()` 主线程中等待窗口可见（最多 1.5 秒）+ 前台确认轮询（最多 0.5 秒）+ 绘制等待（0.3 秒），合计 2.3 秒阻塞主线程。对 DirectComposition/UWP 等特殊窗口，置前台操作还可能反复失败，主线程长时间卡死 → 表现为闪退
+3. `_get_window_rect` 对游戏全屏/DWM 自定义渲染窗口返回 None（客户区不可枚举），无清晰用户提示
+
+**修复** (`src/recorder/recorder_manager.py`):
+- `start_window()` 移除主线程重试循环（10×100ms 阻塞），rect 一次性获取失败立即返回 False 并打印"特殊窗口"提示，不再阻塞主线程
+
+**修复** (`src/main.py`):
+- `_on_window_selected()` 移除所有主线程长 sleep（1.5+0.5+0.3 秒）；改为同步恢复窗口 + Alt 键前台技巧 + `SetForegroundWindow/BringWindowToTop` 后，用 `QTimer.singleShot(400, ...)` 异步切换到续逻辑，让出主线程事件循环避免卡死/闪退
+- 拆分 `_after_window_foreground()` 承接异步续逻辑：高亮 + 倒计时/启动；`_after_window_foreground` 增加 `IsWindow` 防御，窗口已消失时友好通知取消
+- `_do_start_window()` 启动失败时增加托盘通知"窗口录制启动失败：无法获取窗口区域"，让用户立刻获知而非神秘闪退
+
+### Bug #58: FFmpeg 录制/关闭死锁超时（stderr 缓冲区满）[严重]
+
+**症状**: 录制停止后日志"FFmpeg 编码超时，已强制终止"，stderr 仅显示 FFmpeg banner 截断（命令行编译配置串），实际编码未完成。前一轮已改 `preset=superfast + -tune zerolatency` 但仍超时
+
+**根因**: `video_encoder.py` 中 `subprocess.Popen` 用 `stderr=subprocess.PIPE` 但**没有读取** stderr。FFmpeg 编码时会持续向 stderr 输出编码进度日志（每帧一行），OS pipe 缓冲（≈64KB）填满后 FFmpeg 后续写 stderr 阻塞，进程整体卡住。父进程 close 时 `wait(timeout=10)` 等不到 FFmpeg 自然退出，10 秒后被 kill。这是 Python subprocess 经典 PIPE 不读导致死锁的坑
+
+**验证**: 修复前 — 录制 6 秒停止必然 10 秒超时被 kill；修复后 — 实测 1080p60 300 帧（5秒）close 仅 2.92 秒总耗时，文件正常生成 176MB
+
+**修复** (`src/recorder/video_encoder.py`):
+- `Popen` 的 `stderr` 从 `subprocess.PIPE` 改为 `subprocess.DEVNULL`，丢弃 FFmpeg 进度日志，彻底消除 stderr 缓冲满死锁
+- `close()` 中原本读 stderr 的诊断逻辑删除（stderr 已 None）；超时日志改为通用提示，说明 stderr 已丢弃；超时阈值从 10s 提到 15s 留余量
+- 同时保留上一轮的 `preset=superfast` + `-tune zerolatency`：降低 lookahead 缓冲到 0，即便编码失败也不会 buffer 大量未编码帧

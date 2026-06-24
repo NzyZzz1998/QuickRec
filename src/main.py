@@ -20,12 +20,14 @@ v1.2 新增：
 - 窗口边框高亮生命周期管理
 """
 
+import ctypes
 import os
 import sys
 import logging
+import time
 
-from PyQt5.QtCore import QTimer, QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
+from PyQt5.QtWidgets import QApplication
 
 from config import ConfigManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
@@ -33,10 +35,11 @@ from ui.toolbar import RecordingToolbar
 from ui.settings_dialog import SettingsDialog
 from ui.tray_icon import TrayIcon
 from ui.area_selector import AreaSelector
-# from ui.window_selector import WindowSelector   # 延期：窗口录制
-# from ui.window_highlighter import WindowHighlighter  # 延期：窗口录制
+from ui.window_selector import WindowSelector
+from ui.window_highlighter import WindowHighlighter
 from ui.click_highlighter import ClickHighlighter
 from hotkey.hotkey_manager import HotkeyManager
+from utils.disk_checker import DiskChecker, show_disk_warning
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,24 +59,24 @@ class _HotkeyBridge(QObject):
     stop_requested = pyqtSignal()
     pause_requested = pyqtSignal()
     area_requested = pyqtSignal()
-    # window_requested = pyqtSignal()    # v1.2 新增 → 延期：窗口录制
+    window_requested = pyqtSignal()
 
 
 class _AreaBridge(QObject):
     """区域选择器信号桥"""
-    region_selected = pyqtSignal(int, int, int, int)  # (x, y, w, h)
+    region_selected = pyqtSignal(int, int, int, int)
     cancelled = pyqtSignal()
 
 
-# class _WindowBridge(QObject):
-#     """窗口选择器信号桥（v1.2 新增）"""
-#     window_selected = pyqtSignal(int, str)  # (hwnd, title)
-#     cancelled = pyqtSignal()
+class _WindowBridge(QObject):
+    """窗口选择器信号桥"""
+    window_selected = pyqtSignal(int, str)  # (hwnd, title)
+    cancelled = pyqtSignal()
 
 
-# class _WindowLostBridge(QObject):
-#     """窗口丢失信号桥（录制线程 → Qt 主线程）"""
-#     window_lost = pyqtSignal(str)  # "closed" / "minimized"
+class _WindowLostBridge(QObject):
+    """窗口丢失信号桥（录制线程 → Qt 主线程）"""
+    window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
 class QuickRecApp:
@@ -93,8 +96,8 @@ class QuickRecApp:
 
         # v1.2 新增模块
         self._click_highlighter = ClickHighlighter()
-        # self._window_highlighter = None   # 延期：窗口录制
-        # self._window_selector = None      # 延期：窗口录制
+        self._window_highlighter = None
+        self._window_selector = None
 
         # 编码完成信号桥
         self._saved_bridge = _SavedBridge()
@@ -106,24 +109,24 @@ class QuickRecApp:
         self._hotkey_bridge.stop_requested.connect(self._on_stop_recording)
         self._hotkey_bridge.pause_requested.connect(self._on_pause_resume)
         self._hotkey_bridge.area_requested.connect(self._on_start_region)
-        # self._hotkey_bridge.window_requested.connect(self._on_start_window)  # 延期：窗口录制
+        self._hotkey_bridge.window_requested.connect(self._on_start_window)
 
         # 区域选择器信号桥
         self._area_bridge = _AreaBridge()
         self._area_bridge.region_selected.connect(self._on_region_selected)
         self._area_bridge.cancelled.connect(self._on_selection_cancelled)
 
-        # 窗口选择器信号桥（v1.2 新增 → 延期：窗口录制）
-        # self._window_bridge = _WindowBridge()
-        # self._window_bridge.window_selected.connect(self._on_window_selected)
-        # self._window_bridge.cancelled.connect(self._on_window_cancelled)
+        # 窗口选择器信号桥
+        self._window_bridge = _WindowBridge()
+        self._window_bridge.window_selected.connect(self._on_window_selected)
+        self._window_bridge.cancelled.connect(self._on_window_cancelled)
 
-        # 窗口丢失信号桥（v1.2 新增 → 延期：窗口录制）
-        # self._window_lost_bridge = _WindowLostBridge()
-        # self._window_lost_bridge.window_lost.connect(self._on_window_lost)
-        # self._recorder._window_lost_bridge.window_lost.connect(
-        #     self._window_lost_bridge.window_lost.emit
-        # )
+        # 窗口丢失信号桥
+        self._window_lost_bridge = _WindowLostBridge()
+        self._window_lost_bridge.window_lost.connect(self._on_window_lost)
+        self._recorder._window_lost_bridge.window_lost.connect(
+            self._window_lost_bridge.window_lost.emit
+        )
 
         # 初始化托盘
         self._tray = TrayIcon(
@@ -155,26 +158,35 @@ class QuickRecApp:
         shortcut_stop = self._config.get("shortcut_stop", "Ctrl+Shift+S")
         shortcut_pause = self._config.get("shortcut_pause", "Ctrl+Shift+P")
         shortcut_area = self._config.get("shortcut_area", "Ctrl+Shift+A")
-        # shortcut_window = self._config.get("shortcut_window", "Ctrl+Shift+W")  # 延期：窗口录制
+        shortcut_window = self._config.get("shortcut_window", "Ctrl+Shift+W")
 
         self._hotkey.register(shortcut_start, self._hotkey_bridge.start_requested.emit)
         self._hotkey.register(shortcut_stop, self._hotkey_bridge.stop_requested.emit)
         self._hotkey.register(shortcut_pause, self._hotkey_bridge.pause_requested.emit)
         self._hotkey.register(shortcut_area, self._hotkey_bridge.area_requested.emit)
-        # self._hotkey.register(shortcut_window, self._hotkey_bridge.window_requested.emit)  # 延期：窗口录制
+        self._hotkey.register(shortcut_window, self._hotkey_bridge.window_requested.emit)
 
     # --- 全屏录制 ---
+
+    def _check_disk_space(self) -> bool:
+        """录制前磁盘空间检查，返回 True 表示可以继续"""
+        save_path = self._config.get("save_path")
+        status, free_mb = DiskChecker.check_before_recording(save_path)
+        if status == "block":
+            show_disk_warning(free_mb, block=True)
+            return False
+        if status == "warn":
+            return show_disk_warning(free_mb, block=False)
+        return True
 
     def _on_start_fullscreen(self):
         """开始全屏录制"""
         if self._recorder.get_state() != RecorderState.IDLE:
             return
-
-        # v1.2: 如果正在倒计时中，取消倒计时
         if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
+            self._on_countdown_esc()
+            return
+        if not self._check_disk_space():
             return
 
         # v1.2: 检查倒计时配置
@@ -208,11 +220,10 @@ class QuickRecApp:
         """区域录制：显示区域选择器"""
         if self._recorder.get_state() != RecorderState.IDLE:
             return
-        # 如果正在倒计时中，取消倒计时
         if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
+            self._on_countdown_esc()
+            return
+        if not self._check_disk_space():
             return
 
         self._area_selector = AreaSelector()
@@ -260,137 +271,97 @@ class QuickRecApp:
             self._toolbar.cancel_countdown()
             self._hide_toolbar()
             self._hotkey.set_esc_callback(None)
+            # 窗口录制模式下取消倒计时需同时隐藏边框高亮
+            if self._window_highlighter:
+                self._window_highlighter.hide_highlight()
+                self._window_highlighter = None
 
-    # --- 窗口录制（v1.2 新增 → 延期：窗口录制） ---
+    # --- 窗口录制 ---
 
     def _on_start_window(self):
-        """窗口录制：显示窗口选择器（延期：窗口录制）"""
-        return
-        # if self._recorder.get_state() != RecorderState.IDLE:
-        #     return
-        # # 如果正在倒计时中，取消倒计时
-        # if self._toolbar and self._toolbar.is_countdown_mode():
-        #     self._toolbar.cancel_countdown()
-        #
-        # self._window_selector = WindowSelector()
-        # self._window_selector.window_selected.connect(
-        #     lambda hwnd, title: self._window_bridge.window_selected.emit(hwnd, title)
-        # )
-        # self._window_selector.cancelled.connect(self._window_bridge.cancelled.emit)
-        # self._window_selector.exec_()
+        """窗口录制：显示窗口选择器"""
+        if self._recorder.get_state() != RecorderState.IDLE:
+            return
+        if self._toolbar and self._toolbar.is_countdown_mode():
+            self._on_countdown_esc()
+            return
+        if not self._check_disk_space():
+            return
+        self._window_selector = WindowSelector()
+        self._window_selector.window_selected.connect(
+            lambda hwnd, title: self._window_bridge.window_selected.emit(hwnd, title)
+        )
+        self._window_selector.cancelled.connect(self._window_bridge.cancelled.emit)
+        self._window_selector.exec_()
 
-    # def _on_window_selected(self, hwnd, title):
-    #     """窗口选择完成：将窗口置前、创建边框高亮并开始录制"""
-    #     self._window_selector = None
-    #
-    #     # 将目标窗口提到前台（只恢复最小化窗口，避免将最大化窗口窗口化）
-    #     import ctypes
-    #     import time
-    #     user32 = ctypes.windll.user32
-    #     if user32.IsIconic(hwnd):  # SW_MINIMIZE = IsIconic
-    #         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-    #         time.sleep(0.2)  # 等待窗口恢复动画完成
-    #     user32.SetForegroundWindow(hwnd)
-    #
-    #     # 创建窗口边框高亮
-    #     self._window_highlighter = WindowHighlighter(hwnd)
-    #     self._window_highlighter.show_highlight()
-    #
-    #     if self._config.get("show_countdown", False):
-    #         self._show_toolbar()
-    #         self._toolbar.start_countdown(
-    #             self._config.get("countdown_seconds", 3)
-    #         )
-    #         self._toolbar.countdown_finished.connect(
-    #             lambda: self._do_start_window(hwnd)
-    #         )
-    #     else:
-    #         self._show_toolbar()
-    #         self._do_start_window(hwnd)
-    #
-    # def _do_start_window(self, hwnd):
-    #     """窗口录制实际启动"""
-    #     if not self._recorder.start_window(hwnd):
-    #         logger.error("窗口录制启动失败")
-    #         self._hide_toolbar()
-    #         return
-    #     if self._toolbar:
-    #         self._toolbar.start_recording_timer()
-    #     self._tray.set_recording_state(True)
-    #     self._update_highlight_state()
-    #
-    # def _on_window_cancelled(self):
-    #     """窗口选择取消"""
-    #     self._window_selector = None
-    #
-    # def _on_window_lost(self, reason):
-    #     """录制窗口丢失：暂停录制并弹对话框让用户选择后续操作"""
-    #     try:
-    #         logger.info(f"窗口丢失回调: reason={reason}, state={self._recorder.get_state()}")
-    #
-    #         # 停止窗口高亮定时器
-    #         if self._window_highlighter:
-    #             self._window_highlighter.hide_highlight()
-    #
-    #         if reason == "closed":
-    #             # 窗口关闭：弹对话框问是否保存
-    #             msg = QMessageBox()
-    #             msg.setWindowTitle("QuickRec")
-    #             msg.setText("录制窗口已关闭，录制已停止")
-    #             msg.setInformativeText("是否保存已录制的内容？")
-    #             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-    #             msg.button(QMessageBox.Yes).setText("保存视频")
-    #             msg.button(QMessageBox.No).setText("不保存")
-    #             # 确保对话框可见：置顶 + 显示在任务栏
-    #             msg.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
-    #
-    #             if msg.exec_() == QMessageBox.Yes:
-    #                 self._on_stop_recording()
-    #             else:
-    #                 self._on_cancel_recording()
-    #
-    #         elif reason == "minimized":
-    #             # 窗口最小化：弹对话框，三个选项
-    #             msg = QMessageBox()
-    #             msg.setWindowTitle("QuickRec")
-    #             msg.setText("录制窗口已最小化，录制已暂停")
-    #             btn_continue = msg.addButton("继续录制", QMessageBox.AcceptRole)
-    #             btn_stop = msg.addButton("停止并保存", QMessageBox.RejectRole)
-    #             btn_cancel = msg.addButton("取消录制", QMessageBox.DestructiveRole)
-    #             msg.setWindowFlags(Qt.Dialog | Qt.WindowStaysOnTopHint | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
-    #
-    #             msg.exec_()
-    #             clicked = msg.clickedButton()
-    #
-    #             if clicked == btn_continue:
-    #                 # 继续录制：恢复窗口到前台，然后 resume
-    #                 if self._window_highlighter and self._window_highlighter._hwnd:
-    #                     import ctypes
-    #                     user32 = ctypes.windll.user32
-    #                     hwnd = self._window_highlighter._hwnd
-    #                     if user32.IsIconic(hwnd):
-    #                         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-    #                     user32.SetForegroundWindow(hwnd)
-    #                 if self._window_highlighter:
-    #                     self._window_highlighter.show_highlight()
-    #                 # 恢复录制
-    #                 self._recorder.resume()
-    #                 if self._toolbar:
-    #                     self._toolbar.set_paused(False)
-    #                 self._tray.set_recording_state(True, paused=False)
-    #
-    #             elif clicked == btn_stop:
-    #                 # 停止并保存
-    #                 self._on_stop_recording()
-    #
-    #             else:
-    #                 # 取消录制
-    #                 self._on_cancel_recording()
-    #
-    #     except Exception as e:
-    #         logger.error(f"窗口丢失处理异常: {e}")
-    #         # 异常时安全停止
-    #         self._on_stop_recording()
+    def _on_window_selected(self, hwnd: int, title: str):
+        """窗口选择完成"""
+        self._window_selector = None
+        user32 = ctypes.windll.user32
+        # 恢复最小化窗口（同步一次，主线程不阻塞）
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        # 绕过 Windows 前台锁定：模拟 Alt 键 + 置前台
+        user32.keybd_event(0x12, 0x38, 0, 0)         # VK_MENU down
+        user32.keybd_event(0x12, 0x38, 0x0002, 0)    # VK_MENU up
+        user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+        # 用异步延迟等待窗口激活与绘制完成，避免主线程长阻塞导致 GUI 卡死/闪退
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(400, lambda: self._after_window_foreground(hwnd))
+
+    def _after_window_foreground(self, hwnd: int):
+        """窗口置前台后的异步续逻辑（主线程，已让出事件循环）"""
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(hwnd):
+            logger.warning("目标窗口已不存在，取消窗口录制")
+            self._tray.show_notification("目标窗口已关闭")
+            return
+        self._window_highlighter = WindowHighlighter(hwnd)
+        self._window_highlighter.show_highlight()
+        if self._config.get("show_countdown", False):
+            self._show_toolbar()
+            self._toolbar.start_countdown(self._config.get("countdown_seconds", 3))
+            self._toolbar.countdown_finished.connect(lambda: self._do_start_window(hwnd))
+            self._hotkey.set_esc_callback(self._on_countdown_esc)
+        else:
+            self._show_toolbar()
+            self._do_start_window(hwnd)
+
+    def _do_start_window(self, hwnd: int):
+        """窗口录制实际启动"""
+        self._hotkey.set_esc_callback(None)
+        if not self._recorder.start_window(hwnd):
+            logger.error("窗口录制启动失败")
+            self._hide_toolbar()
+            if self._window_highlighter:
+                self._window_highlighter.hide_highlight()
+                self._window_highlighter = None
+            # 告知用户失败原因（特殊窗口/最小化恢复未完成）
+            self._tray.show_notification("窗口录制启动失败：无法获取窗口区域")
+            return
+        if self._toolbar:
+            self._toolbar.start_recording_timer()
+        self._tray.set_recording_state(True)
+        self._update_highlight_state()
+
+    def _on_window_cancelled(self):
+        self._window_selector = None
+
+    def _on_window_lost(self, reason: str):
+        """窗口丢失：简化处理（无 QMessageBox）"""
+        if self._window_highlighter:
+            self._window_highlighter.hide_highlight()
+            self._window_highlighter = None
+        if reason == "closed":
+            self._tray.show_notification("录制窗口已关闭，视频已保存")
+            self._on_stop_recording()
+        elif reason == "minimized":
+            self._recorder.pause()
+            if self._toolbar:
+                self._toolbar.set_paused(True)
+            self._tray.set_recording_state(True, paused=True)
+            self._tray.show_notification("录制窗口已最小化，录制已暂停。恢复窗口后点击\"继续\"继续录制。")
 
     # --- 录制控制 ---
 
@@ -420,6 +391,14 @@ class QuickRecApp:
             if self._toolbar:
                 self._toolbar.set_paused(False)
             self._tray.set_recording_state(True, paused=False)
+            # 窗口录制：最小化暂停后恢复，重建边框高亮（_on_window_lost 中已置空）
+            if self._recorder.get_mode() == RecordMode.WINDOW:
+                hwnd = self._recorder.get_window_hwnd()
+                if hwnd and self._window_highlighter is None:
+                    user32 = ctypes.windll.user32
+                    if user32.IsWindow(hwnd) and not user32.IsIconic(hwnd):
+                        self._window_highlighter = WindowHighlighter(hwnd)
+                        self._window_highlighter.show_highlight()
 
     # --- 工具栏 ---
 
@@ -451,13 +430,9 @@ class QuickRecApp:
             self._recorder.stop(cancel=True)
         self._tray.show_notification("录制已取消")
         self._tray.set_recording_state(False)
-
-        # v1.2: 清理窗口边框高亮（延期：窗口录制）
-        # if self._window_highlighter:
-        #     self._window_highlighter.hide_highlight()
-        #     self._window_highlighter = None
-
-        # v1.2: 停止鼠标高亮
+        if self._window_highlighter:
+            self._window_highlighter.hide_highlight()
+            self._window_highlighter = None
         self._click_highlighter.stop()
         self._hide_toolbar()
 
@@ -530,13 +505,9 @@ class QuickRecApp:
             self._hide_toolbar()
 
         self._tray.set_recording_state(False)
-
-        # v1.2: 清理窗口边框高亮（延期：窗口录制）
-        # if self._window_highlighter:
-        #     self._window_highlighter.hide_highlight()
-        #     self._window_highlighter = None
-
-        # v1.2: 停止鼠标高亮
+        if self._window_highlighter:
+            self._window_highlighter.hide_highlight()
+            self._window_highlighter = None
         self._click_highlighter.stop()
 
     # --- 设置 ---
@@ -574,13 +545,9 @@ class QuickRecApp:
         # 确保处理完所有编码完成信号
         from PyQt5.QtCore import QCoreApplication
         QCoreApplication.processEvents()
-
-        # v1.2: 清理窗口边框高亮（延期：窗口录制）
-        # if self._window_highlighter:
-        #     self._window_highlighter.hide_highlight()
-        #     self._window_highlighter = None
-
-        # v1.2: 停止鼠标高亮
+        if self._window_highlighter:
+            self._window_highlighter.hide_highlight()
+            self._window_highlighter = None
         self._click_highlighter.stop()
 
         self._hide_toolbar()
@@ -593,6 +560,8 @@ class QuickRecApp:
 def main():
     """程序入口"""
     try:
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
         app = QuickRecApp()
         sys.exit(app.run())
     except Exception as e:

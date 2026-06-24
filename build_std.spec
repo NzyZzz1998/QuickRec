@@ -49,12 +49,102 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # Qt modules not used by QuickRec
+        'PyQt5.QtBluetooth',
+        'PyQt5.QtDesigner',
+        'PyQt5.QtHelp',
+        'PyQt5.QtLocation',
+        'PyQt5.QtMultimedia',
+        'PyQt5.QtMultimediaWidgets',
+        'PyQt5.QtNetwork',
+        'PyQt5.QtNetworkAuth',
+        'PyQt5.QtNfc',
+        'PyQt5.QtOpenGL',
+        'PyQt5.QtQml',
+        'PyQt5.QtQuick',
+        'PyQt5.QtQuickWidgets',
+        'PyQt5.QtRemoteObjects',
+        'PyQt5.QtSensors',
+        'PyQt5.QtSerialPort',
+        'PyQt5.QtSql',
+        'PyQt5.QtSvg',
+        'PyQt5.QtTest',
+        'PyQt5.QtWebChannel',
+        'PyQt5.QtWebEngine',
+        'PyQt5.QtWebEngineCore',
+        'PyQt5.QtWebEngineWidgets',
+        'PyQt5.QtWebSockets',
+        'PyQt5.QtXml',
+        'PyQt5.QtXmlPatterns',
+        # Standard library modules not needed
+        'tkinter',
+        'unittest',
+        'test',
+        'tests',
+        'lib2to3',
+        'xmlrpc',
+        'pydoc',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=None,
     noarchive=False,
 )
+
+# 从 Analysis 结果中移除不需要的 Qt DLL 和 ANGLE 软件渲染库
+_QT_EXCLUDE_DLLS = {
+    'Qt5Quick', 'Qt5Qml', 'Qt5QmlModels', 'Qt5Network', 'Qt5DBus',
+    'Qt5Svg', 'Qt5WebSockets', 'Qt5OpenGL', 'Qt5Multimedia',
+    'Qt5MultimediaWidgets', 'Qt5Bluetooth', 'Qt5Designer', 'Qt5Help',
+    'Qt5Location', 'Qt5Nfc', 'Qt5Sensors', 'Qt5SerialPort', 'Qt5Sql',
+    'Qt5Test', 'Qt5WebChannel', 'Qt5WebEngine', 'Qt5WebEngineCore',
+    'Qt5WebEngineWidgets', 'Qt5Xml', 'Qt5XmlPatterns', 'Qt5RemoteObjects',
+}
+_ANGLE_DLLS = {
+    'opengl32sw', 'd3dcompiler_47', 'libGLESv2', 'libEGL',
+}
+# OpenCV 自带的 ffmpeg DLL（与我们的 ffmpeg.exe 重复）
+_CV2_EXCLUDE = {
+    'opencv_videoio_ffmpeg',
+}
+# PIL 不需要的编解码器（pystray 只用 Image/ImageDraw，不需要 AVIF/WebP）
+_PIL_EXCLUDE = {
+    '_avif.', '_webp.', '_imagingtk.',
+}
+# Qt 插件排除（不需要的图片格式和平台插件）
+_QT_PLUGIN_EXCLUDE = {
+    'qsvg', 'qwebp', 'qtiff', 'qicns', 'qico', 'qtga', 'qwbmp',
+    'qwebgl', 'qminimal',
+}
+
+def _should_exclude(name):
+    """判断二进制/数据文件是否应排除"""
+    bn = name.lower()
+    # Qt 排除的 DLL
+    for qt in _QT_EXCLUDE_DLLS:
+        if qt.lower() in bn:
+            return True
+    # ANGLE 软件渲染
+    for ang in _ANGLE_DLLS:
+        if ang.lower() in bn:
+            return True
+    # OpenCV ffmpeg DLL
+    for cv in _CV2_EXCLUDE:
+        if cv.lower() in bn:
+            return True
+    # PIL 不需要的编解码器
+    for pil in _PIL_EXCLUDE:
+        if pil.lower() in bn:
+            return True
+    # Qt 不需要的插件
+    for qt_plug in _QT_PLUGIN_EXCLUDE:
+        if qt_plug.lower() in bn:
+            return True
+    return False
+
+a.binaries = [b for b in a.binaries if not _should_exclude(b[0])]
+a.datas = [d for d in a.datas if not _should_exclude(d[0])]
 
 pyz = PYZ(a.pure, a.zipped_data)
 
