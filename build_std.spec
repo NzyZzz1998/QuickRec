@@ -12,7 +12,6 @@ a = Analysis(
         'comtypes',
         'comtypes.client',
         'comtypes.server',
-        'cv2',
         'pynput',
         'pynput.keyboard',
         'pynput.keyboard._win32',
@@ -31,6 +30,12 @@ a = Analysis(
         'recorder.video_encoder',
         'recorder.recorder_manager',
         'recorder.audio_capturer',
+        'recorder.cursor_overlay',
+        'recorder.events',
+        'recorder.frame_resize',
+        'recorder.state_machine',
+        'recorder.timer_resolution',
+        'recorder.workflow',
         'ui',
         'ui.area_selector',
         'ui.toolbar',
@@ -45,6 +50,7 @@ a = Analysis(
         'soundcard',
         'soundcard.mediafoundation',
         'pyaudio',
+        'cv2',
     ],
     hookspath=[],
     hooksconfig={},
@@ -104,13 +110,14 @@ _QT_EXCLUDE_DLLS = {
 _ANGLE_DLLS = {
     'opengl32sw', 'd3dcompiler_47', 'libGLESv2', 'libEGL',
 }
-# OpenCV 自带的 ffmpeg DLL（与我们的 ffmpeg.exe 重复）
-_CV2_EXCLUDE = {
-    'opencv_videoio_ffmpeg',
-}
 # PIL 不需要的编解码器（pystray 只用 Image/ImageDraw，不需要 AVIF/WebP）
 _PIL_EXCLUDE = {
     '_avif.', '_webp.', '_imagingtk.',
+}
+# dxcam 默认 processor_backend="cv2"，只需要 cv2 的颜色转换能力。
+# OpenCV 自带的视频 IO FFmpeg DLL 体积大，QuickRec 已使用独立 ffmpeg/ffmpeg.exe 编码，故排除。
+_CV2_EXCLUDE = {
+    'opencv_videoio_ffmpeg',
 }
 # Qt 插件排除（不需要的图片格式和平台插件）
 _QT_PLUGIN_EXCLUDE = {
@@ -129,13 +136,13 @@ def _should_exclude(name):
     for ang in _ANGLE_DLLS:
         if ang.lower() in bn:
             return True
-    # OpenCV ffmpeg DLL
-    for cv in _CV2_EXCLUDE:
-        if cv.lower() in bn:
-            return True
     # PIL 不需要的编解码器
     for pil in _PIL_EXCLUDE:
         if pil.lower() in bn:
+            return True
+    # OpenCV 不需要的视频 IO FFmpeg 插件
+    for cv2 in _CV2_EXCLUDE:
+        if cv2.lower() in bn:
             return True
     # Qt 不需要的插件
     for qt_plug in _QT_PLUGIN_EXCLUDE:

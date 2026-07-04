@@ -1,0 +1,344 @@
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import main
+
+
+class FakeQApplication:
+    def __init__(self, argv):
+        self.argv = argv
+        self.quit_called = False
+
+    def setQuitOnLastWindowClosed(self, value):
+        self.quit_on_last_window_closed = value
+
+    def setStyle(self, value):
+        self.style = value
+
+    def exec_(self):
+        return 0
+
+    def quit(self):
+        self.quit_called = True
+
+
+class FakeConfig:
+    def get(self, key, default=None):
+        return default
+
+
+class FakeRecorder:
+    def __init__(self, config, on_saved=None, on_event=None):
+        self.config = config
+        self.on_saved = on_saved
+        self.on_event = on_event
+        self.event_handler = None
+        self.window_lost_callback = None
+        self.window_lost_connected = False
+
+    def set_event_handler(self, callback):
+        self.event_handler = callback
+
+    def connect_window_lost(self, callback):
+        self.window_lost_callback = callback
+        self.window_lost_connected = True
+
+
+class FakeSignal:
+    def __init__(self):
+        self.connected = []
+
+    def connect(self, callback):
+        self.connected.append(callback)
+
+    def emit(self, *args):
+        for callback in self.connected:
+            callback(*args)
+
+
+class FakeWindowLostBridge:
+    def __init__(self):
+        self.window_lost = FakeSignal()
+
+
+class FakeHotkey:
+    def __init__(self):
+        self.started = False
+        self.stopped = False
+
+    def register(self, *_args):
+        return True
+
+    def start_listening(self):
+        self.started = True
+
+    def stop_listening(self):
+        self.stopped = True
+
+    def set_esc_callback(self, _callback):
+        pass
+
+
+class FakeTray:
+    def __init__(self, config, callbacks):
+        self.config = config
+        self.callbacks = callbacks
+        self.recording_states = []
+        self.notifications = []
+
+    def set_recording_state(self, *args, **kwargs):
+        self.recording_states.append((args, kwargs))
+
+    def show_notification(self, *args):
+        self.notifications.append(args)
+
+    def hide(self):
+        self.hidden = True
+
+
+class FakeClickHighlighter:
+    def __init__(self):
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+    def is_running(self):
+        return False
+
+
+class FakeWindowHighlighter:
+    def __init__(self):
+        self.hidden = False
+
+    def hide_highlight(self):
+        self.hidden = True
+
+
+class FakeWorkflow:
+    def __init__(self, manager):
+        self.manager = manager
+        self.events = []
+        self.calls = []
+        self.state = main.RecorderState.IDLE
+        self.wait_until_idle_result = True
+        self.start_fullscreen_called = False
+        self.start_fullscreen_result = True
+
+    def handle_event(self, event):
+        self.events.append(event)
+
+    def start_fullscreen(self):
+        self.start_fullscreen_called = True
+        self.calls.append(("start_fullscreen",))
+        return self.start_fullscreen_result
+
+    def start_region(self, region):
+        self.calls.append(("start_region", region))
+        return True
+
+    def start_window(self, hwnd):
+        self.calls.append(("start_window", hwnd))
+        return True
+
+    def pause(self):
+        self.calls.append(("pause",))
+        self.state = main.RecorderState.PAUSED
+        return True
+
+    def resume(self):
+        self.calls.append(("resume",))
+        self.state = main.RecorderState.RECORDING
+        return True
+
+    def stop(self, cancel=False):
+        self.calls.append(("stop", cancel))
+        self.state = main.RecorderState.SAVING
+        return ""
+
+    def get_state(self):
+        return self.state
+
+    def wait_until_idle(self, timeout=60):
+        self.calls.append(("wait_until_idle", timeout))
+        if self.wait_until_idle_result:
+            self.state = main.RecorderState.IDLE
+        return self.wait_until_idle_result
+
+
+class FakeToolbar:
+    def __init__(self):
+        self.timer_started = False
+        self.closed = False
+        self.saving_shown = False
+        self.paused_states = []
+
+    def start_recording_timer(self):
+        self.timer_started = True
+
+    def stop_recording_timer(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def show_saving(self):
+        self.saving_shown = True
+
+    def set_paused(self, value):
+        self.paused_states.append(value)
+
+
+class TestQuickRecAppWorkflow(unittest.TestCase):
+    def test_init_wires_workflow_to_recorder_and_event_callback(self):
+        with patch("main.QApplication", FakeQApplication), \
+                patch("main.ConfigManager", FakeConfig), \
+                patch("main.RecorderManager", FakeRecorder), \
+                patch("main.RecordingWorkflow", FakeWorkflow), \
+                patch("main.HotkeyManager", FakeHotkey), \
+                patch("main.ClickHighlighter", FakeClickHighlighter), \
+                patch("main.TrayIcon", FakeTray):
+            app = main.QuickRecApp()
+
+        self.assertIs(app._workflow.manager, app._recorder)
+        self.assertIs(app._recorder.event_handler.__self__, app._workflow)
+        self.assertIs(app._recorder.event_handler.__func__, app._workflow.handle_event.__func__)
+        self.assertTrue(app._recorder.window_lost_connected)
+        self.assertTrue(callable(app._recorder.window_lost_callback))
+        self.assertTrue(app._hotkey.started)
+
+    def test_do_start_fullscreen_uses_workflow(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._hotkey = FakeHotkey()
+        app._workflow = FakeWorkflow(manager=None)
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._update_highlight_state = lambda: None
+
+        app._do_start_fullscreen()
+
+        self.assertTrue(app._workflow.start_fullscreen_called)
+        self.assertTrue(app._toolbar.timer_started)
+        self.assertEqual(app._tray.recording_states, [((True,), {})])
+
+    def test_do_start_fullscreen_hides_toolbar_when_workflow_fails(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._hotkey = FakeHotkey()
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.start_fullscreen_result = False
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+
+        app._do_start_fullscreen()
+
+        self.assertTrue(app._workflow.start_fullscreen_called)
+        self.assertIsNone(app._toolbar)
+        self.assertEqual(app._tray.notifications, [("录制启动失败，请检查 FFmpeg 或录制环境",)])
+
+    def test_region_and_window_start_use_workflow(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._hotkey = FakeHotkey()
+        app._workflow = FakeWorkflow(manager=None)
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._window_highlighter = None
+        app._update_highlight_state = lambda: None
+
+        app._do_start_region(1, 2, 300, 200)
+        app._do_start_window(42)
+
+        self.assertEqual(
+            app._workflow.calls,
+            [("start_region", (1, 2, 300, 200)), ("start_window", 42)],
+        )
+        self.assertEqual(app._tray.recording_states, [((True,), {}), ((True,), {})])
+
+    def test_window_highlighter_is_hidden_after_window_recording_starts(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._hotkey = FakeHotkey()
+        app._workflow = FakeWorkflow(manager=None)
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        highlighter = FakeWindowHighlighter()
+        app._window_highlighter = highlighter
+        app._update_highlight_state = lambda: None
+
+        app._do_start_window(42)
+
+        self.assertTrue(highlighter.hidden)
+        self.assertIsNone(app._window_highlighter)
+
+    def test_window_resume_does_not_recreate_highlighter_during_recording(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.state = main.RecorderState.PAUSED
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._click_highlighter = FakeClickHighlighter()
+        app._window_highlighter = None
+        app._recorder = type(
+            "RecorderReadModel",
+            (),
+            {"get_mode": lambda self: main.RecordMode.WINDOW, "get_window_hwnd": lambda self: 42},
+        )()
+
+        with patch("main.WindowHighlighter", side_effect=AssertionError("must not recreate highlighter")):
+            app._on_pause_resume()
+
+        self.assertIsNone(app._window_highlighter)
+
+    def test_stop_pause_resume_and_cancel_use_workflow(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workflow = FakeWorkflow(manager=None)
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._click_highlighter = FakeClickHighlighter()
+        app._window_highlighter = None
+        app._recorder = type(
+            "RecorderReadModel",
+            (),
+            {"get_mode": lambda self: None, "get_window_hwnd": lambda self: None},
+        )()
+        toolbar = app._toolbar
+
+        app._workflow.state = main.RecorderState.RECORDING
+        app._on_pause_resume()
+        app._on_stop_recording()
+        app._workflow.state = main.RecorderState.RECORDING
+        app._on_cancel_recording()
+
+        self.assertEqual(
+            app._workflow.calls,
+            [("pause",), ("stop", False), ("stop", True)],
+        )
+        self.assertEqual(toolbar.paused_states, [True])
+        self.assertTrue(toolbar.saving_shown)
+
+    def test_exit_uses_workflow_stop_and_wait(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.state = main.RecorderState.RECORDING
+        app._window_highlighter = None
+        app._click_highlighter = FakeClickHighlighter()
+        app._toolbar = FakeToolbar()
+        app._hotkey = FakeHotkey()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._app = FakeQApplication([])
+
+        with patch("PyQt5.QtCore.QCoreApplication.processEvents"):
+            app._on_exit()
+
+        self.assertEqual(
+            app._workflow.calls,
+            [("stop", False), ("wait_until_idle", 60)],
+        )
+        self.assertTrue(app._hotkey.stopped)
+        self.assertTrue(app._app.quit_called)
+
+
+if __name__ == "__main__":
+    unittest.main()

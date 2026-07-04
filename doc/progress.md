@@ -449,3 +449,358 @@ setup (最先)
 | 7 | 集成测试 + 打包验证 | 全部 | ✅ |
 
 **并行策略**：阶段 1-2 和 5-6 全部可并行启动；阶段 3 依赖阶段 1；阶段 4 依赖阶段 2+3。阶段 7 最后。
+
+---
+
+## v1.4 进度 ✅ 已完成 / 待发布
+
+> v1.4 目标：稳定性与工程化大型优化。不新增用户可见功能；先修测试基线，再建立 CI/Lint/mypy，再做架构解耦，最后完成运行时稳定性与发布收口。
+> 当前结果：默认测试 `175 passed / 23 deselected`；打包体积 `257.74MB`；稳定性优先恢复 cv2，保留 OpenCV videoio ffmpeg 排除；已完成发布前手动验收。
+
+### v1.4 计划 review 结论
+
+- [x] PRD 已更新：`doc/PRD-QuickRec.md` 新增 v1.4 章节、质量门槛、里程碑和风险
+- [x] TecDesign 已新增：`doc/Tec-design-v1.4.md`，覆盖测试基线、工程配置、CI、架构解耦、公共事件、运行时稳定性和打包验证
+- [x] dev-plan 已新增：`doc/dev-plan-v1.4.md`，按 M1-M4 拆分阶段任务
+- [x] v1.4 实施已完成
+- [x] v1.4 测试用例文档已创建：`doc/v1.4-test-cases.md`
+- [x] 实际 bug 修复已写入 `doc/bugfix-log.md`，当前至 Bug #60
+- [x] README 已更新至 v1.4 发布口径
+
+### v1.4 发布收口结果
+
+| 项目 | 结果 |
+| --- | --- |
+| 默认测试 | `175 passed / 23 deselected` |
+| ruff | `python -m ruff check .` 通过 |
+| mypy | `python -m mypy` 通过 |
+| compileall | `python -m compileall -q src tests` 通过 |
+| packaging 测试 | `5 passed` |
+| 打包产物 | `dist/QuickRec/QuickRec.exe` |
+| 打包体积 | `257.74MB` |
+| 体积结论 | 稳定性优先，恢复 cv2；继续排除 `opencv_videoio_ffmpeg*.dll` |
+| tag | 准备发布 `v1.4` |
+
+> 下方 M1-M4 checklist 保留为本轮开发的任务颗粒度记录；实际完成状态以本节发布收口结果和 `doc/v1.4-test-cases.md` 为准。
+
+### v1.4 模块进度
+
+#### M1 工程基线修复
+
+- [ ] **VideoEncoder 测试修复 (`tests/test_video_encoder.py`)**
+  - [ ] 阅读 `src/recorder/video_encoder.py` 当前构造函数和错误处理路径
+  - [ ] 将旧测试的 3 参数构造改为显式传入 `ffmpeg_path`
+  - [ ] 新增 mock Popen 夹具
+  - [ ] 验证 FFmpeg 命令包含 `rawvideo`
+  - [ ] 验证 FFmpeg 命令包含 `bgr24`
+  - [ ] 验证 FFmpeg 命令包含 `libx264`
+  - [ ] 验证 FFmpeg 命令包含 `crf=23`
+  - [ ] 验证 FFmpeg 命令包含 `preset=superfast`
+  - [ ] 验证 FFmpeg 命令包含 `yuv420p`
+  - [ ] 新增 FFmpeg 路径为空/不存在测试
+  - [ ] 新增 Popen 启动失败测试
+  - [ ] 新增 BrokenPipeError 测试，确认 `write_frame()` 返回 False
+  - [ ] 新增 close 后写入返回 False 测试
+  - [ ] 将真实 MP4 编码测试标记为 `hardware`
+  - [ ] 默认测试不依赖本机 FFmpeg
+
+- [ ] **RecorderManager 异步 stop 测试修复 (`tests/test_recorder_manager.py`)**
+  - [ ] 梳理 `RecorderManager.stop()` 当前异步契约
+  - [ ] 移除“stop 立即返回 mp4 路径”的旧断言
+  - [ ] 使用状态/回调断言保存完成
+  - [ ] 增加 `RECORDING -> STOPPING -> SAVING -> IDLE` 状态流测试
+  - [ ] 增加 `PAUSED -> STOPPING -> SAVING -> IDLE` 状态流测试
+  - [ ] 增加取消路径测试：`stop(cancel=True)` 不触发成功保存
+  - [ ] 增加重复 stop 测试：STOPPING/SAVING 不启动多个后台线程
+  - [ ] 增加 `wait_until_idle(timeout)` 正常完成测试
+  - [ ] 增加 `wait_until_idle(timeout)` 超时测试
+  - [ ] 使用 fake capturer 隔离 dxcam
+  - [ ] 使用 fake encoder 隔离 FFmpeg
+  - [ ] 使用 fake audio capturer 隔离音频设备
+
+- [ ] **ScreenCapturer 测试分层 (`tests/test_screen_capturer.py`)**
+  - [ ] 将生命周期测试与真实捕获测试拆开
+  - [ ] 使用 monkeypatch 模拟 `dxcam.create()`
+  - [ ] 模拟 camera.start()
+  - [ ] 模拟 camera.get_latest_frame()
+  - [ ] 模拟 camera.stop()
+  - [ ] 模拟 camera.release()
+  - [ ] 验证未 start 时 `capture_frame()` 的契约
+  - [ ] 验证 start 后可获取 fake frame
+  - [ ] 验证 `update_region()` 在 region 不变时不重建 camera
+  - [ ] 验证 `update_region()` 失败时清理 `_camera`
+  - [ ] 验证 `update_region()` 失败时清理 `_started`
+  - [ ] 增加 close 幂等性测试
+  - [ ] 将真实 dxcam 捕获测试标记为 `hardware`
+  - [ ] 默认测试不启动真实 dxcam
+
+- [ ] **pytest marker 与 coverage (`pyproject.toml`)**
+  - [ ] 新增 `pyproject.toml`
+  - [ ] 配置 `testpaths = ["tests"]`
+  - [ ] 配置 `pythonpath = ["src"]` 或等价导入方案
+  - [ ] 定义 `unit` marker
+  - [ ] 定义 `ui` marker
+  - [ ] 定义 `hardware` marker
+  - [ ] 定义 `packaging` marker
+  - [ ] 给纯逻辑测试补 `unit` 或保持默认归类
+  - [ ] 给 PyQt widget 测试补 `ui`
+  - [ ] 给 dxcam/音频/真实桌面测试补 `hardware`
+  - [ ] 给 PyInstaller/产物冒烟测试补 `packaging`
+  - [ ] 接入 `pytest-cov`
+  - [ ] 配置 coverage source 为 `src`
+  - [ ] 配置 coverage branch 统计
+  - [ ] 配置 coverage fail_under = 80
+  - [ ] 移除或减少测试文件中的 `sys.path.insert`
+  - [ ] 默认命令 `python -m pytest -m "not hardware and not packaging"` 全绿
+  - [ ] coverage 总覆盖率 >= 80%
+
+#### M2 CI / Lint / mypy
+
+- [ ] **工程配置 (`pyproject.toml`)**
+  - [ ] 新增 pytest 配置
+  - [ ] 新增 coverage 配置
+  - [ ] 新增 ruff 配置
+  - [ ] 新增 mypy 配置
+  - [ ] 配置 Python 目标版本为 3.12
+  - [ ] 配置 ruff line-length
+  - [ ] 配置 ruff lint 基础规则集
+  - [ ] 配置 mypy `ignore_missing_imports = true`
+  - [ ] 配置 mypy 分阶段收紧策略
+  - [ ] 本地命令可读取统一配置
+
+- [ ] **ruff 格式与 lint**
+  - [ ] 安装/加入开发依赖 `ruff`
+  - [ ] 运行 `python -m ruff check .` 获取问题列表
+  - [ ] 修复 import 顺序问题
+  - [ ] 修复未使用导入问题
+  - [ ] 修复低风险 pyupgrade 问题
+  - [ ] 对高风险历史问题显式忽略或暂缓
+  - [ ] 运行 `python -m ruff format --check .`
+  - [ ] 确认不大面积重排 UI 样式字符串
+  - [ ] ruff check 通过
+  - [ ] ruff format check 通过
+
+- [ ] **mypy 类型检查**
+  - [ ] 安装/加入开发依赖 `mypy`
+  - [ ] 先覆盖 `src/config.py`
+  - [ ] 先覆盖 `src/utils/*.py`
+  - [ ] 覆盖后续新增 `recorder/state_machine.py`
+  - [ ] 覆盖后续新增事件接口模块
+  - [ ] 对 PyQt5 缺失类型做 ignore
+  - [ ] 对 pynput 缺失类型做 ignore
+  - [ ] 对 dxcam 缺失类型做 ignore
+  - [ ] 控制 Any 扩散
+  - [ ] mypy 命令本地通过
+
+- [ ] **GitHub Actions (`.github/workflows/ci.yml`)**
+  - [ ] 新增 `.github/` 目录
+  - [ ] 新增 `.github/workflows/` 目录
+  - [ ] 新增 `ci.yml`
+  - [ ] 配置 checkout
+  - [ ] 配置 Python 3.12
+  - [ ] 安装 `requirements.txt`
+  - [ ] 安装开发依赖 `pytest-cov ruff mypy`
+  - [ ] 执行 `python -m compileall -q src`
+  - [ ] 执行 `python -m ruff format --check .`
+  - [ ] 执行 `python -m ruff check .`
+  - [ ] 执行 `python -m mypy src` 或配置指定模块
+  - [ ] 执行默认 pytest
+  - [ ] 执行 coverage >= 80
+  - [ ] CI 不运行 `hardware` 测试
+  - [ ] CI 不运行 `packaging` 测试
+  - [ ] GitHub Actions 至少成功运行一次
+
+#### M3 架构解耦
+
+- [ ] **应用控制器拆分 (`src/app_controller.py`，建议)**
+  - [ ] 识别 `QuickRecApp.__init__()` 中的模块初始化职责
+  - [ ] 识别 `QuickRecApp.run()` 中的应用生命周期职责
+  - [ ] 识别 `_on_exit()` 中的退出收尾职责
+  - [ ] 新增 `AppController` 类框架
+  - [ ] 将 QApplication 生命周期装配迁移到 `AppController`
+  - [ ] 将托盘启动/隐藏收尾迁移到 `AppController`
+  - [ ] 将快捷键启动/停止收尾迁移到 `AppController`
+  - [ ] `main.py` 保留 DPI 设置
+  - [ ] `main.py` 保留异常兜底
+  - [ ] `main.py` 保留最小入口
+  - [ ] 应用启动行为保持不变
+  - [ ] 应用退出行为保持不变
+
+- [ ] **录制工作流拆分 (`src/workflows/recording_workflow.py`，建议)**
+  - [ ] 新增 `src/workflows/` 目录
+  - [ ] 新增 `RecordingWorkflow` 类框架
+  - [ ] 迁移全屏录制入口流程
+  - [ ] 迁移区域录制入口流程
+  - [ ] 迁移窗口录制入口流程
+  - [ ] 抽取共享磁盘预检查步骤
+  - [ ] 抽取共享倒计时步骤
+  - [ ] 抽取共享工具栏显示/隐藏步骤
+  - [ ] 抽取共享托盘状态更新步骤
+  - [ ] 抽取暂停/继续流程
+  - [ ] 抽取停止录制流程
+  - [ ] 抽取消录制流程
+  - [ ] 抽取保存完成处理
+  - [ ] 抽取保存失败处理
+  - [ ] 全屏/区域/窗口录制入口行为保持一致
+  - [ ] 倒计时取消回归通过
+  - [ ] 暂停/继续回归通过
+  - [ ] 停止保存回归通过
+
+- [ ] **状态机与公共事件 (`src/recorder/state_machine.py`, `src/recorder/events.py`，建议)**
+  - [ ] 新增 `RecorderStateMachine`
+  - [ ] 定义 IDLE 状态转移规则
+  - [ ] 定义 RECORDING 状态转移规则
+  - [ ] 定义 PAUSED 状态转移规则
+  - [ ] 定义 STOPPING 状态转移规则
+  - [ ] 定义 SAVING 状态转移规则
+  - [ ] 定义非法状态转移返回或异常策略
+  - [ ] 新增 `RecorderEventType`
+  - [ ] 新增 `RecorderEvent`
+  - [ ] 定义 `state_changed` 事件
+  - [ ] 定义 `recording_saved` 事件
+  - [ ] 定义 `recording_failed` 事件
+  - [ ] 定义 `window_lost` 事件
+  - [ ] 定义 `disk_warning` 事件
+  - [ ] 为状态机补单元测试
+  - [ ] 为事件对象补单元测试
+  - [ ] 移除 UI 对 `_window_lost_bridge` 等私有字段的访问
+
+- [ ] **通知服务 (`src/services/notification_service.py`，建议)**
+  - [ ] 新增 `src/services/` 目录
+  - [ ] 新增 `NotificationService` 类框架
+  - [ ] 统一保存成功提示
+  - [ ] 统一保存失败提示
+  - [ ] 统一 FFmpeg 缺失/失败提示
+  - [ ] 统一磁盘空间不足提示
+  - [ ] 统一窗口不可录制提示
+  - [ ] 统一窗口关闭/最小化提示
+  - [ ] 保留 winotify → pystray 降级链
+  - [ ] 通知文案集中管理
+
+- [ ] **资源生命周期 (`src/recorder/resource_lifecycle.py`，建议)**
+  - [ ] 新增资源生命周期管理类
+  - [ ] 封装 dxcam capturer 创建
+  - [ ] 封装 VideoEncoder 创建
+  - [ ] 封装 AudioCapturer 创建
+  - [ ] 封装 session_dir 创建
+  - [ ] 封装 capturer 关闭
+  - [ ] 封装 encoder close/wait
+  - [ ] 封装 audio stop
+  - [ ] 封装 session cleanup
+  - [ ] 将 `timeBeginPeriod(1)` 改为显式 acquire
+  - [ ] 将 `timeEndPeriod(1)` 改为显式 release
+  - [ ] 连续录制释放顺序可测试
+
+- [ ] **窗口录制服务 (`src/recorder/window_recording_service.py`，建议)**
+  - [ ] 封装 hwnd 有效性检查
+  - [ ] 封装窗口标题获取
+  - [ ] 封装客户区 rect 获取
+  - [ ] 封装窗口最小化判断
+  - [ ] 封装窗口关闭判断
+  - [ ] 封装特殊窗口失败 reason
+  - [ ] 封装前台置顶/恢复协作逻辑
+  - [ ] 特殊窗口失败不阻塞主线程
+  - [ ] 特殊窗口失败不崩溃
+
+- [ ] **RecorderManager 收窄 (`src/recorder/recorder_manager.py`)**
+  - [ ] 保留录制引擎门面职责
+  - [ ] 委托状态转移给状态机
+  - [ ] 委托资源创建/释放给 resource_lifecycle
+  - [ ] 委托窗口判断给 window_recording_service
+  - [ ] 通过公开事件发出状态和结果
+  - [ ] 不再承担 UI 信号桥职责
+  - [ ] 默认测试全绿
+  - [ ] 三种录制模式回归通过
+
+#### M4 运行时稳定性与发布收口
+
+- [ ] **FFmpeg 异常路径**
+  - [ ] 录制启动前检查 ffmpeg_path 非空
+  - [ ] 录制启动前检查 ffmpeg_path 存在
+  - [ ] 录制启动前检查 ffmpeg_path 可执行或可启动
+  - [ ] 捕获 Popen 启动异常
+  - [ ] Popen 启动异常转换为 `recording_failed`
+  - [ ] 编码中断时停止录制循环
+  - [ ] 编码中断时发出失败事件
+  - [ ] `_finalize()` move 失败可诊断
+  - [ ] `_mix_audio()` 失败可诊断
+  - [ ] FFmpeg 缺失时不进入 RECORDING
+  - [ ] FFmpeg 失败不卡死后台线程
+
+- [ ] **临时文件清理与系统计时器**
+  - [ ] 应用启动时调用 `TempCleaner.cleanup_stale()`
+  - [ ] 为 cleanup_stale 启动接入补测试或验证
+  - [ ] 正常录制结束清理 session_dir
+  - [ ] 取消录制清理 session_dir
+  - [ ] 保存失败清理 session_dir 或保留诊断策略明确
+  - [ ] 封装 `timeBeginPeriod(1)`
+  - [ ] 封装 `timeEndPeriod(1)`
+  - [ ] 正常退出释放 timer period
+  - [ ] 异常退出路径尽量释放 timer period
+
+- [ ] **录制中磁盘持续监控**
+  - [ ] 设计检查间隔（建议 30 秒）
+  - [ ] 避免每帧 IO 检查
+  - [ ] mock `shutil.disk_usage` 测试 ok 状态
+  - [ ] mock `shutil.disk_usage` 测试 warn 状态
+  - [ ] mock `shutil.disk_usage` 测试 block 状态
+  - [ ] warn 状态发出 `disk_warning`
+  - [ ] block 状态执行安全停止策略
+  - [ ] block 状态优先保存已录内容
+  - [ ] 用户提示可感知
+
+- [ ] **退出流程与连续录制**
+  - [ ] 为退出流程设置 timeout
+  - [ ] 等待录制线程结束
+  - [ ] 等待停止线程结束
+  - [ ] 等待 finalize 线程结束
+  - [ ] 超时时记录当前 recorder state
+  - [ ] 超时时记录仍存活线程
+  - [ ] 超时时给用户提示或日志
+  - [ ] fake capturer/encoder 连续录制 3 轮自动测试
+  - [ ] 真实录制连续 3 轮 hardware 冒烟
+  - [ ] 退出不无限卡住
+
+- [ ] **特殊窗口失败提示**
+  - [ ] 窗口不存在提示稳定
+  - [ ] 窗口最小化提示稳定
+  - [ ] 客户区无法获取提示稳定
+  - [ ] UWP/DWM/游戏窗口失败不崩溃
+  - [ ] 失败路径不长时间阻塞 Qt 主线程
+  - [ ] 日志记录 hwnd/title/reason
+
+- [ ] **打包与体积分析**
+  - [ ] 固化打包命令
+  - [ ] 记录 Python 版本
+  - [ ] 记录 PyInstaller 版本
+  - [ ] 记录依赖版本
+  - [ ] 统计 dist/QuickRec 总体积
+  - [ ] 统计 FFmpeg 体积
+  - [ ] 统计 OpenCV/cv2 体积
+  - [ ] 统计 NumPy 体积
+  - [ ] 统计 Qt/PyQt5 体积
+  - [ ] 统计其他依赖体积
+  - [ ] 评估 PyInstaller excludes 优化
+  - [ ] 评估 UPX/strip 配置
+  - [ ] 评估资源裁剪
+  - [ ] 不外置 FFmpeg
+  - [ ] 不替换核心依赖
+  - [ ] 打包产物可启动
+  - [ ] 托盘图标可显示
+  - [ ] 设置对话框可打开并保存
+  - [ ] 全屏录制可冒烟
+  - [ ] 区域录制可冒烟
+  - [ ] 窗口录制可冒烟
+  - [ ] 退出后无明显残留进程
+  - [x] 未达成原 < 200MB 目标时，记录体积构成和阻塞原因
+
+### v1.4 开发阶段
+
+| 阶段 | 内容 | 依赖 | 状态 |
+|-----|------|------|------|
+| M1 | 工程基线修复：测试漂移修复 + marker + coverage | PRD / TecDesign / dev-plan | ✅ 完成 |
+| M2 | CI / Lint / mypy：pyproject + ruff + mypy + GitHub Actions | M1 默认测试趋稳 | ✅ 完成 |
+| M3 | 架构解耦：RecordingWorkflow + 状态机 + 事件 + 服务边界初步拆分 | M1, M2 | ✅ 完成 |
+| M4 | 运行时稳定性与发布收口：异常路径 + 连续录制 + 打包冒烟 + 体积分析 | M3 | ✅ 完成 |
+
+**并行策略**：M1 内部的 VideoEncoder / RecorderManager / ScreenCapturer 测试修复可并行；M2 的 pyproject / ruff / mypy / CI 可并行推进，但必须等 M1 默认测试趋稳后收紧门槛；M3 必须在 M1 后进行，避免无回归网重构；M4 依赖 M3 的公共事件和资源生命周期边界。

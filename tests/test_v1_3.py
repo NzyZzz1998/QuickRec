@@ -18,13 +18,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 _FFMPEG = str(Path(__file__).parent.parent / "ffmpeg" / "ffmpeg.exe")
 
 
+@pytest.mark.packaging
 class TestVideoEncoderV13(unittest.TestCase):
     """VideoEncoder v1.3 FFmpeg pipe 编码测试"""
 
@@ -202,6 +205,7 @@ class TestDiskCheckerV13(unittest.TestCase):
         self.assertEqual(disk_checker.BLOCK_THRESHOLD_MB, 200)
 
 
+@pytest.mark.hardware
 class TestRecorderManagerWindow(unittest.TestCase):
     """RecorderManager 窗口相关静态方法测试"""
 

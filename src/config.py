@@ -99,7 +99,7 @@ class ConfigManager:
             return
 
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 loaded = json.load(f)
                 # 合并加载的配置和默认配置
                 self._config = {**self.defaults, **loaded}

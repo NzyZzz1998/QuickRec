@@ -8,7 +8,6 @@ v1.3 变更：
 """
 
 import ctypes
-import ctypes.wintypes
 import logging
 import os
 import shutil
@@ -16,34 +15,31 @@ import subprocess
 import sys
 import threading
 import time
+import wave
+from collections.abc import Callable
 from enum import Enum
-
-import cv2
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from config import ConfigManager
-from recorder.screen_capturer import ScreenCapturer
-from recorder.video_encoder import VideoEncoder
 from recorder.audio_capturer import AudioCapturer, AudioSource
+from recorder.cursor_overlay import draw_cursor
+from recorder.events import RecordingEvent
+from recorder.frame_resize import resize_bgr_frame
+from recorder.screen_capturer import ScreenCapturer
+from recorder.state_machine import RecordingState, RecordingStateMachine
+from recorder.timer_resolution import TimerResolution
+from recorder.video_encoder import VideoEncoder
 from utils.disk_checker import DiskChecker
 from utils.file_namer import FileNamer
 from utils.temp_cleaner import TempCleaner
+from utils.window_geometry import get_window_client_rect, normalize_capture_region
 
 logger = logging.getLogger("QuickRec")
 
-try:
-    ctypes.windll.winmm.timeBeginPeriod(1)
-except Exception:
-    pass
-
-
-class RecorderState(Enum):
-    IDLE = "idle"
-    RECORDING = "recording"
-    PAUSED = "paused"
-    STOPPING = "stopping"
-    SAVING = "saving"
+RecorderState = RecordingState
+_WINDOW_CAPTURE_UPDATE_INTERVAL = 0.0
+_WINDOW_MOVE_STABLE_DELAY = 0.45
 
 
 class RecordMode(Enum):
@@ -59,9 +55,9 @@ class _WindowLostBridge(QObject):
 class RecorderManager:
     """录制管理器（v1.3：FFmpeg pipe + TempCleaner + 窗口录制）"""
 
-    def __init__(self, config: ConfigManager = None, on_saved=None):
+    def __init__(self, config: ConfigManager = None, on_saved=None, on_event=None):
         self._config = config or ConfigManager()
-        self._state = RecorderState.IDLE
+        self._state_machine = RecordingStateMachine()
         self._mode = RecordMode.FULLSCREEN
         self._capturer: ScreenCapturer = None
         self._encoder: VideoEncoder = None
@@ -93,12 +89,57 @@ class RecorderManager:
         # 窗口录制
         self._window_hwnd: int = None
         self._window_title: str = ""
+        self._window_region: tuple[int, int, int, int] | None = None
+        self._pending_window_region: tuple[int, int, int, int] | None = None
+        self._last_window_move_time = 0.0
+        self._last_window_frame = None
         self._window_lost_bridge = _WindowLostBridge()
         self._window_lost_emitted = False  # 防止窗口丢失信号重复 emit
 
         self._on_saved = on_saved
+        self._on_event = on_event
+        self._timer_resolution = TimerResolution()
+        self._recording_failed_reason = ""
+        self._disk_check_interval = 1.0
+        self._last_disk_check = 0.0
 
     # --- 公共接口 ---
+
+    def set_event_handler(self, callback: Callable[[RecordingEvent], None] | None) -> None:
+        self._on_event = callback
+
+    def connect_window_lost(self, callback: Callable[[str], None]) -> None:
+        self._window_lost_bridge.window_lost.connect(callback)
+
+    def _check_recording_disk_space(self, now: float) -> bool:
+        if now - self._last_disk_check < self._disk_check_interval:
+            return True
+        self._last_disk_check = now
+        save_path = self._config.get("save_path")
+        quality = self._config.get("quality", "high")
+        return not DiskChecker.is_low_space(save_path, quality)
+
+    def _finish_failed_recording(self, reason: str) -> None:
+        if self._audio_capturer:
+            try:
+                self._audio_capturer.stop()
+            except Exception as e:
+                logger.error(f"stop audio after recording failure failed: {e}")
+            self._audio_capturer = None
+        TempCleaner.cleanup_session(self._session_dir)
+        with self._lock:
+            self._state_machine.reset()
+        if self._on_saved:
+            try:
+                self._on_saved("")
+            except Exception as e:
+                logger.error(f"on_saved callback failed: {e}")
+        if self._on_event:
+            try:
+                self._on_event(RecordingEvent.failed(reason))
+            except Exception as e:
+                logger.error(f"on_event callback failed: {e}")
+        self._timer_resolution.end()
 
     def start_fullscreen(self) -> bool:
         self._mode = RecordMode.FULLSCREEN
@@ -126,27 +167,24 @@ class RecorderManager:
 
     def pause(self) -> bool:
         with self._lock:
-            if self._state != RecorderState.RECORDING:
+            if not self._state_machine.transition_to(RecorderState.PAUSED):
                 return False
-            self._state = RecorderState.PAUSED
             self._pause_start = time.time()
         self._resume_event.clear()
         return True
 
     def resume(self) -> bool:
         with self._lock:
-            if self._state != RecorderState.PAUSED:
+            if not self._state_machine.transition_to(RecorderState.RECORDING):
                 return False
-            self._state = RecorderState.RECORDING
             self._pause_duration += time.time() - self._pause_start
         self._resume_event.set()
         return True
 
     def stop(self, cancel: bool = False) -> str:
         with self._lock:
-            if self._state in (RecorderState.IDLE, RecorderState.SAVING, RecorderState.STOPPING):
+            if not self._state_machine.transition_to(RecorderState.STOPPING):
                 return ""
-            self._state = RecorderState.STOPPING
         self._cancelled = cancel
         self._stop_event.set()
         self._resume_event.set()
@@ -155,27 +193,29 @@ class RecorderManager:
         return ""
 
     def get_state(self) -> RecorderState:
-        return self._state
+        return self._state_machine.state
 
     def get_elapsed(self) -> str:
-        if self._state == RecorderState.IDLE:
+        state = self.get_state()
+        if state == RecorderState.IDLE:
             return "00:00"
         elapsed = time.time() - self._start_time - self._pause_duration
-        if self._state == RecorderState.PAUSED:
+        if state == RecorderState.PAUSED:
             elapsed -= (time.time() - self._pause_start)
         minutes = int(elapsed) // 60
         seconds = int(elapsed) % 60
         return f"{minutes:02d}:{seconds:02d}"
 
     def is_saving(self) -> bool:
-        return self._state == RecorderState.SAVING
+        return self.get_state() == RecorderState.SAVING
 
-    def wait_until_idle(self, timeout: float = 60.0):
+    def wait_until_idle(self, timeout: float = 60.0) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if self._state == RecorderState.IDLE:
-                return
+            if self.get_state() == RecorderState.IDLE:
+                return True
             time.sleep(0.1)
+        return self.get_state() == RecorderState.IDLE
 
     def get_mode(self) -> RecordMode:
         return self._mode
@@ -187,20 +227,37 @@ class RecorderManager:
 
     def _start(self, region=None) -> bool:
         with self._lock:
-            if self._state != RecorderState.IDLE:
+            if self.get_state() != RecorderState.IDLE:
                 return False
 
             save_path = self._config.get("save_path")
             quality = self._config.get("quality", "high")
             if DiskChecker.is_low_space(save_path, quality):
                 return False
+            if region is not None:
+                normalized_region = normalize_capture_region(region)
+                if normalized_region is None:
+                    logger.error(f"invalid capture region: {region}")
+                    return False
+                region = normalized_region
+
+            if self._mode == RecordMode.WINDOW and region is not None:
+                self._window_region = region
+                self._pending_window_region = None
+                self._last_window_frame = None
 
             self._capturer = ScreenCapturer(region=region)
-            self._frame_size = self._capturer.get_monitor_size()
+            if self._mode == RecordMode.WINDOW and region is not None:
+                self._frame_size = (region[2], region[3])
+            else:
+                self._frame_size = self._capturer.get_monitor_size()
             self._encode_size = self._get_target_size() or self._frame_size
             self._fps = self._config.get("fps", 30)
             self._output_path = FileNamer.generate(save_path)
             self._ffmpeg_path = self._get_ffmpeg_path()
+            if not self._ffmpeg_path:
+                logger.error("FFmpeg not found; recording cannot start")
+                return False
 
             # 创建会话目录
             self._session_dir = TempCleaner.create_session_dir()
@@ -229,28 +286,43 @@ class RecorderManager:
             self._resume_event.set()
             self._pause_duration = 0
             self._cancelled = False
+            self._recording_failed_reason = ""
+            self._last_disk_check = 0.0
             self._start_time = time.time()
-            self._state = RecorderState.RECORDING
+            self._state_machine.transition_to(RecorderState.RECORDING)
+            self._timer_resolution.begin()
 
             self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
             self._record_thread.start()
         return True
 
     def _record_loop(self):
-        """录制线程：dxcam → cv2.resize（如需）→ FFmpeg pipe"""
+        """录制线程：dxcam → resize（如需）→ FFmpeg pipe"""
         try:
             self._capturer.start()
         except Exception as e:
             logger.error(f"屏幕捕获器启动失败: {e}")
             self._stop_event.set()
+            self._finish_failed_recording(f"screen capture start failed: {e}")
             return
 
-        self._encoder = VideoEncoder(
-            output_path=self._video_temp_path,
-            fps=self._fps,
-            frame_size=self._encode_size,
-            ffmpeg_path=self._ffmpeg_path,
-        )
+        try:
+            self._encoder = VideoEncoder(
+                output_path=self._video_temp_path,
+                fps=self._fps,
+                frame_size=self._encode_size,
+                ffmpeg_path=self._ffmpeg_path,
+            )
+        except Exception as e:
+            logger.error(f"FFmpeg encoder start failed: {e}")
+            if self._capturer:
+                try:
+                    self._capturer.close()
+                except Exception:
+                    pass
+                self._capturer = None
+            self._finish_failed_recording(f"ffmpeg start failed: {e}")
+            return
 
         fps = self._fps
         frame_interval = 1.0 / fps
@@ -260,6 +332,7 @@ class RecorderManager:
         last_window_update = 0
 
         while not self._stop_event.is_set():
+            window_is_moving = self._pending_window_region is not None
             if not self._resume_event.wait(timeout=0.1):
                 if self._stop_event.is_set():
                     break
@@ -269,14 +342,20 @@ class RecorderManager:
             if self._stop_event.is_set():
                 break
 
+            now = time.time()
+            if not self._check_recording_disk_space(now):
+                self._recording_failed_reason = "disk space became low during recording"
+                self._stop_event.set()
+                break
+
             if was_paused:
-                rec_start = time.time() - frames_written * frame_interval
+                rec_start = now - frames_written * frame_interval
                 was_paused = False
 
             # 窗口模式：100ms 更新捕获区域（与高亮边框同步）
             if self._mode == RecordMode.WINDOW and self._window_hwnd:
                 now = time.time()
-                if now - last_window_update >= 0.1:
+                if now - last_window_update >= _WINDOW_CAPTURE_UPDATE_INTERVAL:
                     rect = self._get_window_rect(self._window_hwnd)
                     if rect is None:
                         user32 = ctypes.windll.user32
@@ -305,31 +384,45 @@ class RecorderManager:
                     # 窗口恢复后清除标志
                     self._window_lost_emitted = False
                     last_window_update = now
-                    # 窗口移动或恢复后更新捕获区域
-                    self._capturer.update_region(
-                        (rect.left(), rect.top(), rect.width(), rect.height())
+                    window_is_moving = self._update_window_capture_region(
+                        (rect.left(), rect.top(), rect.width(), rect.height()),
+                        now=now,
                     )
 
-            try:
-                frame = self._capturer.capture_frame()
-            except Exception:
-                break
-            if frame is None:
-                if not self._capturer._started:
+            if window_is_moving and self._last_window_frame is not None:
+                frame = self._last_window_frame
+            else:
+                try:
+                    frame = self._capturer.capture_frame()
+                except Exception:
                     break
-                continue
+                if frame is None:
+                    if not self._capturer._started:
+                        break
+                    continue
+                frame = draw_cursor(frame, self._capturer.get_capture_region())
+                if self._mode == RecordMode.WINDOW:
+                    if (frame.shape[1], frame.shape[0]) != self._frame_size:
+                        frame = resize_bgr_frame(frame, self._frame_size)
+                    self._last_window_frame = frame.copy()
 
             # 画质缩放（写 pipe 前）
             if self._encode_size != self._frame_size:
-                frame = cv2.resize(frame, self._encode_size, interpolation=cv2.INTER_LINEAR)
+                frame = resize_bgr_frame(frame, self._encode_size)
 
             target_frame = int((time.time() - rec_start) / frame_interval)
             while frames_written < target_frame:
                 if not self._encoder.write_frame(frame):
+                    self._recording_failed_reason = "video frame write failed"
+                    self._stop_event.set()
                     break
                 frames_written += 1
 
+            if self._stop_event.is_set():
+                break
+
             if not self._encoder.write_frame(frame):
+                self._recording_failed_reason = "video frame write failed"
                 break
             frames_written += 1
 
@@ -352,12 +445,21 @@ class RecorderManager:
 
         logger.info(f"录制线程结束，frames={frames_written}")
 
+        if self._recording_failed_reason:
+            self._finish_failed_recording(self._recording_failed_reason)
+            return
+
+        self._timer_resolution.end()
+
     def _stop_and_encode(self):
         # 等待录制线程完成 encoder.close()（FFmpeg flush 可能需要数十秒）
         if self._record_thread and self._record_thread.is_alive():
             self._record_thread.join()
 
         # 停止音频
+        if self._recording_failed_reason:
+            return
+
         self._audio_temp_paths = []
         if self._audio_capturer:
             try:
@@ -370,11 +472,11 @@ class RecorderManager:
         if self._cancelled:
             TempCleaner.cleanup_session(self._session_dir)
             with self._lock:
-                self._state = RecorderState.IDLE
+                self._state_machine.reset()
             return
 
         with self._lock:
-            self._state = RecorderState.SAVING
+            self._state_machine.transition_to(RecorderState.SAVING)
 
         self._finalize_thread = threading.Thread(target=self._finalize, daemon=True)
         self._finalize_thread.start()
@@ -397,15 +499,27 @@ class RecorderManager:
         finally:
             TempCleaner.cleanup_session(self._session_dir)
             with self._lock:
-                self._state = RecorderState.IDLE
+                self._state_machine.reset()
             if self._on_saved:
                 try:
                     self._on_saved(result_path)
                 except Exception as e:
                     logger.error(f"on_saved 回调异常: {e}")
 
+            if self._on_event:
+                try:
+                    event = RecordingEvent.saved(result_path) if result_path else RecordingEvent.failed("finalize failed")
+                    self._on_event(event)
+                except Exception as e:
+                    logger.error(f"on_event callback failed: {e}")
+
     def _mix_audio(self, video_path: str, audio_paths: list) -> str:
         """FFmpeg 混合音视频，返回混合后路径（session_dir/mixed.mp4）"""
+        audio_paths = [path for path in audio_paths if self._audio_has_samples(path)]
+        if not audio_paths:
+            logger.warning("音频文件无有效采样，跳过音频混合")
+            return ""
+
         mixed = os.path.join(self._session_dir, "mixed.mp4")
         cmd = [self._ffmpeg_path, "-y", "-i", video_path]
         for ap in audio_paths:
@@ -426,22 +540,61 @@ class RecorderManager:
             logger.error(f"音频混合失败: {e}")
             return ""
 
+    @staticmethod
+    def _audio_has_samples(path: str) -> bool:
+        try:
+            if not path or not os.path.exists(path) or os.path.getsize(path) <= 44:
+                return False
+            with wave.open(path, "rb") as wav_file:
+                return wav_file.getnframes() > 0
+        except Exception as e:
+            logger.warning(f"音频文件无效，跳过混合: {path}, {e}")
+            return False
+
     def _get_target_size(self):
         quality = self._config.get("quality", "native")
         target = ConfigManager.QUALITY_SIZES.get(quality)
         if target is None:
             return None
-        if self._mode == RecordMode.REGION and self._frame_size:
-            fw, fh = self._frame_size
-            tw, th = target
-            src_ratio = fw / fh
-            dst_ratio = tw / th
-            if src_ratio > dst_ratio:
-                new_w, new_h = tw, int(tw / src_ratio)
-            else:
-                new_w, new_h = int(th * src_ratio), th
-            return (new_w & ~1, new_h & ~1)
+        if self._mode == RecordMode.WINDOW and quality == "high":
+            return None
+        if self._mode in (RecordMode.REGION, RecordMode.WINDOW) and self._frame_size:
+            return self._fit_size_with_aspect_ratio(self._frame_size, target)
         return target
+
+    @staticmethod
+    def _fit_size_with_aspect_ratio(source: tuple[int, int], target: tuple[int, int]) -> tuple[int, int]:
+        fw, fh = source
+        tw, th = target
+        src_ratio = fw / fh
+        dst_ratio = tw / th
+        if src_ratio > dst_ratio:
+            new_w, new_h = tw, int(tw / src_ratio)
+        else:
+            new_w, new_h = int(th * src_ratio), th
+        return (max(new_w & ~1, 2), max(new_h & ~1, 2))
+
+    def _update_window_capture_region(self, region: tuple[int, int, int, int], now: float) -> bool:
+        if self._window_region is None:
+            self._window_region = region
+            return False
+        if region == self._window_region and self._pending_window_region is None:
+            return False
+
+        if region != self._window_region:
+            if region != self._pending_window_region:
+                self._pending_window_region = region
+                self._last_window_move_time = now
+                return True
+            if now - self._last_window_move_time < _WINDOW_MOVE_STABLE_DELAY:
+                return True
+
+        if self._pending_window_region is not None:
+            self._capturer.update_region(self._pending_window_region)
+            self._window_region = self._pending_window_region
+            self._pending_window_region = None
+            return False
+        return False
 
     @staticmethod
     def _get_ffmpeg_path() -> str:
@@ -468,23 +621,7 @@ class RecorderManager:
         仅在窗口可见且非最小化时返回有效矩形，否则返回 None。
         窗口关闭/最小化判断由调用方通过 IsWindow/IsIconic 处理。
         """
-        user32 = ctypes.windll.user32
-        if not user32.IsWindow(hwnd):
-            return None
-        if not user32.IsWindowVisible(hwnd):
-            # 最小化窗口 IsWindowVisible 返回 False（WS_MINIMIZE 时不可见）
-            return None
-        if user32.IsIconic(hwnd):
-            return None
-        client_rect = ctypes.wintypes.RECT()
-        user32.GetClientRect(hwnd, ctypes.byref(client_rect))
-        w, h = client_rect.right, client_rect.bottom
-        if w < 10 or h < 10:
-            return None
-        pt = ctypes.wintypes.POINT()
-        user32.ClientToScreen(hwnd, ctypes.byref(pt))
-        from PyQt5.QtCore import QRect
-        return QRect(pt.x, pt.y, w, h)
+        return get_window_client_rect(hwnd)
 
     @staticmethod
     def _get_window_title(hwnd: int) -> str:

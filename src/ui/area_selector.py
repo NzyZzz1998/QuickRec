@@ -247,6 +247,7 @@ class AreaSelector(QWidget):
         """确认开始录制"""
         rect = self._selected_rect
         self._clear_confirm()
+        self.setCursor(Qt.ArrowCursor)
         self.region_selected.emit(rect.x(), rect.y(), rect.width(), rect.height())
         self.close()
 

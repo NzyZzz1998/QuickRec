@@ -63,6 +63,17 @@ class TestAreaSelector(unittest.TestCase):
         self.assertTrue(hasattr(selector, 'region_selected'))
         self.assertTrue(hasattr(selector, 'cancelled'))
 
+    def test_start_recording_restores_arrow_cursor_before_close(self):
+        selector = AreaSelector()
+        selector._selected_rect = QRect(1, 2, 120, 140)
+        emitted = []
+        selector.region_selected.connect(lambda *args: emitted.append(args))
+
+        selector._on_start_recording()
+
+        self.assertEqual(selector.cursor().shape(), Qt.ArrowCursor)
+        self.assertEqual(emitted, [(1, 2, 120, 140)])
+
     def test_window_flags(self):
         """测试窗口标志设置"""
         selector = AreaSelector()

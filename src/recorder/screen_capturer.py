@@ -7,6 +7,8 @@ dxcam 的创建和销毁都在调用线程中执行，避免跨线程问题。
 
 import logging
 
+from utils.window_geometry import normalize_capture_region
+
 logger = logging.getLogger("QuickRec")
 
 
@@ -21,13 +23,15 @@ class ScreenCapturer:
             region: 捕获区域 (left, top, width, height)
                    None 表示全屏捕获
         """
-        self._region = region
+        self._region = normalize_capture_region(region) if region else None
+        if region and self._region is None:
+            raise ValueError(f"invalid capture region: {region}")
         self._camera = None
         self._started = False
         self._last_dxcam_region = None  # 上一次 dxcam 使用的 region，避免重复重启
 
-        if region:
-            left, top, width, height = region
+        if self._region:
+            left, top, width, height = self._region
             # dxcam 用 region=(left, top, right, bottom)
             self._dxcam_region = (left, top, left + width, top + height)
         else:
@@ -66,8 +70,11 @@ class ScreenCapturer:
         Args:
             region: (left, top, width, height) 新的捕获区域
         """
-        self._region = region
-        left, top, width, height = region
+        normalized = normalize_capture_region(region)
+        if normalized is None:
+            raise ValueError(f"invalid capture region: {region}")
+        self._region = normalized
+        left, top, width, height = normalized
         new_dxcam_region = (left, top, left + width, top + height)
 
         # 与上次相同则跳过重启，避免每帧都重建 dxcam
@@ -110,6 +117,9 @@ class ScreenCapturer:
             import ctypes
             user32 = ctypes.windll.user32
             return (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
+
+    def get_capture_region(self) -> tuple | None:
+        return self._region
 
     def close(self):
         """释放资源"""

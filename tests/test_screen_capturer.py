@@ -2,16 +2,19 @@
 ScreenCapturer 单元测试
 """
 
+import sys
 import unittest
 from pathlib import Path
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import numpy as np
+import pytest
+
 from recorder.screen_capturer import ScreenCapturer
 
 
+@pytest.mark.hardware
 class TestScreenCapturer(unittest.TestCase):
     """ScreenCapturer 测试类"""
 
@@ -60,6 +63,20 @@ class TestScreenCapturer(unittest.TestCase):
             self.assertEqual(size, (320, 240))
         finally:
             capturer.close()
+
+    def test_region_size_is_normalized_to_even_dimensions(self):
+        capturer = ScreenCapturer(region=(10, 20, 321, 241))
+
+        self.assertEqual(capturer._region, (10, 20, 320, 240))
+        self.assertEqual(capturer._dxcam_region, (10, 20, 330, 260))
+
+    def test_update_region_normalizes_to_even_dimensions(self):
+        capturer = ScreenCapturer(region=(0, 0, 200, 200))
+
+        capturer.update_region((11, 22, 333, 245))
+
+        self.assertEqual(capturer._region, (11, 22, 332, 244))
+        self.assertEqual(capturer._dxcam_region, (11, 22, 343, 266))
 
     def test_consecutive_frames(self):
         """测试连续捕获（帧率稳定性）"""

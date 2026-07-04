@@ -843,3 +843,44 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 - `Popen` 的 `stderr` 从 `subprocess.PIPE` 改为 `subprocess.DEVNULL`，丢弃 FFmpeg 进度日志，彻底消除 stderr 缓冲满死锁
 - `close()` 中原本读 stderr 的诊断逻辑删除（stderr 已 None）；超时日志改为通用提示，说明 stderr 已丢弃；超时阈值从 10s 提到 15s 留余量
 - 同时保留上一轮的 `preset=superfast` + `-tune zerolatency`：降低 lookahead 缓冲到 0，即便编码失败也不会 buffer 大量未编码帧
+
+### Bug #59: BOTH 音频模式下空 WAV 混音生成无法播放 MP4 [严重] (T10.5)
+
+**症状**: 发布前验收 T10.5 中，全屏录制停止后生成的 `QuickRec_20260704_183757.mp4` 无法播放，Windows Media Player 报 `0xC00D36C4`。文件大小仅 261 字节，FFmpeg 检查显示输出文件不包含任何视频流。
+
+**根因**: 当前配置为 `audio_source=both`。系统声音/麦克风捕获在某些环境下会初始化成功，但停止时只生成 WAV header、没有任何音频采样。`RecorderManager._mix_audio()` 未校验 WAV 是否有有效采样，仍将两个空 WAV 传给 FFmpeg，并使用 `-shortest` 混音。FFmpeg 返回 0 且生成 261 字节 `mixed.mp4`，但该文件没有视频流；最终 `_finalize()` 将这个空混音文件移动为最终输出，覆盖了原本正常的视频临时文件。
+
+**验证**:
+- 使用正常 MP4 + 两个空 WAV 复现：FFmpeg 返回 0，生成 261 字节无流 MP4。
+- 使用 `PIL resize + 鼠标绘制 + bgr24 + libx264` 单独编码正常，确认与移除 OpenCV 无关。
+- 修复后单元测试 `test_mix_audio_skips_empty_wav_files` 通过；完整测试 `175 passed / 23 deselected`。
+
+**修复** (`src/recorder/recorder_manager.py`):
+- `_mix_audio()` 在调用 FFmpeg 前过滤无效音频文件。
+- 新增 `_audio_has_samples()`：检查路径存在、文件大于 WAV header，并用 `wave.open(...).getnframes()` 确认存在采样。
+- 若过滤后没有有效音频，则跳过混音并保留原视频输出，避免生成空 `mixed.mp4`。
+
+**测试** (`tests/test_recorder_manager.py`):
+- 新增 `test_mix_audio_skips_empty_wav_files`，覆盖空 WAV 不应触发 FFmpeg 混音。
+- 修正混音命令测试，使用真实有效 WAV 文件而非不存在的字符串路径。
+
+### Bug #60: 移除 OpenCV 后 dxcam 打包产物无法捕获画面 [严重]
+
+**症状**: 打包产物启动录制后日志出现 `ModuleNotFoundError: No module named 'cv2'`，堆栈位于 `dxcam.processor.cv2_processor._ensure_cvtcolor_initialized()`。DXCamera 捕获线程异常退出，视频编码完成但帧数为 0，最终 MP4 无法播放。
+
+**根因**: QuickRec 自身已将缩放逻辑从 OpenCV 替换为 PIL，但 `dxcam.create(output_color="BGR")` 默认使用 `processor_backend="cv2"`。打包时移除 `cv2` 会破坏 dxcam 内部 BGRA → BGR 颜色转换链路。该问题与 `recorder.frame_resize` 无关，是 dxcam 默认捕获处理器的运行时依赖。
+
+**决策**: 稳定性优先，恢复 `opencv-python` 和 PyInstaller hidden import `cv2`。继续保留可安全裁剪项，尤其是排除 OpenCV 自带 `opencv_videoio_ffmpeg*.dll`，因为 QuickRec 使用独立 `ffmpeg/ffmpeg.exe` 完成编码和混音。
+
+**修复**:
+- `requirements.txt` 恢复 `opencv-python==4.13.0.92`。
+- `build_std.spec` 恢复 hidden import `cv2`。
+- `build_std.spec` 增加 `_CV2_EXCLUDE`，排除 `opencv_videoio_ffmpeg`。
+- `tests/test_packaging_config.py` 更新为：必须保留 `cv2`，但排除 OpenCV videoio ffmpeg 插件。
+
+**验证**:
+- 重新打包成功。
+- 打包产物体积恢复为 257.74MB。
+- `dist/QuickRec/_internal/cv2` 存在。
+- `opencv_videoio_ffmpeg*.dll` 未进入产物。
+- exe 冒烟启动成功，启动日志未再出现 `cv2` 缺失。

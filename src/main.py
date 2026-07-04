@@ -21,16 +21,16 @@ v1.2 新增：
 """
 
 import ctypes
+import logging
 import os
 import sys
-import logging
-import time
 
 from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from config import ConfigManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
+from recorder.workflow import RecordingWorkflow
 from ui.toolbar import RecordingToolbar
 from ui.settings_dialog import SettingsDialog
 from ui.tray_icon import TrayIcon
@@ -46,6 +46,18 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger("QuickRec")
+
+
+def _enable_dpi_awareness():
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 
 class _SavedBridge(QObject):
@@ -90,6 +102,8 @@ class QuickRecApp:
         # 初始化模块
         self._config = ConfigManager()
         self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
+        self._workflow = RecordingWorkflow(self._recorder)
+        self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
         self._toolbar = None
         self._config_saved_pending = False
@@ -124,9 +138,7 @@ class QuickRecApp:
         # 窗口丢失信号桥
         self._window_lost_bridge = _WindowLostBridge()
         self._window_lost_bridge.window_lost.connect(self._on_window_lost)
-        self._recorder._window_lost_bridge.window_lost.connect(
-            self._window_lost_bridge.window_lost.emit
-        )
+        self._recorder.connect_window_lost(self._window_lost_bridge.window_lost.emit)
 
         # 初始化托盘
         self._tray = TrayIcon(
@@ -181,7 +193,7 @@ class QuickRecApp:
 
     def _on_start_fullscreen(self):
         """开始全屏录制"""
-        if self._recorder.get_state() != RecorderState.IDLE:
+        if self._workflow.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -205,8 +217,9 @@ class QuickRecApp:
     def _do_start_fullscreen(self):
         """倒计时结束后的实际全屏录制启动"""
         self._hotkey.set_esc_callback(None)  # 清除 ESC 回调
-        if not self._recorder.start_fullscreen():
+        if not self._workflow.start_fullscreen():
             logger.error("全屏录制启动失败")
+            self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
             self._hide_toolbar()
             return
         if self._toolbar:
@@ -218,7 +231,7 @@ class QuickRecApp:
 
     def _on_start_region(self):
         """区域录制：显示区域选择器"""
-        if self._recorder.get_state() != RecorderState.IDLE:
+        if self._workflow.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -252,8 +265,9 @@ class QuickRecApp:
     def _do_start_region(self, x, y, w, h):
         """区域录制实际启动"""
         self._hotkey.set_esc_callback(None)
-        if not self._recorder.start_region(region=(x, y, w, h)):
+        if not self._workflow.start_region((x, y, w, h)):
             logger.error("区域录制启动失败")
+            self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
             self._hide_toolbar()
             return
         if self._toolbar:
@@ -280,7 +294,7 @@ class QuickRecApp:
 
     def _on_start_window(self):
         """窗口录制：显示窗口选择器"""
-        if self._recorder.get_state() != RecorderState.IDLE:
+        if self._workflow.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -331,7 +345,7 @@ class QuickRecApp:
     def _do_start_window(self, hwnd: int):
         """窗口录制实际启动"""
         self._hotkey.set_esc_callback(None)
-        if not self._recorder.start_window(hwnd):
+        if not self._workflow.start_window(hwnd):
             logger.error("窗口录制启动失败")
             self._hide_toolbar()
             if self._window_highlighter:
@@ -340,6 +354,9 @@ class QuickRecApp:
             # 告知用户失败原因（特殊窗口/最小化恢复未完成）
             self._tray.show_notification("窗口录制启动失败：无法获取窗口区域")
             return
+        if self._window_highlighter:
+            self._window_highlighter.hide_highlight()
+            self._window_highlighter = None
         if self._toolbar:
             self._toolbar.start_recording_timer()
         self._tray.set_recording_state(True)
@@ -357,7 +374,7 @@ class QuickRecApp:
             self._tray.show_notification("录制窗口已关闭，视频已保存")
             self._on_stop_recording()
         elif reason == "minimized":
-            self._recorder.pause()
+            self._workflow.pause()
             if self._toolbar:
                 self._toolbar.set_paused(True)
             self._tray.set_recording_state(True, paused=True)
@@ -367,11 +384,11 @@ class QuickRecApp:
 
     def _on_stop_recording(self):
         """停止录制"""
-        state = self._recorder.get_state()
+        state = self._workflow.get_state()
         if state == RecorderState.IDLE or state == RecorderState.SAVING:
             return
 
-        self._recorder.stop()
+        self._workflow.stop()
         if self._toolbar:
             self._toolbar.show_saving()
 
@@ -380,25 +397,17 @@ class QuickRecApp:
 
     def _on_pause_resume(self):
         """暂停/恢复录制"""
-        state = self._recorder.get_state()
+        state = self._workflow.get_state()
         if state == RecorderState.RECORDING:
-            self._recorder.pause()
+            self._workflow.pause()
             if self._toolbar:
                 self._toolbar.set_paused(True)
             self._tray.set_recording_state(True, paused=True)
         elif state == RecorderState.PAUSED:
-            self._recorder.resume()
+            self._workflow.resume()
             if self._toolbar:
                 self._toolbar.set_paused(False)
             self._tray.set_recording_state(True, paused=False)
-            # 窗口录制：最小化暂停后恢复，重建边框高亮（_on_window_lost 中已置空）
-            if self._recorder.get_mode() == RecordMode.WINDOW:
-                hwnd = self._recorder.get_window_hwnd()
-                if hwnd and self._window_highlighter is None:
-                    user32 = ctypes.windll.user32
-                    if user32.IsWindow(hwnd) and not user32.IsIconic(hwnd):
-                        self._window_highlighter = WindowHighlighter(hwnd)
-                        self._window_highlighter.show_highlight()
 
     # --- 工具栏 ---
 
@@ -425,9 +434,9 @@ class QuickRecApp:
 
     def _on_cancel_recording(self):
         """取消录制"""
-        state = self._recorder.get_state()
+        state = self._workflow.get_state()
         if state != RecorderState.IDLE and state != RecorderState.SAVING:
-            self._recorder.stop(cancel=True)
+            self._workflow.stop(cancel=True)
         self._tray.show_notification("录制已取消")
         self._tray.set_recording_state(False)
         if self._window_highlighter:
@@ -442,7 +451,7 @@ class QuickRecApp:
         """根据配置和录制状态决定是否启动/停止高亮"""
         should_enable = (
             self._config.get("mouse_highlight", False)
-            and self._recorder.get_state() == RecorderState.RECORDING
+            and self._workflow.get_state() == RecorderState.RECORDING
         )
         if should_enable and not self._click_highlighter.is_running():
             self._click_highlighter.start()
@@ -536,12 +545,13 @@ class QuickRecApp:
 
     def _on_exit(self):
         """退出程序"""
-        state = self._recorder.get_state()
+        state = self._workflow.get_state()
         if state != RecorderState.IDLE:
-            self._recorder.stop()
+            self._workflow.stop()
 
         # 等待录制停止和编码完成（stop 现在是非阻塞的）
-        self._recorder.wait_until_idle(timeout=60)
+        if not self._workflow.wait_until_idle(timeout=60):
+            logger.error("Recorder did not become idle before exit timeout")
         # 确保处理完所有编码完成信号
         from PyQt5.QtCore import QCoreApplication
         QCoreApplication.processEvents()
@@ -560,6 +570,7 @@ class QuickRecApp:
 def main():
     """程序入口"""
     try:
+        _enable_dpi_awareness()
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
         app = QuickRecApp()

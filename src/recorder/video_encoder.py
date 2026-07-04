@@ -7,6 +7,7 @@ dxcam BGR24 帧直接通过 stdin pipe 送 FFmpeg，无需 JPEG 临时文件。
 """
 
 import logging
+import os
 import subprocess
 
 import numpy as np
@@ -35,6 +36,10 @@ class VideoEncoder:
         self._frame_size = frame_size
         self._frame_count = 0
         self._is_open = False
+
+        output_dir = os.path.dirname(os.path.abspath(output_path))
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
         w, h = frame_size
         cmd = [
@@ -68,6 +73,7 @@ class VideoEncoder:
         if not self._is_open:
             return False
         try:
+            assert self._proc.stdin is not None
             self._proc.stdin.write(frame.tobytes())
             self._frame_count += 1
             return True
@@ -81,6 +87,7 @@ class VideoEncoder:
             return True
         self._is_open = False
         try:
+            assert self._proc.stdin is not None
             self._proc.stdin.close()
         except (BrokenPipeError, OSError):
             pass

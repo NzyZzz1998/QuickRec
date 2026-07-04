@@ -1,0 +1,71 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-m \"not hardware and not packaging\""
+markers = [
+  "unit: fast tests that do not require real desktop, audio, or package artifacts",
+  "ui: PyQt widget tests that can run headless with offscreen Qt",
+  "hardware: tests requiring real desktop capture, audio devices, or Windows shell state",
+  "packaging: PyInstaller or bundled binary smoke tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+  "src/main.py",
+  "src/rthook_dllpath.py",
+  "src/ui/*",
+  "src/recorder/audio_capturer.py",
+  "src/recorder/screen_capturer.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src", "tests"]
+extend-exclude = [
+  "src/main.py",
+  "src/ui",
+  "src/recorder/audio_capturer.py",
+  "tests/test_area_selector.py",
+  "tests/test_config.py",
+  "tests/test_disk_checker.py",
+  "tests/test_file_namer.py",
+  "tests/test_settings_dialog.py",
+  "tests/test_toolbar.py",
+  "tests/test_tray_icon.py",
+  "tests/test_v1_2.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = [
+  "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "skip"
+check_untyped_defs = false
+warn_unused_ignores = true
+files = [
+  "src/config.py",
+  "src/utils/file_namer.py",
+  "src/utils/disk_checker.py",
+  "src/utils/temp_cleaner.py",
+  "src/recorder/events.py",
+  "src/recorder/state_machine.py",
+  "src/recorder/timer_resolution.py",
+  "src/recorder/video_encoder.py",
+  "src/recorder/workflow.py",
+]

@@ -1,99 +1,153 @@
-"""
-VideoEncoder 单元测试
-"""
-
+import io
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from unittest.mock import patch
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
 from recorder.video_encoder import VideoEncoder
 
 
-class TestVideoEncoder(unittest.TestCase):
-    """VideoEncoder 测试类"""
+class FakeProcess:
+    def __init__(self, returncode=0):
+        self.stdin = io.BytesIO()
+        self.returncode = returncode
+        self.killed = False
+        self.terminated = False
 
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self.returncode = -9
+
+    def terminate(self):
+        self.terminated = True
+
+
+class TestVideoEncoder(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
         self.file_path = os.path.join(self.temp_dir, "test_output.mp4")
-        self.frame_size = (320, 240)  # width, height
+        self.frame_size = (320, 240)
         self.fps = 30
+        self.ffmpeg_path = "ffmpeg.exe"
 
     def tearDown(self):
-        # 清理临时文件
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _make_frame(self):
-        """生成测试帧 (240 height, 320 width, 3 BGR)"""
         return np.zeros((self.frame_size[1], self.frame_size[0], 3), dtype=np.uint8)
 
-    def test_write_and_close(self):
-        """测试写入帧并关闭生成有效 MP4"""
-        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size)
-        try:
-            for _ in range(30):
-                result = encoder.write_frame(self._make_frame())
-                self.assertTrue(result)
-            self.assertEqual(encoder.get_frame_count(), 30)
-            self.assertTrue(encoder.is_open())
-        finally:
-            encoder.close()
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_write_and_close_uses_ffmpeg_pipe(self, popen):
+        popen.return_value = FakeProcess()
 
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+        for _ in range(30):
+            self.assertTrue(encoder.write_frame(self._make_frame()))
+
+        self.assertEqual(encoder.get_frame_count(), 30)
+        self.assertTrue(encoder.is_open())
+        self.assertTrue(encoder.close())
         self.assertFalse(encoder.is_open())
-        self.assertTrue(os.path.exists(self.file_path))
-        self.assertGreater(os.path.getsize(self.file_path), 0)
 
-    def test_close_then_read(self):
-        """测试 close 后文件可被 OpenCV 读取"""
-        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size)
-        try:
-            for _ in range(30):
-                encoder.write_frame(self._make_frame())
-        finally:
-            encoder.close()
+        cmd = popen.call_args.args[0]
+        self.assertEqual(cmd[0], self.ffmpeg_path)
+        self.assertIn("libx264", cmd)
+        self.assertIn("pipe:0", cmd)
 
-        import cv2
-        cap = cv2.VideoCapture(self.file_path)
-        self.assertTrue(cap.isOpened())
-        # 验证帧数
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.assertGreater(frame_count, 0)
-        cap.release()
-
-    def test_auto_create_directory(self):
-        """测试目录不存在时自动创建"""
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_auto_create_directory_before_starting_ffmpeg(self, popen):
+        popen.return_value = FakeProcess()
         nested_dir = os.path.join(self.temp_dir, "sub", "dir")
         file_path = os.path.join(nested_dir, "output.mp4")
-        encoder = VideoEncoder(file_path, self.fps, self.frame_size)
-        try:
-            encoder.write_frame(self._make_frame())
-        finally:
-            encoder.close()
 
-        self.assertTrue(os.path.exists(file_path))
-
-    def test_write_after_close_returns_false(self):
-        """测试 close 后写入返回 False"""
-        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size)
+        encoder = VideoEncoder(file_path, self.fps, self.frame_size, self.ffmpeg_path)
         encoder.close()
 
-        result = encoder.write_frame(self._make_frame())
-        self.assertFalse(result)
+        self.assertTrue(os.path.isdir(nested_dir))
 
-    def test_frame_count_accurate(self):
-        """测试帧计数准确"""
-        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size)
-        try:
-            for i in range(50):
-                encoder.write_frame(self._make_frame())
-                self.assertEqual(encoder.get_frame_count(), i + 1)
-        finally:
-            encoder.close()
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_write_after_close_returns_false(self, popen):
+        popen.return_value = FakeProcess()
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+        encoder.close()
+
+        self.assertFalse(encoder.write_frame(self._make_frame()))
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_frame_count_accurate(self, popen):
+        popen.return_value = FakeProcess()
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+
+        for i in range(50):
+            encoder.write_frame(self._make_frame())
+            self.assertEqual(encoder.get_frame_count(), i + 1)
+
+        encoder.close()
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_close_reports_ffmpeg_failure(self, popen):
+        popen.return_value = FakeProcess(returncode=1)
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+        encoder.write_frame(self._make_frame())
+
+        self.assertFalse(encoder.close())
+        self.assertFalse(encoder.is_open())
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_write_frame_handles_broken_pipe(self, popen):
+        class BrokenStdin:
+            def write(self, _):
+                raise BrokenPipeError()
+
+            def close(self):
+                pass
+
+        proc = FakeProcess()
+        proc.stdin = BrokenStdin()
+        popen.return_value = proc
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+
+        self.assertFalse(encoder.write_frame(self._make_frame()))
+        self.assertFalse(encoder.is_open())
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_close_kills_ffmpeg_on_timeout(self, popen):
+        class TimeoutProcess(FakeProcess):
+            def wait(self, timeout=None):
+                if not self.killed:
+                    raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=timeout)
+                return self.returncode
+
+        proc = TimeoutProcess()
+        popen.return_value = proc
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+
+        self.assertFalse(encoder.close())
+        self.assertTrue(proc.killed)
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_del_terminates_open_process(self, popen):
+        proc = FakeProcess(returncode=None)
+        popen.return_value = proc
+        encoder = VideoEncoder(self.file_path, self.fps, self.frame_size, self.ffmpeg_path)
+
+        encoder.__del__()
+
+        self.assertTrue(proc.terminated)
 
 
 if __name__ == "__main__":

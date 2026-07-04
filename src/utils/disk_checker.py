@@ -8,7 +8,6 @@ v1.3 新增：录制前预警/阻断阈值检查。
 import os
 import shutil
 
-
 # 码率 (bps) -> MB/分钟 映射
 BITRATE = {
     "high": 8_000_000,     # 8000 kbps
@@ -76,7 +75,6 @@ def show_disk_warning(free_mb: int, block: bool, parent=None) -> bool:
         True=继续录制，False=取消或阻断
     """
     from PyQt5.QtWidgets import QMessageBox
-    from PyQt5.QtCore import Qt
 
     if block:
         QMessageBox.critical(
