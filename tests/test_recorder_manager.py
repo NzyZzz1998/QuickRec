@@ -16,6 +16,7 @@ from config import ConfigManager
 from recorder.events import RecordingEventType
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.state_machine import RecordingStateMachine
+from recorder.window_diagnostics import WindowFailureReason
 
 
 class FakeScreenCapturer:
@@ -101,11 +102,13 @@ class FakeTimerResolution:
 
 class FakeAudioCapturer:
     should_start = True
+    instances = []
 
     def __init__(self, source, output_dir):
         self.source = source
         self.output_dir = output_dir
         self.stopped = False
+        FakeAudioCapturer.instances.append(self)
 
     def start(self, output_stem=""):
         return self.should_start
@@ -130,6 +133,7 @@ class TestRecorderManager(unittest.TestCase):
             "audio_source": "none",
         }
         FakeScreenCapturer.instances = []
+        FakeAudioCapturer.instances = []
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -347,6 +351,58 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(len(saved_paths), 1)
         self.assertTrue(os.path.exists(saved_paths[0]))
 
+    def test_audio_preflight_degrades_both_to_microphone_before_starting_audio(self):
+        self.config._config["audio_source"] = "both"
+        with self._patch_runtime(), \
+                patch("recorder.recorder_manager.AudioCapturer", FakeAudioCapturer), \
+                patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"), \
+                patch.object(RecorderManager, "_probe_audio_sources", return_value=(False, True)):
+            manager = RecorderManager(self.config)
+            try:
+                self.assertTrue(manager.start_fullscreen())
+                self.assertEqual(manager.get_audio_preflight().requested_source, "both")
+                self.assertEqual(manager.get_audio_preflight().final_source, "microphone")
+                self.assertTrue(manager.get_audio_preflight().degraded)
+                self.assertEqual(manager.get_audio_preflight().reason, "system_unavailable")
+                self.assertEqual(FakeAudioCapturer.instances[-1].source, "microphone")
+            finally:
+                manager.stop()
+                manager.wait_until_idle(timeout=2)
+
+    def test_audio_preflight_disables_audio_when_requested_source_unavailable(self):
+        self.config._config["audio_source"] = "system"
+        with self._patch_runtime(), \
+                patch("recorder.recorder_manager.AudioCapturer", FakeAudioCapturer), \
+                patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"), \
+                patch.object(RecorderManager, "_probe_audio_sources", return_value=(False, True)):
+            manager = RecorderManager(self.config)
+            try:
+                self.assertTrue(manager.start_fullscreen())
+                self.assertEqual(manager.get_audio_preflight().final_source, "none")
+                self.assertTrue(manager.get_audio_preflight().degraded)
+                self.assertIsNone(manager._audio_capturer)
+                self.assertEqual(FakeAudioCapturer.instances, [])
+            finally:
+                manager.stop()
+                manager.wait_until_idle(timeout=2)
+
+    def test_probe_audio_sources_uses_audio_capturer_lightweight_probes(self):
+        class ProbeAudioCapturer:
+            @staticmethod
+            def probe_system_available():
+                return False
+
+            @staticmethod
+            def probe_microphone_available():
+                return True
+
+        with patch("recorder.recorder_manager.AudioCapturer", ProbeAudioCapturer):
+            manager = RecorderManager(self.config)
+
+            self.assertEqual(manager._probe_audio_sources("both"), (False, True))
+            self.assertEqual(manager._probe_audio_sources("system"), (False, False))
+            self.assertEqual(manager._probe_audio_sources("microphone"), (False, True))
+
     def test_get_target_size_preserves_region_aspect_ratio(self):
         manager = RecorderManager(self.config)
         manager._mode = RecordMode.REGION
@@ -435,6 +491,41 @@ class TestRecorderManager(unittest.TestCase):
         import recorder.recorder_manager as recorder_manager
 
         self.assertEqual(recorder_manager._WINDOW_CAPTURE_UPDATE_INTERVAL, 0.0)
+
+    def test_window_frame_is_resized_without_cursor_overlay(self):
+        import recorder.recorder_manager as recorder_manager
+
+        manager = RecorderManager(self.config)
+        manager._mode = RecordMode.WINDOW
+        manager._frame_size = (200, 100)
+        manager._encode_size = (200, 100)
+        manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
+        frame = np.zeros((50, 100, 3), dtype=np.uint8)
+
+        with patch.object(recorder_manager, "draw_cursor", side_effect=AssertionError("window mode must not overlay cursor")):
+            result = manager._prepare_frame_for_encoding(frame)
+
+        self.assertEqual(result.shape, (100, 200, 3))
+
+    def test_region_mode_keeps_cursor_overlay(self):
+        import recorder.recorder_manager as recorder_manager
+
+        manager = RecorderManager(self.config)
+        manager._mode = RecordMode.REGION
+        manager._frame_size = (100, 50)
+        manager._encode_size = (100, 50)
+        manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
+        frame = np.zeros((50, 100, 3), dtype=np.uint8)
+        multipliers = []
+
+        def fake_draw_cursor(frame_arg, capture_region, size_multiplier=1.0):
+            multipliers.append(size_multiplier)
+            return frame_arg
+
+        with patch.object(recorder_manager, "draw_cursor", side_effect=fake_draw_cursor):
+            manager._prepare_frame_for_encoding(frame)
+
+        self.assertEqual(multipliers, [1.0])
 
     def test_mix_audio_builds_single_audio_command(self):
         manager = RecorderManager(self.config)
@@ -555,6 +646,49 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(timer.begin_calls, 1)
         self.assertEqual(timer.end_calls, 1)
 
+    def test_window_capture_start_failure_records_backend_diagnostic(self):
+        class FakeUser32:
+            def IsWindow(self, hwnd):
+                return True
+
+            def GetWindowTextLengthW(self, hwnd):
+                return 0
+
+        rect = type(
+            "Rect",
+            (),
+            {
+                "left": lambda self: 40,
+                "top": lambda self: 50,
+                "width": lambda self: 100,
+                "height": lambda self: 80,
+            },
+        )()
+
+        import recorder.recorder_manager as recorder_manager
+        original_user32 = recorder_manager.ctypes.windll.user32
+        recorder_manager.ctypes.windll.user32 = FakeUser32()
+        try:
+            with patch.multiple(
+                    "recorder.recorder_manager",
+                    ScreenCapturer=FailingStartScreenCapturer,
+                    VideoEncoder=FakeVideoEncoder), \
+                    patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"), \
+                    patch.object(RecorderManager, "_get_window_rect", return_value=rect):
+                manager = RecorderManager(self.config)
+
+                self.assertTrue(manager.start_window(123))
+                manager.wait_until_idle(timeout=2)
+
+            diagnostic = manager.get_last_window_diagnostic()
+            self.assertEqual(diagnostic.reason, WindowFailureReason.CAPTURE_BACKEND_FAILED)
+            self.assertEqual(diagnostic.hwnd, 123)
+            self.assertEqual(diagnostic.mode, "window")
+            self.assertEqual(diagnostic.stage, "capture_start")
+            self.assertEqual(diagnostic.rect, (40, 50, 100, 80))
+        finally:
+            recorder_manager.ctypes.windll.user32 = original_user32
+
     def test_runtime_low_disk_reports_failed_event_and_resets_state(self):
         saved_paths = []
         events = []
@@ -651,6 +785,11 @@ class TestRecorderManager(unittest.TestCase):
         try:
             manager = RecorderManager(self.config)
             self.assertFalse(manager.start_window(123))
+            diagnostic = manager.get_last_window_diagnostic()
+            self.assertEqual(diagnostic.reason, WindowFailureReason.UNSUPPORTED_WINDOW)
+            self.assertEqual(diagnostic.hwnd, 123)
+            self.assertEqual(diagnostic.mode, "window")
+            self.assertEqual(diagnostic.stage, "is_window")
         finally:
             recorder_manager.ctypes.windll.user32 = original_user32
 
@@ -670,6 +809,14 @@ class TestRecorderManager(unittest.TestCase):
             with patch.object(RecorderManager, "_get_window_rect", return_value=None):
                 self.assertFalse(manager.start_window(123))
                 self.assertEqual(manager.get_window_hwnd(), 123)
+                diagnostic = manager.get_last_window_diagnostic()
+                self.assertEqual(diagnostic.reason, WindowFailureReason.RECT_UNAVAILABLE)
+                self.assertEqual(diagnostic.hwnd, 123)
+                self.assertEqual(diagnostic.title, "")
+                self.assertEqual(diagnostic.mode, "window")
+                self.assertEqual(diagnostic.stage, "get_window_rect")
+                self.assertIsNone(diagnostic.rect)
+                self.assertEqual(diagnostic.foreground_result, "not_attempted")
         finally:
             recorder_manager.ctypes.windll.user32 = original_user32
 

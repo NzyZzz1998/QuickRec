@@ -27,7 +27,12 @@ class FakeQApplication:
 
 
 class FakeConfig:
+    def __init__(self, values=None):
+        self.values = values or {}
+
     def get(self, key, default=None):
+        if key in self.values:
+            return self.values[key]
         return default
 
 
@@ -102,13 +107,20 @@ class FakeTray:
 
 class FakeClickHighlighter:
     def __init__(self):
+        self.started = False
         self.stopped = False
+        self.running = False
+
+    def start(self):
+        self.started = True
+        self.running = True
 
     def stop(self):
         self.stopped = True
+        self.running = False
 
     def is_running(self):
-        return False
+        return self.running
 
 
 class FakeWindowHighlighter:
@@ -290,6 +302,43 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app._on_pause_resume()
 
         self.assertIsNone(app._window_highlighter)
+
+    def test_window_recording_disables_click_highlighter_overlay(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._config = FakeConfig({"mouse_highlight": True})
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.state = main.RecorderState.RECORDING
+        app._click_highlighter = FakeClickHighlighter()
+        app._click_highlighter.running = True
+        app._recorder = type(
+            "RecorderReadModel",
+            (),
+            {"get_mode": lambda self: main.RecordMode.WINDOW},
+        )()
+
+        app._update_highlight_state()
+
+        self.assertFalse(app._click_highlighter.started)
+        self.assertTrue(app._click_highlighter.stopped)
+        self.assertFalse(app._click_highlighter.is_running())
+
+    def test_region_recording_can_still_enable_click_highlighter_overlay(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._config = FakeConfig({"mouse_highlight": True})
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.state = main.RecorderState.RECORDING
+        app._click_highlighter = FakeClickHighlighter()
+        app._recorder = type(
+            "RecorderReadModel",
+            (),
+            {"get_mode": lambda self: main.RecordMode.REGION},
+        )()
+
+        app._update_highlight_state()
+
+        self.assertTrue(app._click_highlighter.started)
+        self.assertFalse(app._click_highlighter.stopped)
+        self.assertTrue(app._click_highlighter.is_running())
 
     def test_stop_pause_resume_and_cancel_use_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

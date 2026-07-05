@@ -25,20 +25,20 @@ import logging
 import os
 import sys
 
-from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from config import ConfigManager
+from hotkey.hotkey_manager import HotkeyManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.workflow import RecordingWorkflow
-from ui.toolbar import RecordingToolbar
-from ui.settings_dialog import SettingsDialog
-from ui.tray_icon import TrayIcon
 from ui.area_selector import AreaSelector
-from ui.window_selector import WindowSelector
-from ui.window_highlighter import WindowHighlighter
 from ui.click_highlighter import ClickHighlighter
-from hotkey.hotkey_manager import HotkeyManager
+from ui.settings_dialog import SettingsDialog
+from ui.toolbar import RecordingToolbar
+from ui.tray_icon import TrayIcon
+from ui.window_highlighter import WindowHighlighter
+from ui.window_selector import WindowSelector
 from utils.disk_checker import DiskChecker, show_disk_warning
 
 logging.basicConfig(
@@ -449,9 +449,11 @@ class QuickRecApp:
 
     def _update_highlight_state(self):
         """根据配置和录制状态决定是否启动/停止高亮"""
+        recorder_mode = self._recorder.get_mode() if self._recorder else None
         should_enable = (
             self._config.get("mouse_highlight", False)
             and self._workflow.get_state() == RecorderState.RECORDING
+            and recorder_mode != RecordMode.WINDOW
         )
         if should_enable and not self._click_highlighter.is_running():
             self._click_highlighter.start()
@@ -528,7 +530,7 @@ class QuickRecApp:
         self._config_saved_pending = False
         dialog = SettingsDialog(self._config)
         dialog.config_saved.connect(self._on_config_saved_pend)
-        result = dialog.exec_()
+        dialog.exec_()
 
         # 对话框关闭后，统一重绑定并重新启动快捷键监听
         if self._config_saved_pending:

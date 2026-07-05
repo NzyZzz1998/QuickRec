@@ -33,3 +33,6 @@ ffmpeg/
 # Temporary test files
 *.wav
 test_wasapi*.py
+
+# Local package-size experiments
+experiments/

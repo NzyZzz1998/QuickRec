@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickRec Product Prototype - Overview</title>
+  <style>
+    :root {
+      --bg: #f3f3f3;
+      --surface: #ffffff;
+      --surface-2: #f8f8f8;
+      --line: #d8d8d8;
+      --text: #1f1f1f;
+      --muted: #606060;
+      --blue: #2563eb;
+      --green: #0f7b45;
+      --red: #c42b1c;
+      --amber: #986f0b;
+      --shadow: 0 14px 38px rgba(0, 0, 0, .12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 42px 1fr;
+    }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      user-select: none;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .brand-mark {
+      width: 18px; height: 18px; border-radius: 4px;
+      background: linear-gradient(135deg, #2563eb, #16a34a);
+    }
+
+    .window-actions { display: flex; gap: 2px; color: #555; }
+    .window-actions span {
+      width: 36px; height: 28px; display: grid; place-items: center; border-radius: 4px;
+    }
+    .window-actions span:hover { background: #eeeeee; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 232px 1fr;
+      min-height: 0;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: #fbfbfb;
+      padding: 14px 10px;
+    }
+
+    .side-title {
+      padding: 8px 10px 14px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      margin-bottom: 4px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    .nav-item.active { background: #e8f0fe; color: #174ea6; }
+    .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; }
+    .nav-item.active .nav-dot { background: var(--blue); }
+
+    main { padding: 22px; overflow: auto; }
+    .page { display: none; max-width: 1240px; margin: 0 auto; }
+    .page.active { display: block; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+    }
+
+    .panel.pad { padding: 18px; }
+    h1, h2, h3 { margin: 0; font-weight: 600; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { font-size: 18px; margin-bottom: 12px; }
+    h3 { font-size: 15px; margin-bottom: 8px; }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+
+    .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    .btn {
+      height: 34px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .btn.primary { background: var(--blue); color: white; border-color: var(--blue); }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .metric strong { display: block; font-size: 22px; margin-bottom: 5px; }
+    .metric span { color: var(--muted); font-size: 12px; }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .track {
+      padding: 16px;
+      border-left: 4px solid var(--blue);
+    }
+    .track.lite { border-left-color: var(--green); }
+    .track.full { border-left-color: var(--blue); }
+    .track.m5 { border-left-color: var(--amber); }
+
+    .list { display: grid; gap: 8px; margin-top: 12px; }
+    .list-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      min-height: 34px;
+      padding: 8px 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: #ececec;
+      color: #444;
+      white-space: nowrap;
+    }
+    .tag.done { background: #dcfce7; color: #166534; }
+    .tag.plan { background: #fef3c7; color: #92400e; }
+    .tag.future { background: #dbeafe; color: #1d4ed8; }
+    .tag.no { background: #fee2e2; color: #991b1b; }
+
+    .roadmap {
+      display: grid;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .milestone {
+      display: grid;
+      grid-template-columns: 96px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .milestone b { font-size: 15px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f7f7f7; font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+
+    .footer-note {
+      margin-top: 18px;
+      padding: 12px 14px;
+      border: 1px solid #e5d28a;
+      background: #fff8d7;
+      border-radius: 8px;
+      color: #654d00;
+    }
+
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .side-title { display: none; }
+      .nav-item { min-width: 150px; }
+      .hero, .section-grid, .status-grid { grid-template-columns: 1fr; }
+      .milestone { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="brand"><span class="brand-mark"></span>QuickRec Product Prototype</div>
+      <div class="window-actions"><span>−</span><span>□</span><span>×</span></div>
+    </header>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="side-title">Overview</div>
+        <button class="nav-item active" data-page="summary"><span class="nav-dot"></span>产品线总览</button>
+        <button class="nav-item" data-page="roadmap"><span class="nav-dot"></span>路线图</button>
+        <button class="nav-item" data-page="decision"><span class="nav-dot"></span>决策看板</button>
+        <button class="nav-item" data-page="m5"><span class="nav-dot"></span>v1.4-M5</button>
+      </aside>
+
+      <main>
+        <section id="summary" class="page active">
+          <div class="hero">
+            <div class="panel pad">
+              <h1>QuickRec 产品线规划总览</h1>
+              <p>本原型基于 v1.1 到 v1.4 的需求、技术设计、开发计划和 progress。目标是让 Lite 与 Full 的边界清晰可见，并把 v1.4-M5 的补充项放在正确位置：它是主线稳定性补充，不是 Full 工作台实现。</p>
+              <div class="actions">
+                <a class="btn primary" href="lite.html">打开 Lite 原型</a>
+                <a class="btn" href="full.html">打开 Full 原型</a>
+                <a class="btn" href="prototype-design.md">查看说明文档</a>
+              </div>
+            </div>
+            <div class="panel pad">
+              <h2>当前基线</h2>
+              <div class="status-grid">
+                <div class="metric"><strong>v1.4</strong><span>M1-M4 已完成</span></div>
+                <div class="metric"><strong>257.74MB</strong><span>稳定性优先体积记录</span></div>
+                <div class="metric"><strong>M5</strong><span>规划中 / 待开发</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-grid">
+            <div class="panel pad track lite">
+              <h2>QuickRec Lite</h2>
+              <p>轻量级录屏工具。默认托盘常驻，主能力聚焦全屏录制，低学习成本，长期避免承接复杂工作台能力。</p>
+              <div class="list">
+                <div class="list-row"><span>默认全屏录制</span><span class="tag done">保留</span></div>
+                <div class="list-row"><span>区域录制</span><span class="tag plan">未来可选</span></div>
+                <div class="list-row"><span>窗口录制</span><span class="tag no">不规划</span></div>
+                <div class="list-row"><span>高级音频配置</span><span class="tag plan">隐藏</span></div>
+              </div>
+            </div>
+            <div class="panel pad track full">
+              <h2>QuickRec Full</h2>
+              <p>面向创作者的工作台。围绕录制、素材、轻编辑、导出、质量诊断和模板预设展开，建议独立分支或独立产品线探索。</p>
+              <div class="list">
+                <div class="list-row"><span>录制历史与素材管理</span><span class="tag future">Full</span></div>
+                <div class="list-row"><span>轻量剪辑与导出队列</span><span class="tag future">Full</span></div>
+                <div class="list-row"><span>质量诊断中心</span><span class="tag future">Full</span></div>
+                <div class="list-row"><span>模板与预设</span><span class="tag future">Full</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer-note">边界原则：v1.4 不新增 Lite/Full 切换，不把 Full 工作台复杂度塞回 Lite，不通过破坏 dxcam/cv2 稳定链路换取体积目标。</div>
+        </section>
+
+        <section id="roadmap" class="page">
+          <div class="panel pad">
+            <h1>版本路线图</h1>
+            <p>路线图用于展示能力如何从基础录制逐步演进到稳定工程基线，再进入产品线规划。</p>
+            <div class="roadmap">
+              <div class="milestone"><b>v1.1</b><span>区域录制、音频源选择、动态托盘、录制结果提示。</span><span class="tag done">完成</span></div>
+              <div class="milestone"><b>v1.2</b><span>鼠标点击高亮、原生画质、开机自启、倒计时、窗口录制延期项。</span><span class="tag done">完成</span></div>
+              <div class="milestone"><b>v1.3</b><span>窗口录制深度重写、H.264 实时编码、磁盘预警、临时文件清理、DPI。</span><span class="tag done">完成</span></div>
+              <div class="milestone"><b>v1.4</b><span>测试基线、CI/Lint/mypy、架构解耦、运行时稳定性、发布收口。</span><span class="tag done">M1-M4 完成</span></div>
+              <div class="milestone"><b>M5</b><span>特殊窗口诊断、音频自检、硬件验收、体积优化、lite/full 规划。</span><span class="tag plan">待开发</span></div>
+              <div class="milestone"><b>Lite</b><span>轻量分支方向，默认全屏录制，托盘常驻，隐藏复杂配置。</span><span class="tag future">未来</span></div>
+              <div class="milestone"><b>Full</b><span>创作者工作台方向，项目化录制、素材、轻编辑、导出、诊断。</span><span class="tag future">未来</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="decision" class="page">
+          <div class="panel pad">
+            <h1>能力归属决策看板</h1>
+            <p>该看板用于避免 Lite、Full、主线补充项之间互相污染。</p>
+            <table>
+              <thead><tr><th>能力</th><th>归属</th><th>理由</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr><td>全屏录制</td><td>Lite / 主线</td><td>核心录屏能力，保持最短路径。</td><td><span class="tag done">保留</span></td></tr>
+                <tr><td>区域录制</td><td>主线 / Lite 未来可选</td><td>能力有价值，但 Lite 默认不突出。</td><td><span class="tag plan">可选</span></td></tr>
+                <tr><td>窗口录制</td><td>主线 / Full</td><td>复杂度高，不进入 Lite 默认边界。</td><td><span class="tag future">Full 更适合</span></td></tr>
+                <tr><td>特殊窗口兼容诊断</td><td>v1.4-M5</td><td>属于稳定性补充，不是新模式入口。</td><td><span class="tag plan">待开发</span></td></tr>
+                <tr><td>音频自检与降级</td><td>v1.4-M5</td><td>保证录制文件可播放，提升稳定性。</td><td><span class="tag plan">待开发</span></td></tr>
+                <tr><td>素材管理/轻编辑</td><td>Full</td><td>会显著增加产品复杂度，不回灌 Lite。</td><td><span class="tag future">未来</span></td></tr>
+                <tr><td>体积优化</td><td>M5 / Lite 规划</td><td>先做构成分析和可行尝试，不能破坏稳定链路。</td><td><span class="tag plan">待开发</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="m5" class="page">
+          <div class="panel pad">
+            <h1>v1.4-M5 补充项</h1>
+            <p>M5 是发布后补充项，不改变 v1.4 已完成的 M1-M4，也不等同于 Full Workbench 实施。</p>
+            <div class="section-grid">
+              <div class="panel pad track m5"><h2>特殊窗口诊断</h2><p>统一 reason、日志字段、失败阶段，普通录制链路不回退。</p></div>
+              <div class="panel pad track m5"><h2>音频自检与降级</h2><p>录制前识别设备异常，双音频不可用时降级，优先保证 MP4 可播放。</p></div>
+              <div class="panel pad track m5"><h2>本地硬件验收</h2><p>`python scripts/hardware_smoke.py` 作为发布前必跑项，不进入 CI 默认流程。</p></div>
+              <div class="panel pad track m5"><h2>体积优化尝试</h2><p>统计构成，评估 FFmpeg/OpenCV/PyInstaller，不外置依赖，不破坏 cv2 链路。</p></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const navItems = document.querySelectorAll(".nav-item");
+    const pages = document.querySelectorAll(".page");
+    navItems.forEach((item) => {
+      item.addEventListener("click", () => {
+        const page = item.dataset.page;
+        navItems.forEach((node) => node.classList.toggle("active", node === item));
+        pages.forEach((node) => node.classList.toggle("active", node.id === page));
+      });
+    });
+  </script>
+</body>
+</html>

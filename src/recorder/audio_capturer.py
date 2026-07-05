@@ -157,6 +157,41 @@ class AudioCapturer:
     def get_channels(self) -> int:
         return self._channels
 
+    @staticmethod
+    def probe_system_available() -> bool:
+        try:
+            import soundcard as sc
+
+            speakers = sc.default_speaker()
+            speakers_name = speakers.name.lower()
+            for mic in sc.all_microphones(include_loopback=True):
+                if not getattr(mic, 'isloopback', False):
+                    continue
+                mic_name = mic.name.lower()
+                if speakers_name.split("(")[0].strip() in mic_name:
+                    return True
+            return any(
+                getattr(mic, 'isloopback', False)
+                for mic in sc.all_microphones(include_loopback=True)
+            )
+        except Exception as e:
+            logger.warning(f"系统声音自检失败: {e}")
+            return False
+
+    @staticmethod
+    def probe_microphone_available() -> bool:
+        try:
+            import pyaudio
+
+            pa = pyaudio.PyAudio()
+            try:
+                return pa.get_default_input_device_info() is not None
+            finally:
+                pa.terminate()
+        except Exception as e:
+            logger.warning(f"麦克风自检失败: {e}")
+            return False
+
     # --- 内部方法 ---
 
     def _find_loopback_mic(self):

@@ -5,6 +5,8 @@
 > 参考文档：`PRD-QuickRec.md`、`Tec-design-v1.1.md` 至 `Tec-design-v1.4.md`、`dev-plan-v1.1.md` 至 `dev-plan-v1.4.md`、`progress.md`  
 > 原型文件：`prototype-full-workbench.html`
 
+> 历史说明：本目录为早期 Full Workbench 单线原型，已被新的 `doc/product-prototype/` 产品原型替代。后续原型评审优先查看 `doc/product-prototype/overview.html`、`lite.html`、`full.html` 和 `prototype-design.md`；本目录仅保留为历史版本参考。
+
 ## 1. 设计结论
 
 QuickRec Full Workbench 是面向未来产品线的创作者工作台原型。它不替代当前 QuickRec Lite，也不要求 v1.4 直接实现完整工作台。

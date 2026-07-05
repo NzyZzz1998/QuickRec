@@ -23,6 +23,7 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from config import ConfigManager
 from recorder.audio_capturer import AudioCapturer, AudioSource
+from recorder.audio_preflight import AudioPreflightResult, plan_audio_source
 from recorder.cursor_overlay import draw_cursor
 from recorder.events import RecordingEvent
 from recorder.frame_resize import resize_bgr_frame
@@ -30,6 +31,7 @@ from recorder.screen_capturer import ScreenCapturer
 from recorder.state_machine import RecordingState, RecordingStateMachine
 from recorder.timer_resolution import TimerResolution
 from recorder.video_encoder import VideoEncoder
+from recorder.window_diagnostics import WindowFailureReason, WindowRecordingDiagnostic
 from utils.disk_checker import DiskChecker
 from utils.file_namer import FileNamer
 from utils.temp_cleaner import TempCleaner
@@ -40,7 +42,6 @@ logger = logging.getLogger("QuickRec")
 RecorderState = RecordingState
 _WINDOW_CAPTURE_UPDATE_INTERVAL = 0.0
 _WINDOW_MOVE_STABLE_DELAY = 0.45
-
 
 class RecordMode(Enum):
     FULLSCREEN = "fullscreen"
@@ -84,6 +85,12 @@ class RecorderManager:
         # 音频
         self._audio_capturer: AudioCapturer = None
         self._audio_source: str = AudioSource.NONE
+        self._audio_preflight = AudioPreflightResult(
+            requested_source=AudioSource.NONE,
+            final_source=AudioSource.NONE,
+            system_available=False,
+            microphone_available=False,
+        )
         self._audio_temp_paths: list = []
 
         # 窗口录制
@@ -91,6 +98,7 @@ class RecorderManager:
         self._window_title: str = ""
         self._window_region: tuple[int, int, int, int] | None = None
         self._pending_window_region: tuple[int, int, int, int] | None = None
+        self._last_window_diagnostic = WindowRecordingDiagnostic()
         self._last_window_move_time = 0.0
         self._last_window_frame = None
         self._window_lost_bridge = _WindowLostBridge()
@@ -152,7 +160,17 @@ class RecorderManager:
     def start_window(self, hwnd: int) -> bool:
         user32 = ctypes.windll.user32
         if not user32.IsWindow(hwnd):
-            logger.error(f"无效窗口句柄: {hwnd}")
+            diagnostic = self._record_window_diagnostic(
+                reason=WindowFailureReason.UNSUPPORTED_WINDOW,
+                hwnd=hwnd,
+                title="",
+                stage="is_window",
+            )
+            logger.error(
+                "window recording rejected: "
+                f"reason={diagnostic.reason.value}, hwnd={diagnostic.hwnd}, "
+                f"title={diagnostic.title!r}, mode={diagnostic.mode}, stage={diagnostic.stage}"
+            )
             return False
         self._window_title = self._get_window_title(hwnd)
         self._window_hwnd = hwnd
@@ -160,9 +178,28 @@ class RecorderManager:
         self._window_lost_emitted = False
         rect = self._get_window_rect(hwnd)
         if rect is None:
-            logger.error(f"无法获取窗口位置（可能为游戏全屏/UWP 等特殊窗口）: hwnd={hwnd}")
+            diagnostic = self._record_window_diagnostic(
+                reason=WindowFailureReason.RECT_UNAVAILABLE,
+                hwnd=hwnd,
+                title=self._window_title,
+                stage="get_window_rect",
+            )
+            logger.error(
+                "window recording rejected: "
+                f"reason={diagnostic.reason.value}, hwnd={diagnostic.hwnd}, "
+                f"title={diagnostic.title!r}, mode={diagnostic.mode}, stage={diagnostic.stage}, "
+                f"rect={diagnostic.rect}, foreground_result={diagnostic.foreground_result}"
+            )
             return False
         region = (rect.left(), rect.top(), rect.width(), rect.height())
+        self._record_window_diagnostic(
+            reason=WindowFailureReason.NONE,
+            hwnd=hwnd,
+            title=self._window_title,
+            stage="ready",
+            rect=region,
+            foreground_result="not_attempted",
+        )
         return self._start(region=region)
 
     def pause(self) -> bool:
@@ -223,7 +260,34 @@ class RecorderManager:
     def get_window_hwnd(self) -> int:
         return self._window_hwnd
 
+    def get_last_window_diagnostic(self) -> WindowRecordingDiagnostic:
+        return self._last_window_diagnostic
+
+    def get_audio_preflight(self) -> AudioPreflightResult:
+        return self._audio_preflight
+
     # --- 内部实现 ---
+
+    def _record_window_diagnostic(
+        self,
+        reason: WindowFailureReason,
+        hwnd: int,
+        title: str,
+        stage: str,
+        rect: tuple[int, int, int, int] | None = None,
+        foreground_result: str = "not_attempted",
+    ) -> WindowRecordingDiagnostic:
+        diagnostic = WindowRecordingDiagnostic(
+            reason=reason,
+            hwnd=hwnd,
+            title=title,
+            mode=RecordMode.WINDOW.value,
+            stage=stage,
+            rect=rect,
+            foreground_result=foreground_result,
+        )
+        self._last_window_diagnostic = diagnostic
+        return diagnostic
 
     def _start(self, region=None) -> bool:
         with self._lock:
@@ -268,11 +332,26 @@ class RecorderManager:
             self._audio_temp_paths = []
             self._audio_capturer = None
             audio_source_str = self._config.get("audio_source", "none")
-            self._audio_source = audio_source_str
-            if audio_source_str != AudioSource.NONE and self._ffmpeg_path:
+            system_available, microphone_available = self._probe_audio_sources(audio_source_str)
+            self._audio_preflight = plan_audio_source(
+                audio_source_str,
+                system_available=system_available,
+                microphone_available=microphone_available,
+            )
+            self._audio_source = self._audio_preflight.final_source
+            if self._audio_preflight.degraded:
+                logger.warning(
+                    "audio preflight degraded: "
+                    f"requested={self._audio_preflight.requested_source}, "
+                    f"final={self._audio_preflight.final_source}, "
+                    f"reason={self._audio_preflight.reason}, "
+                    f"system_available={self._audio_preflight.system_available}, "
+                    f"microphone_available={self._audio_preflight.microphone_available}"
+                )
+            if self._audio_source != AudioSource.NONE and self._ffmpeg_path:
                 try:
                     self._audio_capturer = AudioCapturer(
-                        source=audio_source_str,
+                        source=self._audio_source,
                         output_dir=self._session_dir,
                     )
                     if not self._audio_capturer.start(output_stem="audio"):
@@ -302,6 +381,20 @@ class RecorderManager:
             self._capturer.start()
         except Exception as e:
             logger.error(f"屏幕捕获器启动失败: {e}")
+            if self._mode == RecordMode.WINDOW and self._window_hwnd:
+                diagnostic = self._record_window_diagnostic(
+                    reason=WindowFailureReason.CAPTURE_BACKEND_FAILED,
+                    hwnd=self._window_hwnd,
+                    title=self._window_title,
+                    stage="capture_start",
+                    rect=self._window_region,
+                )
+                logger.error(
+                    "window recording capture backend failed: "
+                    f"reason={diagnostic.reason.value}, hwnd={diagnostic.hwnd}, "
+                    f"title={diagnostic.title!r}, mode={diagnostic.mode}, stage={diagnostic.stage}, "
+                    f"rect={diagnostic.rect}"
+                )
             self._stop_event.set()
             self._finish_failed_recording(f"screen capture start failed: {e}")
             return
@@ -400,15 +493,10 @@ class RecorderManager:
                     if not self._capturer._started:
                         break
                     continue
-                frame = draw_cursor(frame, self._capturer.get_capture_region())
                 if self._mode == RecordMode.WINDOW:
-                    if (frame.shape[1], frame.shape[0]) != self._frame_size:
-                        frame = resize_bgr_frame(frame, self._frame_size)
                     self._last_window_frame = frame.copy()
 
-            # 画质缩放（写 pipe 前）
-            if self._encode_size != self._frame_size:
-                frame = resize_bgr_frame(frame, self._encode_size)
+            frame = self._prepare_frame_for_encoding(frame)
 
             target_frame = int((time.time() - rec_start) / frame_interval)
             while frames_written < target_frame:
@@ -450,6 +538,19 @@ class RecorderManager:
             return
 
         self._timer_resolution.end()
+
+    def _prepare_frame_for_encoding(self, frame):
+        if self._mode == RecordMode.WINDOW and (frame.shape[1], frame.shape[0]) != self._frame_size:
+            frame = resize_bgr_frame(frame, self._frame_size)
+
+        if self._encode_size != self._frame_size:
+            frame = resize_bgr_frame(frame, self._encode_size)
+
+        if self._mode == RecordMode.WINDOW:
+            return frame
+
+        capture_region = self._capturer.get_capture_region() if self._capturer else None
+        return draw_cursor(frame, capture_region, size_multiplier=1.0)
 
     def _stop_and_encode(self):
         # 等待录制线程完成 encoder.close()（FFmpeg flush 可能需要数十秒）
@@ -550,6 +651,27 @@ class RecorderManager:
         except Exception as e:
             logger.warning(f"音频文件无效，跳过混合: {path}, {e}")
             return False
+
+    def _probe_audio_sources(self, requested_source: str) -> tuple[bool, bool]:
+        def probe(name: str) -> bool:
+            method = getattr(AudioCapturer, name, None)
+            if method is None:
+                return True
+            try:
+                return bool(method())
+            except Exception as e:
+                logger.warning(f"audio preflight probe failed: {name}, {e}")
+                return False
+
+        if requested_source == AudioSource.NONE:
+            return False, False
+        if requested_source == AudioSource.SYSTEM:
+            return probe("probe_system_available"), False
+        if requested_source == AudioSource.MICROPHONE:
+            return False, probe("probe_microphone_available")
+        if requested_source == AudioSource.BOTH:
+            return probe("probe_system_available"), probe("probe_microphone_available")
+        return False, False
 
     def _get_target_size(self):
         quality = self._config.get("quality", "native")

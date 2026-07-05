@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuickRec Lite Prototype</title>
+  <style>
+    :root {
+      --bg: #ececec;
+      --panel: #ffffff;
+      --panel-2: #f7f7f7;
+      --line: #d5d5d5;
+      --text: #202020;
+      --muted: #646464;
+      --blue: #2563eb;
+      --green: #10893e;
+      --red: #c42b1c;
+      --amber: #9a6a00;
+      --shadow: 0 18px 45px rgba(0, 0, 0, .18);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,.035) 1px, transparent 1px) 0 0 / 48px 48px,
+        linear-gradient(rgba(0,0,0,.035) 1px, transparent 1px) 0 0 / 48px 48px,
+        var(--bg);
+      font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--text);
+      letter-spacing: 0;
+    }
+
+    .desktop {
+      width: min(1180px, calc(100vw - 32px));
+      min-height: 720px;
+      position: relative;
+      border: 1px solid #c8c8c8;
+      background: linear-gradient(135deg, #f8f8f8, #e6e6e6);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .taskbar {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 48px;
+      background: rgba(245,245,245,.94);
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      backdrop-filter: blur(14px);
+    }
+
+    .taskbar-left, .tray { display: flex; align-items: center; gap: 10px; }
+    .start { width: 28px; height: 28px; border-radius: 6px; background: #dbeafe; display: grid; place-items: center; color: var(--blue); font-weight: 700; }
+    .tray-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      display: grid; place-items: center;
+      background: white;
+      border: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .clock { font-size: 12px; color: var(--muted); line-height: 1.2; text-align: right; }
+
+    .control {
+      position: absolute;
+      right: 70px;
+      bottom: 78px;
+      width: 440px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .titlebar {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfbfb;
+      user-select: none;
+    }
+    .titlebar b { display: flex; align-items: center; gap: 8px; }
+    .mark { width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(135deg, #2563eb, #16a34a); }
+    .win-actions { display: flex; gap: 2px; color: #666; }
+    .win-actions span { width: 30px; height: 24px; display: grid; place-items: center; border-radius: 4px; }
+    .win-actions span:hover { background: #eeeeee; }
+
+    .body { padding: 16px; display: grid; gap: 14px; }
+    .state {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 14px;
+      align-items: center;
+      padding: 14px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .record-button {
+      width: 58px; height: 58px;
+      border-radius: 50%;
+      border: 0;
+      background: var(--red);
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: inset 0 0 0 4px rgba(255,255,255,.35);
+    }
+    .record-button.recording { background: var(--green); }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 18px; font-weight: 600; }
+    p { color: var(--muted); line-height: 1.5; }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .info {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+    .info small { display: block; color: var(--muted); margin-bottom: 5px; }
+    .info b { font-size: 14px; }
+
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      height: 32px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      color: var(--text);
+      font: inherit;
+    }
+    .btn.primary { background: var(--blue); color: white; border-color: var(--blue); }
+    .btn:disabled { opacity: .45; cursor: default; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--line);
+      margin: 0 -16px;
+      padding: 0 16px;
+    }
+    .tab {
+      height: 34px;
+      padding: 0 12px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      font: inherit;
+    }
+    .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-page { display: none; }
+    .tab-page.active { display: grid; gap: 10px; }
+
+    .setting {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eeeeee;
+    }
+    .setting:last-child { border-bottom: 0; }
+    .switch {
+      width: 42px; height: 22px;
+      border-radius: 999px;
+      background: #c7c7c7;
+      border: 0;
+      position: relative;
+      cursor: pointer;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 2px; top: 2px;
+      background: white;
+      border-radius: 50%;
+      transition: .16s;
+    }
+    .switch.on { background: var(--blue); }
+    .switch.on::after { left: 22px; }
+
+    .tray-menu {
+      position: absolute;
+      right: 42px;
+      bottom: 56px;
+      width: 210px;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 6px;
+      display: none;
+    }
+    .tray-menu.open { display: block; }
+    .menu-item {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      border-radius: 5px;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+    }
+    .menu-item:hover { background: #f0f0f0; }
+    .menu-sep { height: 1px; background: var(--line); margin: 5px; }
+
+    .note {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #ead58f;
+      background: #fff8d7;
+      color: #6a5200;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="desktop">
+    <div class="control">
+      <div class="titlebar">
+        <b><span class="mark"></span>QuickRec Lite</b>
+        <div class="win-actions"><span>−</span><span>×</span></div>
+      </div>
+      <div class="body">
+        <div class="state">
+          <button id="recordButton" class="record-button" title="开始/停止录制">●</button>
+          <div>
+            <h1 id="stateTitle">准备录制</h1>
+            <p id="stateText">默认全屏录制。Lite 保持轻量，不提供窗口录制入口。</p>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info"><small>保存路径</small><b>E:\QRtest</b></div>
+          <div class="info"><small>最近录制</small><b id="lastFile">QuickRec_20260704_184646.mp4</b></div>
+          <div class="info"><small>音频</small><b id="audioState">系统声音 + 麦克风</b></div>
+          <div class="info"><small>快捷键</small><b>Ctrl + Q</b></div>
+        </div>
+
+        <div class="toolbar">
+          <button class="btn primary" id="mainAction">开始全屏录制</button>
+          <button class="btn" id="openSettings">基础设置</button>
+          <button class="btn" id="openFolder">打开保存目录</button>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" data-tab="status">状态</button>
+          <button class="tab" data-tab="settings">设置</button>
+          <button class="tab" data-tab="boundary">边界</button>
+        </div>
+
+        <div id="status" class="tab-page active">
+          <div class="setting"><span>磁盘空间</span><b style="color:var(--green)">可用 186GB</b></div>
+          <div class="setting"><span>FFmpeg</span><b style="color:var(--green)">已内置</b></div>
+          <div class="setting"><span>硬件验收</span><b style="color:var(--amber)">发布前执行</b></div>
+        </div>
+
+        <div id="settings" class="tab-page">
+          <div class="setting"><span>开机自启</span><button class="switch on" data-label="开机自启"></button></div>
+          <div class="setting"><span>录制倒计时</span><button class="switch on" data-label="录制倒计时"></button></div>
+          <div class="setting"><span>鼠标点击高亮</span><button class="switch" data-label="鼠标点击高亮"></button></div>
+          <div class="setting"><span>高级音频配置</span><b style="color:var(--muted)">Lite 默认隐藏</b></div>
+        </div>
+
+        <div id="boundary" class="tab-page">
+          <div class="note">Lite 默认只突出全屏录制。区域录制可作为未来可选能力；窗口录制、素材管理、轻编辑、导出队列进入 Full 方向，不塞回 Lite。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tray-menu" id="trayMenu">
+      <button class="menu-item" id="trayRecord">开始全屏录制</button>
+      <button class="menu-item">打开控制面板</button>
+      <button class="menu-item">打开保存目录</button>
+      <div class="menu-sep"></div>
+      <button class="menu-item">基础设置</button>
+      <button class="menu-item">退出 QuickRec</button>
+    </div>
+
+    <div class="taskbar">
+      <div class="taskbar-left">
+        <div class="start">⊞</div>
+        <span style="color:var(--muted)">QuickRec Lite 原型</span>
+      </div>
+      <div class="tray">
+        <button class="tray-icon" id="trayIcon" title="QuickRec 托盘">Q</button>
+        <div class="clock">22:40<br>2026/07/04</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const recordButton = document.getElementById("recordButton");
+    const mainAction = document.getElementById("mainAction");
+    const trayRecord = document.getElementById("trayRecord");
+    const stateTitle = document.getElementById("stateTitle");
+    const stateText = document.getElementById("stateText");
+    const lastFile = document.getElementById("lastFile");
+    let recording = false;
+
+    function toggleRecording() {
+      recording = !recording;
+      recordButton.classList.toggle("recording", recording);
+      recordButton.textContent = recording ? "■" : "●";
+      stateTitle.textContent = recording ? "正在录制全屏" : "准备录制";
+      stateText.textContent = recording ? "00:00:08 · 系统声音 + 麦克风 · 保存到 E:\\QRtest" : "默认全屏录制。Lite 保持轻量，不提供窗口录制入口。";
+      mainAction.textContent = recording ? "停止并保存" : "开始全屏录制";
+      trayRecord.textContent = recording ? "停止并保存" : "开始全屏录制";
+      if (!recording) lastFile.textContent = "QuickRec_20260704_224008.mp4";
+    }
+
+    recordButton.addEventListener("click", toggleRecording);
+    mainAction.addEventListener("click", toggleRecording);
+    trayRecord.addEventListener("click", toggleRecording);
+
+    document.getElementById("trayIcon").addEventListener("click", () => {
+      document.getElementById("trayMenu").classList.toggle("open");
+    });
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((node) => node.classList.toggle("active", node === tab));
+        document.querySelectorAll(".tab-page").forEach((page) => page.classList.toggle("active", page.id === tab.dataset.tab));
+      });
+    });
+
+    document.querySelectorAll(".switch").forEach((sw) => {
+      sw.addEventListener("click", () => sw.classList.toggle("on"));
+    });
+  </script>
+</body>
+</html>
