@@ -295,7 +295,7 @@ class RecorderManager:
                 return False
 
             save_path = self._config.get("save_path")
-            quality = self._config.get("quality", "high")
+            quality = "native"
             if DiskChecker.is_low_space(save_path, quality):
                 return False
             if region is not None:
@@ -315,8 +315,8 @@ class RecorderManager:
                 self._frame_size = (region[2], region[3])
             else:
                 self._frame_size = self._capturer.get_monitor_size()
-            self._encode_size = self._get_target_size() or self._frame_size
-            self._fps = self._config.get("fps", 30)
+            self._encode_size = self._frame_size
+            self._fps = 60
             self._output_path = FileNamer.generate(save_path)
             self._ffmpeg_path = self._get_ffmpeg_path()
             if not self._ffmpeg_path:

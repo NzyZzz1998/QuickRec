@@ -40,32 +40,31 @@ class TestSettingsDialog(unittest.TestCase):
     def test_dialog_creation(self):
         """测试对话框创建"""
         dialog = SettingsDialog(self.config)
-        self.assertEqual(dialog.windowTitle(), "QuickRec 设置")
+        self.assertEqual(dialog.windowTitle(), "QuickRec Lite 设置")
 
     def test_load_config_values(self):
         """测试加载配置值到控件"""
         dialog = SettingsDialog(self.config)
         self.assertEqual(dialog._edit_save_path.text(), self.temp_dir)
-        # v1.2: 画质下拉框使用动态文本，验证 currentData
-        self.assertEqual(dialog._combo_quality.currentData(), "high")
-        self.assertEqual(dialog._combo_fps.currentText(), "30")
+        self.assertFalse(hasattr(dialog, "_combo_quality"))
+        self.assertFalse(hasattr(dialog, "_combo_fps"))
+        self.assertFalse(hasattr(dialog, "_shortcut_area"))
+        self.assertFalse(hasattr(dialog, "_shortcut_window"))
+        self.assertFalse(hasattr(dialog, "_cb_countdown"))
+        self.assertFalse(hasattr(dialog, "_cb_mouse_highlight"))
 
     def test_save_config_updates_values(self):
         """测试保存配置更新值"""
         dialog = SettingsDialog(self.config)
-        # 切换到"低"画质
-        for i in range(dialog._combo_quality.count()):
-            if dialog._combo_quality.itemData(i) == "low":
-                dialog._combo_quality.setCurrentIndex(i)
-                break
-        dialog._combo_fps.setCurrentText("60")
         # v1.2: save_config 会操作注册表，mock掉
         with patch("ui.settings_dialog.enable_autostart"), \
              patch("ui.settings_dialog.disable_autostart"):
             dialog._save_config()
 
-        self.assertEqual(self.config.get("quality"), "low")
+        self.assertEqual(self.config.get("quality"), "native")
         self.assertEqual(self.config.get("fps"), 60)
+        self.assertEqual(self.config.get("show_countdown"), False)
+        self.assertEqual(self.config.get("mouse_highlight"), False)
 
     def test_browse_updates_path(self):
         """测试 Browse 更新路径（仅检查可设置文本）"""

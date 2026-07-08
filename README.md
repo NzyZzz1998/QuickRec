@@ -1,10 +1,11 @@
-# QuickRec
+# QuickRec Lite
 
-QuickRec 是一款面向 Windows 的轻量级桌面录屏工具，基于 Python 3.12、PyQt5、dxcam 和 FFmpeg 构建。
+QuickRec Lite 是从 QuickRec v1.4 稳定基线拆分出的轻量级桌面录屏工具，基于 Python 3.12、PyQt5、dxcam 和 FFmpeg 构建。
 
-> 当前版本：v1.4
-> 发布候选：稳定版 `dist/QuickRec/QuickRec.exe`
-> 发布策略：稳定性优先，UPX FFmpeg 体积实验暂不进入 v1.4 正式发布。
+> 当前版本：QuickRec Lite v0  
+> 当前分支：`lite-test`  
+> 发布候选：`dist/QuickRec/QuickRec.exe`  
+> 发布策略：Lite v0 优先保证全屏录制、音频和打包稳定；体积目标低于 200MB，但不作为发布阻断项。
 
 ## 功能概览
 
@@ -15,14 +16,16 @@ QuickRec 是一款面向 Windows 的轻量级桌面录屏工具，基于 Python 
 | v1.2 | 已完成 | 鼠标点击高亮、原生画质优化、开机自启、录制倒计时 |
 | v1.3 | 已完成 | 指定窗口录制、H.264 实时编码、打包体积优化、DPI 缩放、磁盘空间预警、临时文件清理 |
 | v1.4 | 已完成 / 待发布 | 稳定性与工程化大型优化：测试基线、CI/Lint/mypy、录制状态机与事件流、窗口移动稳定化、音频自检与降级、本地硬件冒烟、体积分析、Lite/Full 规划 |
+| Lite v0 | 已完成 / 待发布 | 独立轻量分支：仅保留全屏录制，固定原生分辨率和 60fps，保留四种音频模式，移除区域/窗口录制、倒计时和鼠标高亮入口 |
 
 详细需求见 [doc/PRD-QuickRec.md](doc/PRD-QuickRec.md)。
 
-## 录制模式
+## Lite v0 录制模式
 
-- **全屏录制**：录制主显示器全部内容，保留当前鼠标叠加方案。
-- **区域录制**：框选屏幕区域录制，保留当前鼠标叠加方案。
-- **窗口录制**：选择可见窗口录制；移动窗口时保持最后稳定帧，停止移动后继续更新；最小化暂停，关闭自动停止保存。v1.4 中窗口录制暂不叠加鼠标，避免后期贴图导致比例异常和大鼠标闪现。
+- **全屏录制**：Lite v0 唯一用户可见录制模式，录制主显示器全部内容。
+- **固定输出**：原生分辨率 + 60fps。
+- **音频模式**：保留无声、系统声音、麦克风、系统声音 + 麦克风。
+- **不包含**：区域录制、窗口录制、录制倒计时、鼠标点击高亮。
 
 ## 默认快捷键
 
@@ -31,10 +34,8 @@ QuickRec 是一款面向 Windows 的轻量级桌面录屏工具，基于 Python 
 | 开始全屏录制 | `Ctrl + Shift + R` |
 | 停止录制 | `Ctrl + Shift + S` |
 | 暂停/恢复 | `Ctrl + Shift + P` |
-| 区域录制 | `Ctrl + Shift + A` |
-| 窗口录制 | `Ctrl + Shift + W` |
 
-快捷键可在设置对话框中修改。
+Lite v0 只保留开始、停止、暂停/恢复三组快捷键设置。若本机已有旧配置，会继续读取用户自定义的三组快捷键；区域/窗口快捷键不再注册。
 
 ## 环境要求
 
@@ -98,7 +99,7 @@ python -m PyInstaller build_std.spec --clean --noconfirm
 dist/QuickRec/
 ```
 
-v1.4 稳定包体积为 `257.89MB`。主要体积来源是 FFmpeg、OpenCV/cv2、PyQt5、NumPy 和 Python runtime。UPX FFmpeg 实验包可降至 `187.89MB`，但由于还需要区域/窗口/真实音频/杀软误报回归，v1.4 正式发布继续使用稳定包。
+Lite v0 稳定包体积为 `257.89MB`。主要体积来源是 FFmpeg、OpenCV/cv2、PyQt5、NumPy 和 Python runtime。Lite v0 的体积目标为低于 `200MB`，但不作为发布阻断项；当前版本优先保证 dxcam/cv2 捕获链路和内置 FFmpeg 稳定可用。
 
 ## 测试
 
@@ -130,14 +131,18 @@ python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode full
 
 硬件冒烟依赖真实 Windows 桌面、dxcam 和屏幕捕获环境，CI 默认不运行。
 
-## v1.4 验证状态
+## Lite v0 验证状态
 
-- 全量测试：`230 passed, 23 deselected, 18 subtests passed`
+- 全量测试：`231 passed, 23 deselected, 18 subtests passed`
 - `ruff check .`：通过
 - `mypy`：通过
 - `compileall src scripts tests`：通过
-- 稳定包启动冒烟：通过
-- 本地硬件冒烟：通过，输出 `E:\QRtest\QuickRec_20260705_165730.mp4`
+- 本地硬件冒烟：通过，输出 `E:\QRtest\QuickRec_20260708_133603.mp4`
+- 设置窗口 Computer Use 验证：通过
+- 全屏录制手动流程：通过
+- 四种音频模式：通过
+- PyInstaller 打包：通过
+- 打包产物启动和录制：通过，输出 `E:\QRtest\QuickRec_20260708_152150.mp4`
 
 ## 文档
 
@@ -152,17 +157,22 @@ python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode full
 | [doc/v1.4-package-size-report-upx.md](doc/v1.4-package-size-report-upx.md) | UPX FFmpeg 实验报告 |
 | [doc/v1.4-capture-backend-research.md](doc/v1.4-capture-backend-research.md) | 捕获后端研究记录 |
 | [doc/release-notes-v1.4.md](doc/release-notes-v1.4.md) | v1.4 发布说明 |
+| [doc/lite/PRD-QuickRec-Lite.md](doc/lite/PRD-QuickRec-Lite.md) | Lite v0 PRD |
+| [doc/lite/implementation-plan-lite.md](doc/lite/implementation-plan-lite.md) | Lite v0 实施计划 |
+| [doc/lite/progress.md](doc/lite/progress.md) | Lite v0 总体进度 |
+| [doc/lite/lite-v0-test-cases.md](doc/lite/lite-v0-test-cases.md) | Lite v0 测试用例 |
+| [doc/lite/lite-v0-package-size-report.md](doc/lite/lite-v0-package-size-report.md) | Lite v0 打包体积报告 |
+| [doc/lite/release-notes-lite-v0.md](doc/lite/release-notes-lite-v0.md) | Lite v0 发布说明 |
 | [doc/bugfix-log.md](doc/bugfix-log.md) | Bug 修复日志 |
 
 ## 当前限制
 
-1. 打包体积仍偏大，v1.4 以稳定性优先，保留 cv2 和原始 FFmpeg。
-2. 窗口录制移动时采用冻结最后稳定帧的策略，不是真正实时跟随。
-3. 窗口录制暂不录制鼠标，后续评估能原生捕获光标的捕获链路。
-4. 游戏全屏、UWP、DWM 自定义渲染窗口可能不可录制，v1.4 只保证失败稳定、提示清晰、不崩溃。
-5. 当前仅支持主显示器录制。
-6. 编码参数固定，暂未暴露高级设置。
-7. CI 无法覆盖真实桌面录制，发布前需要本地硬件验收。
+1. 打包体积仍偏大，Lite v0 以稳定性优先，保留 cv2 和原始 FFmpeg。
+2. 当前仅支持主显示器全屏录制。
+3. 区域录制和窗口录制在 Lite v0 中没有用户入口。
+4. 录制倒计时和鼠标点击高亮在 Lite v0 中没有用户入口。
+5. 编码参数固定，暂未暴露高级设置。
+6. CI 无法覆盖真实桌面录制，发布前需要本地硬件验收。
 
 ## 后续规划
 
@@ -183,8 +193,10 @@ python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode full
 ## 仓库
 
 - GitHub: https://github.com/NzyZzz1998/QuickRec
-- v1.4 正式发布分支：以稳定包为准
-- tag: `v1.4`
+- Full 正式发布分支：`master`
+- Lite 开发分支：`lite-test`
+- Lite 稳定分支：`lite-master`
+- Lite tag：`lite-v0`（发布收口后创建）
 
 ## 许可
 

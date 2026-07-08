@@ -12,7 +12,7 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QFileDialog,
-    QCheckBox, QSpinBox
+    QCheckBox
 )
 
 from config import ConfigManager
@@ -134,7 +134,7 @@ class SettingsDialog(QDialog):
 
     def _init_ui(self):
         """初始化界面"""
-        self.setWindowTitle("QuickRec 设置")
+        self.setWindowTitle("QuickRec Lite 设置")
         self.setMinimumWidth(440)
 
         layout = QVBoxLayout(self)
@@ -153,42 +153,19 @@ class SettingsDialog(QDialog):
         path_layout.addWidget(self._btn_browse)
         form.addRow("保存路径:", path_layout)
 
-        # 画质选择（动态显示分辨率）
-        self._combo_quality = QComboBox()
-        self._refresh_quality_combo()
-        form.addRow("画质:", self._combo_quality)
-
-        # 帧率选择
-        self._combo_fps = QComboBox()
-        self._combo_fps.addItems(["30", "60"])
-        self._combo_fps.setCurrentText("30")
-        form.addRow("帧率:", self._combo_fps)
-
         # 音频源选择
         self._combo_audio_source = QComboBox()
         for display_text, value in _AUDIO_OPTIONS:
             self._combo_audio_source.addItem(display_text, value)
         form.addRow("音频源:", self._combo_audio_source)
 
-        # v1.2 新增：开机自启、录制倒计时、鼠标点击高亮
+        # Lite v0: only keep autostart from the advanced option group.
         options_layout = QHBoxLayout()
         options_layout.setSpacing(12)
         self._cb_auto_start = QCheckBox("开机自启")
-        self._cb_countdown = QCheckBox("录制倒计时")
-        self._combo_countdown_seconds = QComboBox()
-        self._combo_countdown_seconds.addItems([f"{i} 秒" for i in range(1, 11)])
-        self._combo_countdown_seconds.setCurrentIndex(2)  # 默认 3 秒
-        self._combo_countdown_seconds.setEnabled(False)
-        self._cb_countdown.toggled.connect(
-            lambda checked: self._combo_countdown_seconds.setEnabled(checked)
-        )
-        self._cb_mouse_highlight = QCheckBox("鼠标点击高亮")
 
         options_layout.addWidget(self._cb_auto_start)
-        options_layout.addWidget(self._cb_countdown)
-        options_layout.addWidget(self._combo_countdown_seconds)
         options_layout.addStretch()
-        options_layout.addWidget(self._cb_mouse_highlight)
         form.addRow("选项:", options_layout)
 
         # 快捷键（可点击录制）
@@ -210,19 +187,6 @@ class SettingsDialog(QDialog):
         )
         form.addRow("暂停快捷键:", self._shortcut_pause)
 
-        # 区域录制快捷键
-        self._shortcut_area = _ShortcutRecorder("Ctrl+Shift+A")
-        self._shortcut_area.shortcut_changed.connect(
-            lambda s: self._shortcut_area.setText(s)
-        )
-        form.addRow("区域录制:", self._shortcut_area)
-
-        self._shortcut_window = _ShortcutRecorder("Ctrl+Shift+W")
-        self._shortcut_window.shortcut_changed.connect(
-            lambda s: self._shortcut_window.setText(s)
-        )
-        form.addRow("窗口录制:", self._shortcut_window)
-
         layout.addLayout(form)
 
         # 按钮
@@ -241,33 +205,10 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
-    def _refresh_quality_combo(self):
-        """动态更新画质下拉框，原生画质显示实际分辨率"""
-        native_w, native_h = ConfigManager.get_native_resolution()
-        quality_items = [
-            (f"原生 ({native_w}×{native_h})", "native"),
-            ("高 (1080p)", "high"),
-            ("中 (720p)", "medium"),
-            ("低 (480p)", "low"),
-        ]
-        self._combo_quality.clear()
-        for label, value in quality_items:
-            self._combo_quality.addItem(label, value)
-
     def _load_config(self):
         """从 ConfigManager 加载当前值到控件"""
         self._edit_save_path.setText(self._config.get("save_path"))
 
-        # 画质：根据配置值选择对应选项
-        quality = self._config.get("quality", "native")
-        for i in range(self._combo_quality.count()):
-            if self._combo_quality.itemData(i) == quality:
-                self._combo_quality.setCurrentIndex(i)
-                break
-
-        self._combo_fps.setCurrentText(
-            str(self._config.get("fps", 30))
-        )
         self._shortcut_start.setText(
             str(self._config.get("shortcut_start", "Ctrl+Shift+R"))
         )
@@ -277,13 +218,6 @@ class SettingsDialog(QDialog):
         self._shortcut_pause.setText(
             str(self._config.get("shortcut_pause", "Ctrl+Shift+P"))
         )
-        self._shortcut_area.setText(
-            str(self._config.get("shortcut_area", "Ctrl+Shift+A"))
-        )
-        self._shortcut_window.setText(
-            str(self._config.get("shortcut_window", "Ctrl+Shift+W"))
-        )
-
         # 音频源加载
         audio_source = self._config.get("audio_source", "none")
         for i, (display_text, value) in enumerate(_AUDIO_OPTIONS):
@@ -297,33 +231,18 @@ class SettingsDialog(QDialog):
         auto_start_actual = is_autostart_enabled()
         self._cb_auto_start.setChecked(auto_start_config and auto_start_actual)
 
-        # 录制倒计时
-        show_countdown = self._config.get("show_countdown", False)
-        self._cb_countdown.setChecked(show_countdown)
-        self._combo_countdown_seconds.setCurrentIndex(
-            self._config.get("countdown_seconds", 3) - 1
-        )
-        self._combo_countdown_seconds.setEnabled(show_countdown)
-
-        # 鼠标点击高亮
-        self._cb_mouse_highlight.setChecked(
-            self._config.get("mouse_highlight", False)
-        )
-
     def _save_config(self):
         """从控件读取值，写入 ConfigManager"""
         self._config.set("save_path", self._edit_save_path.text())
-        self._config.set("quality", self._combo_quality.currentData())
-        self._config.set("fps", int(self._combo_fps.currentText()))
+        self._config.set("quality", "native")
+        self._config.set("fps", 60)
         self._config.set("shortcut_start", self._shortcut_start.text())
         self._config.set("shortcut_stop", self._shortcut_stop.text())
         self._config.set("shortcut_pause", self._shortcut_pause.text())
-        self._config.set("shortcut_area", self._shortcut_area.text())
-        self._config.set("shortcut_window", self._shortcut_window.text())
         self._config.set("audio_source", self._combo_audio_source.currentData())
-        self._config.set("show_countdown", self._cb_countdown.isChecked())
-        self._config.set("countdown_seconds", self._combo_countdown_seconds.currentIndex() + 1)
-        self._config.set("mouse_highlight", self._cb_mouse_highlight.isChecked())
+        self._config.set("show_countdown", False)
+        self._config.set("countdown_seconds", 3)
+        self._config.set("mouse_highlight", False)
 
         # 开机自启：同时操作注册表
         auto_start = self._cb_auto_start.isChecked()
@@ -332,9 +251,6 @@ class SettingsDialog(QDialog):
             enable_autostart()
         else:
             disable_autostart()
-
-        # 窗口录制快捷键（延期：窗口录制）
-        # self._config.set("shortcut_window", self._shortcut_window.text())
 
         self._config.save()
         self.config_saved.emit()

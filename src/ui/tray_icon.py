@@ -86,8 +86,6 @@ class TrayIcon:
         """构建空闲状态菜单"""
         return pystray.Menu(
             pystray.MenuItem("▶ 全屏录制", self._on_start_fullscreen),
-            pystray.MenuItem("▢ 区域录制", self._on_start_region),
-            pystray.MenuItem("🖥 窗口录制", self._on_start_window),
             pystray.MenuItem("⚙ 设置", self._on_settings),
             pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
             pystray.Menu.SEPARATOR,

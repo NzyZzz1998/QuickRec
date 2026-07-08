@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import QApplication
 
 from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
-from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
+from recorder.recorder_manager import RecorderManager, RecorderState
 from recorder.workflow import RecordingWorkflow
 from ui.area_selector import AreaSelector
 from ui.click_highlighter import ClickHighlighter
@@ -145,8 +145,6 @@ class QuickRecApp:
             config=self._config,
             callbacks={
                 "start_fullscreen": self._on_start_fullscreen,
-                "start_region": self._on_start_region,
-                "start_window": self._on_start_window,   # 延期：窗口录制
                 "pause_resume": self._on_pause_resume,
                 "stop": self._on_stop_recording,
                 "settings": self._show_settings,
@@ -169,14 +167,10 @@ class QuickRecApp:
         shortcut_start = self._config.get("shortcut_start", "Ctrl+Shift+R")
         shortcut_stop = self._config.get("shortcut_stop", "Ctrl+Shift+S")
         shortcut_pause = self._config.get("shortcut_pause", "Ctrl+Shift+P")
-        shortcut_area = self._config.get("shortcut_area", "Ctrl+Shift+A")
-        shortcut_window = self._config.get("shortcut_window", "Ctrl+Shift+W")
 
         self._hotkey.register(shortcut_start, self._hotkey_bridge.start_requested.emit)
         self._hotkey.register(shortcut_stop, self._hotkey_bridge.stop_requested.emit)
         self._hotkey.register(shortcut_pause, self._hotkey_bridge.pause_requested.emit)
-        self._hotkey.register(shortcut_area, self._hotkey_bridge.area_requested.emit)
-        self._hotkey.register(shortcut_window, self._hotkey_bridge.window_requested.emit)
 
     # --- 全屏录制 ---
 
@@ -201,18 +195,8 @@ class QuickRecApp:
         if not self._check_disk_space():
             return
 
-        # v1.2: 检查倒计时配置
-        if self._config.get("show_countdown", False):
-            self._show_toolbar()
-            self._toolbar.start_countdown(
-                self._config.get("countdown_seconds", 3)
-            )
-            self._toolbar.countdown_finished.connect(self._do_start_fullscreen)
-            # 倒计时期间全局 ESC 可取消
-            self._hotkey.set_esc_callback(self._on_countdown_esc)
-        else:
-            self._show_toolbar()
-            self._do_start_fullscreen()
+        self._show_toolbar()
+        self._do_start_fullscreen()
 
     def _do_start_fullscreen(self):
         """倒计时结束后的实际全屏录制启动"""
@@ -445,19 +429,11 @@ class QuickRecApp:
         self._click_highlighter.stop()
         self._hide_toolbar()
 
-    # --- 鼠标高亮控制（v1.2 新增） ---
+    # --- 鼠标高亮控制（Lite v0 停用） ---
 
     def _update_highlight_state(self):
-        """根据配置和录制状态决定是否启动/停止高亮"""
-        recorder_mode = self._recorder.get_mode() if self._recorder else None
-        should_enable = (
-            self._config.get("mouse_highlight", False)
-            and self._workflow.get_state() == RecorderState.RECORDING
-            and recorder_mode != RecordMode.WINDOW
-        )
-        if should_enable and not self._click_highlighter.is_running():
-            self._click_highlighter.start()
-        elif not should_enable and self._click_highlighter.is_running():
+        """Lite v0 固定停用鼠标点击高亮，即使旧配置开启也不启动。"""
+        if self._click_highlighter.is_running():
             self._click_highlighter.stop()
 
     # --- 结果条回调 ---

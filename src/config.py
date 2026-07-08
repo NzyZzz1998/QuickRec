@@ -18,8 +18,8 @@ class ConfigManager:
     # 默认配置值
     defaults = {
         "save_path": str(Path.home() / "Videos" / "QuickRec"),
-        "quality": "high",  # native / high / medium / low
-        "fps": 30,  # 30 / 60
+        "quality": "native",  # QuickRec Lite v0: fixed native output
+        "fps": 60,  # QuickRec Lite v0: fixed 60fps output
         "shortcut_start": "Ctrl+Shift+R",
         "shortcut_stop": "Ctrl+Shift+S",
         "shortcut_pause": "Ctrl+Shift+P",

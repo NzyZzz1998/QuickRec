@@ -37,6 +37,15 @@ class TestTrayIcon(unittest.TestCase):
         self.assertEqual(img.size, (64, 64))
         self.assertEqual(img.mode, "RGBA")
 
+    def test_lite_idle_menu_hides_region_and_window_recording(self):
+        """Lite v0 只暴露全屏录制入口"""
+        tray = TrayIcon()
+        labels = [item.text for item in tray._build_idle_menu()]
+
+        self.assertTrue(any("全屏录制" in label for label in labels))
+        self.assertFalse(any("区域录制" in label for label in labels))
+        self.assertFalse(any("窗口录制" in label for label in labels))
+
 
 if __name__ == "__main__":
     unittest.main()

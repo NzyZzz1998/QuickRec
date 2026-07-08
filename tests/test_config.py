@@ -36,8 +36,8 @@ class TestConfigManager(unittest.TestCase):
 
     def test_default_values(self):
         """测试默认值加载"""
-        self.assertEqual(self.config.get("quality"), "high")
-        self.assertEqual(self.config.get("fps"), 30)
+        self.assertEqual(self.config.get("quality"), "native")
+        self.assertEqual(self.config.get("fps"), 60)
         self.assertEqual(self.config.get("shortcut_start"), "Ctrl+Shift+R")
         self.assertEqual(self.config.get("shortcut_stop"), "Ctrl+Shift+S")
         self.assertEqual(self.config.get("shortcut_pause"), "Ctrl+Shift+P")
@@ -79,8 +79,8 @@ class TestConfigManager(unittest.TestCase):
         self.config.load()
 
         # 应该使用默认值
-        self.assertEqual(self.config.get("quality"), "high")
-        self.assertEqual(self.config.get("fps"), 30)
+        self.assertEqual(self.config.get("quality"), "native")
+        self.assertEqual(self.config.get("fps"), 60)
 
     def test_corrupted_file(self):
         """测试文件损坏时恢复默认值"""
@@ -92,8 +92,8 @@ class TestConfigManager(unittest.TestCase):
         self.config.load()
 
         # 应该恢复默认值
-        self.assertEqual(self.config.get("quality"), "high")
-        self.assertEqual(self.config.get("fps"), 30)
+        self.assertEqual(self.config.get("quality"), "native")
+        self.assertEqual(self.config.get("fps"), 60)
 
     def test_reset(self):
         """测试 reset 方法"""
@@ -101,8 +101,8 @@ class TestConfigManager(unittest.TestCase):
         self.config.set("fps", 60)
         self.config.reset()
 
-        self.assertEqual(self.config.get("quality"), "high")
-        self.assertEqual(self.config.get("fps"), 30)
+        self.assertEqual(self.config.get("quality"), "native")
+        self.assertEqual(self.config.get("fps"), 60)
 
     def test_auto_create_directory(self):
         """测试自动创建目录"""

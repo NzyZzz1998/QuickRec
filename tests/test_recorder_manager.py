@@ -190,6 +190,8 @@ class TestRecorderManager(unittest.TestCase):
             try:
                 self.assertTrue(manager.start_fullscreen())
                 self.assertEqual(manager.get_state(), RecorderState.RECORDING)
+                self.assertEqual(manager._fps, 60)
+                self.assertEqual(manager._encode_size, manager._frame_size)
             finally:
                 if manager.get_state() != RecorderState.IDLE:
                     manager.stop()
