@@ -1,10 +1,29 @@
 # QuickRec Lite 文档归档
 
-本目录只保存拆分前遗留或历史参考资料，不代表 QuickRec Lite 当前开发范围。
+本目录仅保留 QuickRec Lite 拆分后的归档说明，不再维护 QuickRec Full 历史文档副本。
 
-## 目录说明
+## 归属说明
 
-- `full-history-before-lite-split/`：QuickRec Full v1.0-v1.4 历史文档和原型资料，来自 Lite/Full 拆分前的同仓库历史。
-- `full-v1.4.x-diagnostics-leftovers/`：拆分前误留在 Lite 工作区的 QuickRec Full v1.4.x 诊断导出规划文档。
+- QuickRec Lite 当前版本资料位于 `doc/releases/lite-v0/`。
+- QuickRec Lite 当前事实入口为 `doc/current.md`。
+- QuickRec Full v1.x 历史 PRD、技术设计、验证资料、发布记录、v1.4.1 诊断导出文档和 Full 原型均由 `E:\codex\QuickRec` 维护。
 
-这些内容保留用于追溯，不应作为 Lite v0 的需求、实施计划或验收依据。
+## 查找 Full 历史资料
+
+请查看 QuickRec Full 工作区：
+
+```text
+E:\codex\QuickRec
+```
+
+主要目录：
+
+- `doc/product/`
+- `doc/technical/`
+- `doc/verification/`
+- `doc/releases/v1.4/`
+- `doc/releases/v1.4.1/`
+- `doc/prototypes/`
+- `doc/archive/`
+
+这些内容不属于 QuickRec Lite 当前产品线，不应作为 Lite v0 的需求、实施计划或验收依据。

@@ -1,6 +1,6 @@
 # QuickRec Lite
 
-QuickRec Lite 是 QuickRec 的轻量化产品线工作区，当前版本为 **Lite v0**。本目录只承接 Lite 路线，不承接 QuickRec Full v1.4.1 的诊断导出发布工作。
+QuickRec Lite 是 QuickRec 的轻量化产品线工作区，当前版本为 **Lite v0**。本目录只承接 Lite 路线，不承接 QuickRec Full 的历史文档、诊断导出发布文档或未来 Full Workbench 规划。
 
 > 当前路径：`E:\codex\QuickRec-Lite`  
 > 当前分支：`lite-master`  
@@ -27,6 +27,7 @@ Lite v0 不包含：
 - 录制倒计时。
 - 鼠标点击高亮。
 - QuickRec Full v1.4.1 诊断导出能力。
+- Full v1.x 历史 PRD、技术设计、验证资料、发布记录或 Full Workbench 原型。
 
 ## 文档结构
 
@@ -45,11 +46,9 @@ doc/
       development-log.md
   archive/
     README.md
-    full-history-before-lite-split/
-    full-v1.4.x-diagnostics-leftovers/
 ```
 
-拆分前遗留的 Full 历史资料已进入 `doc/archive/`，仅作为历史参考，不属于 Lite 当前开发范围。
+Lite 当前文档树只维护 Lite v0 所需资料。若需要查看 QuickRec Full 历史 PRD、技术设计、验证、发布记录、v1.4.1 诊断导出文档或 Full 原型，请查看 `E:\codex\QuickRec`。
 
 ## 运行
 

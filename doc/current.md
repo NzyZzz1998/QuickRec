@@ -13,7 +13,7 @@
 
 ## 当前范围
 
-Lite v0 是轻量化桌面录屏版本，当前只保留全屏录制、基础音频录制、托盘控制、设置页和打包发布链路。
+Lite v0 是 QuickRec 的第一个轻量化版本，当前只保留全屏录制、基础音频录制、托盘控制、设置页和打包发布链路。
 
 区域录制、窗口录制、鼠标高亮、倒计时和 QuickRec Full v1.4.1 诊断导出能力不属于 Lite v0 当前范围。
 
@@ -26,8 +26,15 @@ Lite v0 是轻量化桌面录屏版本，当前只保留全屏录制、基础音
 - 发布说明：`doc/releases/lite-v0/release-notes.md`
 - 开发日志：`doc/releases/lite-v0/development-log.md`
 
-## 历史归档
+## Full 历史资料归属
 
-- Full 历史文档：`doc/archive/full-history-before-lite-split/`
-- 拆分前遗留的 Full v1.4.x 诊断文档：`doc/archive/full-v1.4.x-diagnostics-leftovers/`
-- Full 打包体积实验产物：`archive/artifacts/full-v1.4-package-size-experiments/`
+QuickRec Lite 不维护 Full v1.x 历史 PRD、技术设计、验证资料、发布记录、v1.4.1 诊断导出文档或 Full Workbench 原型副本。
+
+如需查看 Full 历史资料，请转到 `E:\codex\QuickRec`：
+
+- 产品 PRD：`E:\codex\QuickRec\doc\product\PRD-QuickRec.md`
+- 技术设计：`E:\codex\QuickRec\doc\technical\`
+- 验证资料：`E:\codex\QuickRec\doc\verification\`
+- v1.4 发布资料：`E:\codex\QuickRec\doc\releases\v1.4\`
+- v1.4.1 诊断导出资料：`E:\codex\QuickRec\doc\releases\v1.4.1\`
+- 原型资料：`E:\codex\QuickRec\doc\prototypes\`
