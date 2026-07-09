@@ -1,6 +1,6 @@
 # QuickRec v1.4.x 诊断导出功能手动验收清单
 
-> 验收对象: `E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe`  
+> 验收对象: `E:\codex\QuickRec\dist\QuickRec\QuickRec.exe`  
 > 验收状态: 通过 / 可发布  
 > 适用范围: Full v1.4.x 诊断日志 / 错误导出能力发布前 GUI 验收  
 
@@ -11,7 +11,7 @@
 本轮最终只验以下打包产物：
 
 ```powershell
-E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe
+E:\codex\QuickRec\dist\QuickRec\QuickRec.exe
 ```
 
 不要验以下旧路径：
@@ -20,7 +20,7 @@ E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe
 E:\codex\QuickRec\dist\QuickRec\QuickRec.exe
 ```
 
-说明：`E:\codex\QuickRec` 当前是 Lite 工作区，不作为本轮 Full v1.4.x 验收对象。
+说明：`E:\codex\QuickRec` 当前是 Full v1.4.1 发布工作区，是本轮 Full 验收对象。
 
 ---
 
@@ -51,7 +51,7 @@ E:\QRtest\v1.4x-acceptance
 2. 启动最终包：
 
 ```powershell
-E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe
+E:\codex\QuickRec\dist\QuickRec\QuickRec.exe
 ```
 
 3. 确认控制台或日志中没有以下错误：
@@ -297,7 +297,7 @@ E:\QRtest\v1.4x-acceptance\videos
 2. 找到：
 
 ```text
-E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\_internal\ffmpeg\ffmpeg.exe
+E:\codex\QuickRec\dist\QuickRec\_internal\ffmpeg\ffmpeg.exe
 ```
 
 3. 临时改名为：
@@ -342,7 +342,7 @@ error
 
 ```text
 验收对象：
-E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe
+E:\codex\QuickRec\dist\QuickRec\QuickRec.exe
 
 A 启动与托盘：通过 / 部分通过 / 未通过
 证据：

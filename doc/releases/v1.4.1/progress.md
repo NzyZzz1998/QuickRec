@@ -17,7 +17,7 @@
 | D2 录制上下文接入 | ✅ 完成 | 已暴露录制、FFmpeg、音频、窗口、保存失败上下文 |
 | D3 UI 入口接入 | ✅ 完成 | 设置页、托盘菜单、主入口回调已完成 |
 | D4 测试与质量门槛 | ✅ 完成 | pytest、compileall、ruff、mypy、硬件 smoke 已通过 |
-| D5 打包与发布前验证 | ✅ 完成 | 最终验收路径已统一为 `E:\codex\QuickRec-v14x-diagnostics`；打包产物 GUI 手动验收、录制回归、音频回归和 FFmpeg 缺失异常诊断均已通过 |
+| D5 打包与发布前验证 | ✅ 完成 | 最终验收路径已统一为 `E:\codex\QuickRec`；打包产物 GUI 手动验收、录制回归、音频回归和 FFmpeg 缺失异常诊断均已通过 |
 
 ---
 
@@ -219,7 +219,7 @@
 
 - [x] 执行 `python -m PyInstaller build_std.spec --clean --noconfirm`
 - [x] 启动 `dist\QuickRec\QuickRec.exe`
-- [x] 统一最终验收路径为 `E:\codex\QuickRec-v14x-diagnostics\dist\QuickRec\QuickRec.exe`
+- [x] 统一最终验收路径为 `E:\codex\QuickRec\dist\QuickRec\QuickRec.exe`
 - [x] 诊断日志目录生成并写入 `quickrec.log`
 - [x] 打包产物托盘图标出现并可稳定打开菜单
 - [x] 打包产物设置页可打开
@@ -255,7 +255,7 @@
 
 | 验收项 | 结论 | 说明 |
 | --- | --- | --- |
-| 最终验收对象 | 通过 | 以 `E:\codex\QuickRec-v14x-diagnostics` 作为 v1.4.x Full 候选发布源；`E:\codex\QuickRec` 当前为 Lite 工作区，不作为本轮 Full 验收路径 |
+| 最终验收对象 | 通过 | 以 `E:\codex\QuickRec` 作为 Full v1.4.1 发布源 |
 | 打包产物启动 | 通过 | `dist\QuickRec\QuickRec.exe` 可启动，进程存活，日志写入成功 |
 | 诊断日志落盘 | 通过 | 默认目录生成 `QuickRecDiagnostics\quickrec.log` |
 | 全屏录制回归 | 通过 | 打包产物通过全局快捷键完成全屏录制并生成可解析 MP4 |
