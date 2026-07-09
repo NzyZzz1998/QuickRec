@@ -23,6 +23,7 @@ v1.2 新增：
 import ctypes
 import logging
 import os
+import platform
 import sys
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
@@ -39,6 +40,15 @@ from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
 from ui.window_selector import WindowSelector
+from utils.diagnostics import (
+    DiagnosticSnapshot,
+    export_diagnostic_file,
+    format_snapshot_text,
+    initialize_file_logging,
+    open_diagnostic_dir,
+    read_recent_log_lines,
+    resolve_diagnostic_dir,
+)
 from utils.disk_checker import DiskChecker, show_disk_warning
 
 logging.basicConfig(
@@ -101,6 +111,9 @@ class QuickRecApp:
 
         # 初始化模块
         self._config = ConfigManager()
+        log_result = initialize_file_logging(self._config, logger)
+        if not log_result.ok:
+            logger.warning(f"diagnostic file logging unavailable: {log_result.error}")
         self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
         self._workflow = RecordingWorkflow(self._recorder)
         self._recorder.set_event_handler(self._workflow.handle_event)
@@ -150,6 +163,9 @@ class QuickRecApp:
                 "pause_resume": self._on_pause_resume,
                 "stop": self._on_stop_recording,
                 "settings": self._show_settings,
+                "copy_diagnostic": self._on_copy_diagnostic_info,
+                "open_diagnostic_dir": self._on_open_diagnostic_dir,
+                "export_diagnostic": self._on_export_diagnostic_file,
                 "exit": self._on_exit,
             }
         )
@@ -530,6 +546,15 @@ class QuickRecApp:
         self._config_saved_pending = False
         dialog = SettingsDialog(self._config)
         dialog.config_saved.connect(self._on_config_saved_pend)
+        dialog.copy_diagnostic_requested.connect(
+            lambda path: self._on_copy_diagnostic_info(path, dialog)
+        )
+        dialog.open_diagnostic_dir_requested.connect(
+            lambda path: self._on_open_diagnostic_dir(path, dialog)
+        )
+        dialog.export_diagnostic_requested.connect(
+            lambda path: self._on_export_diagnostic_file(path, dialog)
+        )
         dialog.exec_()
 
         # 对话框关闭后，统一重绑定并重新启动快捷键监听
@@ -542,6 +567,74 @@ class QuickRecApp:
     def _on_config_saved_pend(self):
         """配置保存后标记需要重绑定（不立即操作 pynput，避免对话框内冲突）"""
         self._config_saved_pending = True
+
+    # --- 诊断导出 ---
+
+    def _build_diagnostic_text(self, diagnostic_dir: str | None = None) -> str:
+        directory = resolve_diagnostic_dir(self._config, diagnostic_dir)
+        context = self._recorder.get_diagnostic_context() if self._recorder else {}
+        config_context = dict(context.get("config", {}))
+        config_context["diagnostic_dir"] = str(directory)
+        recorder_context = context.get("recorder", {})
+        failure = recorder_context.get("last_failure_reason", "")
+        snapshot = DiagnosticSnapshot(
+            app={
+                "version": "v1.4.x",
+                "python": sys.version.split()[0],
+                "windows": platform.platform(),
+                "frozen": bool(getattr(sys, "frozen", False)),
+            },
+            config=config_context,
+            recorder=recorder_context,
+            ffmpeg=context.get("ffmpeg", {}),
+            audio=context.get("audio", {}),
+            window=context.get("window", {}),
+            errors=[failure] if failure else [],
+            recent_logs=read_recent_log_lines(directory / "quickrec.log", max_lines=100),
+        )
+        return format_snapshot_text(snapshot)
+
+    def _set_diagnostic_feedback(self, dialog, text: str) -> None:
+        if dialog and hasattr(dialog, "set_diagnostic_status"):
+            dialog.set_diagnostic_status(text)
+
+    def _on_copy_diagnostic_info(self, diagnostic_dir: str | None = None, dialog=None):
+        try:
+            QApplication.clipboard().setText(self._build_diagnostic_text(diagnostic_dir))
+            logger.info("diagnostic copied")
+            self._tray.show_notification("诊断信息已复制")
+            self._set_diagnostic_feedback(dialog, "诊断信息已复制")
+            return True
+        except Exception as e:
+            logger.error(f"diagnostic copy failed: {e}")
+            self._tray.show_notification("复制失败，请导出诊断文件")
+            self._set_diagnostic_feedback(dialog, "复制失败，请导出诊断文件")
+            return False
+
+    def _on_open_diagnostic_dir(self, diagnostic_dir: str | None = None, dialog=None):
+        directory = resolve_diagnostic_dir(self._config, diagnostic_dir)
+        result = open_diagnostic_dir(directory)
+        if result.ok:
+            logger.info(f"diagnostic directory opened: {result.path}")
+            self._set_diagnostic_feedback(dialog, f"日志目录已打开：{result.path}")
+            return True
+        logger.error(f"diagnostic directory open failed: {result.error}")
+        self._tray.show_notification("无法打开日志目录")
+        self._set_diagnostic_feedback(dialog, "无法打开日志目录")
+        return False
+
+    def _on_export_diagnostic_file(self, diagnostic_dir: str | None = None, dialog=None):
+        directory = resolve_diagnostic_dir(self._config, diagnostic_dir)
+        result = export_diagnostic_file(self._build_diagnostic_text(str(directory)), directory)
+        if result.ok:
+            logger.info(f"diagnostic exported: {result.path}")
+            self._tray.show_notification("诊断文件已导出")
+            self._set_diagnostic_feedback(dialog, f"诊断文件已导出：{result.path}")
+            return True
+        logger.error(f"diagnostic export failed: {result.error}")
+        self._tray.show_notification("导出失败，请检查诊断目录权限")
+        self._set_diagnostic_feedback(dialog, "导出失败，请检查诊断目录权限")
+        return False
 
     # --- 退出 ---
 

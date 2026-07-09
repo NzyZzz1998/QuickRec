@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -35,6 +36,9 @@ class FakeConfig:
             return self.values[key]
         return default
 
+    def get_diagnostic_dir(self):
+        return self.values.get("diagnostic_dir", str(Path(self.values.get("save_path", tempfile.gettempdir())) / "QuickRecDiagnostics"))
+
 
 class FakeRecorder:
     def __init__(self, config, on_saved=None, on_event=None):
@@ -51,6 +55,15 @@ class FakeRecorder:
     def connect_window_lost(self, callback):
         self.window_lost_callback = callback
         self.window_lost_connected = True
+
+    def get_diagnostic_context(self):
+        return {
+            "config": {"save_path": self.config.get("save_path"), "audio_source": "none", "quality": "high", "fps": 30},
+            "recorder": {"state": "idle", "mode": "fullscreen", "output_path": "", "session_dir": "", "last_result": "", "last_failure_reason": ""},
+            "ffmpeg": {"path": "ffmpeg.exe", "exists": True, "frozen": False},
+            "audio": {"requested_source": "none", "final_source": "none", "degraded": False, "reason": ""},
+            "window": {"hwnd": 0, "title": "", "mode": "", "stage": "", "reason": "none", "rect": None, "foreground_result": ""},
+        }
 
 
 class FakeSignal:
@@ -209,6 +222,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
     def test_init_wires_workflow_to_recorder_and_event_callback(self):
         with patch("main.QApplication", FakeQApplication), \
                 patch("main.ConfigManager", FakeConfig), \
+                patch("main.initialize_file_logging"), \
                 patch("main.RecorderManager", FakeRecorder), \
                 patch("main.RecordingWorkflow", FakeWorkflow), \
                 patch("main.HotkeyManager", FakeHotkey), \
@@ -222,6 +236,44 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertTrue(app._recorder.window_lost_connected)
         self.assertTrue(callable(app._recorder.window_lost_callback))
         self.assertTrue(app._hotkey.started)
+        self.assertIn("copy_diagnostic", app._tray.callbacks)
+        self.assertIn("open_diagnostic_dir", app._tray.callbacks)
+        self.assertIn("export_diagnostic", app._tray.callbacks)
+
+    def test_copy_diagnostic_info_writes_clipboard_and_notifies(self):
+        class Clipboard:
+            text = ""
+
+            def setText(self, value):
+                self.text = value
+
+        clipboard = Clipboard()
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app._config = FakeConfig({"save_path": temp_dir})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+
+            with patch("main.QApplication.clipboard", return_value=clipboard):
+                app._on_copy_diagnostic_info()
+
+        self.assertIn("QuickRec Diagnostic Report", clipboard.text)
+        self.assertEqual(app._tray.notifications, [("诊断信息已复制",)])
+
+    def test_export_diagnostic_file_writes_file_and_notifies(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            diagnostic_dir = Path(temp_dir) / "diagnostics"
+            app._config = FakeConfig({"save_path": temp_dir, "diagnostic_dir": str(diagnostic_dir)})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+
+            app._on_export_diagnostic_file()
+
+            exported = list(diagnostic_dir.glob("diagnostic_*.txt"))
+            self.assertEqual(len(exported), 1)
+            self.assertIn("QuickRec Diagnostic Report", exported[0].read_text(encoding="utf-8"))
+            self.assertEqual(app._tray.notifications, [("诊断文件已导出",)])
 
     def test_do_start_fullscreen_uses_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

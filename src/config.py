@@ -30,6 +30,9 @@ class ConfigManager:
         "audio_source": "none",  # none / system / microphone / both
         "mouse_highlight": False,
         "auto_start": False,
+        "diagnostic_dir": "",
+        "diagnostic_dir_customized": False,
+        "diagnostic_keep_days": 7,
     }
 
     # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
@@ -81,6 +84,27 @@ class ConfigManager:
         """
         self._config[key] = value
 
+    def get_diagnostic_dir(self) -> str:
+        """获取有效诊断目录，未自定义时跟随保存路径。"""
+        diagnostic_dir = str(self._config.get("diagnostic_dir", "") or "").strip()
+        if diagnostic_dir:
+            return diagnostic_dir
+        return str(Path(self.get("save_path")) / "QuickRecDiagnostics")
+
+    def update_save_path(self, save_path: str) -> None:
+        """更新保存路径；未自定义诊断目录时继续使用默认跟随规则。"""
+        self._config["save_path"] = save_path
+        if not self._config.get("diagnostic_dir_customized", False):
+            self._config["diagnostic_dir"] = ""
+
+    def update_diagnostic_dir(self, diagnostic_dir: str) -> None:
+        """更新诊断目录；空值保持原配置不变。"""
+        diagnostic_dir = str(diagnostic_dir or "").strip()
+        if not diagnostic_dir:
+            return
+        self._config["diagnostic_dir"] = diagnostic_dir
+        self._config["diagnostic_dir_customized"] = True
+
     def save(self) -> None:
         """将配置持久化到 JSON 文件"""
         try:
@@ -99,7 +123,7 @@ class ConfigManager:
             return
 
         try:
-            with open(self.config_path, encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8-sig") as f:
                 loaded = json.load(f)
                 # 合并加载的配置和默认配置
                 self._config = {**self.defaults, **loaded}

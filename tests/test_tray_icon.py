@@ -37,6 +37,40 @@ class TestTrayIcon(unittest.TestCase):
         self.assertEqual(img.size, (64, 64))
         self.assertEqual(img.mode, "RGBA")
 
+    def test_idle_menu_contains_diagnostic_entries(self):
+        tray = TrayIcon()
+
+        menu = tray._build_idle_menu()
+        labels = [item.text for item in menu.items if hasattr(item, "text")]
+
+        self.assertIn("复制诊断信息", labels)
+        self.assertIn("打开日志目录", labels)
+        self.assertIn("导出诊断文件", labels)
+
+    def test_recording_menu_contains_diagnostic_entries(self):
+        tray = TrayIcon()
+
+        menu = tray._build_recording_menu()
+        labels = [item.text for item in menu.items if hasattr(item, "text")]
+
+        self.assertIn("复制诊断信息", labels)
+        self.assertIn("打开日志目录", labels)
+        self.assertIn("导出诊断文件", labels)
+
+    def test_diagnostic_callbacks_are_forwarded_by_signal_bridge(self):
+        calls = []
+        tray = TrayIcon(callbacks={
+            "copy_diagnostic": lambda: calls.append("copy"),
+            "open_diagnostic_dir": lambda: calls.append("open"),
+            "export_diagnostic": lambda: calls.append("export"),
+        })
+
+        tray._handle_copy_diagnostic()
+        tray._handle_open_diagnostic_dir()
+        tray._handle_export_diagnostic()
+
+        self.assertEqual(calls, ["copy", "open", "export"])
+
 
 if __name__ == "__main__":
     unittest.main()

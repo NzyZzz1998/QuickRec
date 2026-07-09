@@ -12,7 +12,7 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton, QFileDialog,
-    QCheckBox, QSpinBox
+    QCheckBox, QGroupBox
 )
 
 from config import ConfigManager
@@ -125,6 +125,9 @@ class SettingsDialog(QDialog):
     """设置对话框"""
 
     config_saved = pyqtSignal()
+    copy_diagnostic_requested = pyqtSignal(str)
+    open_diagnostic_dir_requested = pyqtSignal(str)
+    export_diagnostic_requested = pyqtSignal(str)
 
     def __init__(self, config: ConfigManager, parent=None):
         super().__init__(parent)
@@ -225,6 +228,33 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(form)
 
+        diagnostic_group = QGroupBox("诊断")
+        diagnostic_layout = QVBoxLayout(diagnostic_group)
+        diagnostic_path_layout = QHBoxLayout()
+        self._edit_diagnostic_dir = QLineEdit()
+        diagnostic_path_layout.addWidget(self._edit_diagnostic_dir)
+        self._btn_browse_diagnostic = QPushButton("浏览...")
+        self._btn_browse_diagnostic.setFixedWidth(70)
+        self._btn_browse_diagnostic.clicked.connect(self._browse_diagnostic_dir)
+        diagnostic_path_layout.addWidget(self._btn_browse_diagnostic)
+        diagnostic_layout.addLayout(diagnostic_path_layout)
+
+        diagnostic_btn_layout = QHBoxLayout()
+        self._btn_copy_diagnostic = QPushButton("复制诊断信息")
+        self._btn_copy_diagnostic.clicked.connect(self._emit_copy_diagnostic)
+        diagnostic_btn_layout.addWidget(self._btn_copy_diagnostic)
+        self._btn_open_diagnostic_dir = QPushButton("打开日志目录")
+        self._btn_open_diagnostic_dir.clicked.connect(self._emit_open_diagnostic_dir)
+        diagnostic_btn_layout.addWidget(self._btn_open_diagnostic_dir)
+        self._btn_export_diagnostic = QPushButton("导出诊断文件")
+        self._btn_export_diagnostic.clicked.connect(self._emit_export_diagnostic)
+        diagnostic_btn_layout.addWidget(self._btn_export_diagnostic)
+        diagnostic_layout.addLayout(diagnostic_btn_layout)
+
+        self._label_diagnostic_status = QLabel("")
+        diagnostic_layout.addWidget(self._label_diagnostic_status)
+        layout.addWidget(diagnostic_group)
+
         # 按钮
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -309,10 +339,17 @@ class SettingsDialog(QDialog):
         self._cb_mouse_highlight.setChecked(
             self._config.get("mouse_highlight", False)
         )
+        if hasattr(self._config, "get_diagnostic_dir"):
+            self._edit_diagnostic_dir.setText(self._config.get_diagnostic_dir())
+        else:
+            self._edit_diagnostic_dir.setText(str(self._config.get("diagnostic_dir", "")))
 
     def _save_config(self):
         """从控件读取值，写入 ConfigManager"""
-        self._config.set("save_path", self._edit_save_path.text())
+        if hasattr(self._config, "update_save_path"):
+            self._config.update_save_path(self._edit_save_path.text())
+        else:
+            self._config.set("save_path", self._edit_save_path.text())
         self._config.set("quality", self._combo_quality.currentData())
         self._config.set("fps", int(self._combo_fps.currentText()))
         self._config.set("shortcut_start", self._shortcut_start.text())
@@ -324,6 +361,10 @@ class SettingsDialog(QDialog):
         self._config.set("show_countdown", self._cb_countdown.isChecked())
         self._config.set("countdown_seconds", self._combo_countdown_seconds.currentIndex() + 1)
         self._config.set("mouse_highlight", self._cb_mouse_highlight.isChecked())
+        if hasattr(self._config, "update_diagnostic_dir"):
+            self._config.update_diagnostic_dir(self._edit_diagnostic_dir.text())
+        else:
+            self._config.set("diagnostic_dir", self._edit_diagnostic_dir.text())
 
         # 开机自启：同时操作注册表
         auto_start = self._cb_auto_start.isChecked()
@@ -348,3 +389,27 @@ class SettingsDialog(QDialog):
         )
         if path:
             self._edit_save_path.setText(path)
+
+    def _browse_diagnostic_dir(self):
+        """打开诊断目录选择对话框"""
+        path = QFileDialog.getExistingDirectory(
+            self, "选择诊断目录",
+            self._edit_diagnostic_dir.text()
+        )
+        if path:
+            self._edit_diagnostic_dir.setText(path)
+
+    def _current_diagnostic_dir(self) -> str:
+        return self._edit_diagnostic_dir.text().strip()
+
+    def _emit_copy_diagnostic(self):
+        self.copy_diagnostic_requested.emit(self._current_diagnostic_dir())
+
+    def _emit_open_diagnostic_dir(self):
+        self.open_diagnostic_dir_requested.emit(self._current_diagnostic_dir())
+
+    def _emit_export_diagnostic(self):
+        self.export_diagnostic_requested.emit(self._current_diagnostic_dir())
+
+    def set_diagnostic_status(self, text: str):
+        self._label_diagnostic_status.setText(text)

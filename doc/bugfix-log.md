@@ -884,3 +884,15 @@ D:\Work\Software\Python\Scripts\pyinstaller.exe build_std.spec --noconfirm
 - `dist/QuickRec/_internal/cv2` 存在。
 - `opencv_videoio_ffmpeg*.dll` 未进入产物。
 - exe 冒烟启动成功，启动日志未再出现 `cv2` 缺失。
+
+### Bug #61: 带 UTF-8 BOM 的配置文件导致打包产物启动时回退默认配置 [中等]
+
+**症状**: v1.4.x 发布前 GUI 验收中，打包产物启动后控制台输出 `[ConfigManager] 加载配置失败，使用默认值: Unexpected UTF-8 BOM...`。应用可继续启动，但历史配置被忽略，影响诊断目录、自定义保存路径和重启保持类验收。
+
+**根因**: `ConfigManager.load()` 使用 `encoding="utf-8"` 读取 JSON 配置，无法兼容带 UTF-8 BOM 的历史/外部编辑配置文件。
+
+**修复** (`src/config.py`):
+- 将配置读取编码改为 `utf-8-sig`，兼容无 BOM 与带 BOM 两类 UTF-8 配置。
+
+**测试** (`tests/test_config.py`):
+- 新增 `test_utf8_bom_config_loads`，覆盖带 UTF-8 BOM 的配置文件可正常加载。

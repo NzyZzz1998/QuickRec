@@ -159,6 +159,68 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(manager.get_state(), RecorderState.IDLE)
         self.assertIsInstance(manager._state_machine, RecordingStateMachine)
 
+    def test_diagnostic_context_contains_recorder_state_and_paths(self):
+        manager = RecorderManager(self.config)
+        manager._mode = RecordMode.REGION
+        manager._output_path = os.path.join(self.temp_dir, "out.mp4")
+        manager._session_dir = os.path.join(self.temp_dir, "session")
+        manager._last_result_path = manager._output_path
+
+        context = manager.get_diagnostic_context()
+
+        self.assertEqual(context["recorder"]["state"], "idle")
+        self.assertEqual(context["recorder"]["mode"], "region")
+        self.assertEqual(context["recorder"]["output_path"], manager._output_path)
+        self.assertEqual(context["recorder"]["session_dir"], manager._session_dir)
+        self.assertEqual(context["recorder"]["last_result"], manager._output_path)
+
+    def test_diagnostic_context_contains_ffmpeg_audio_and_window_context(self):
+        manager = RecorderManager(self.config)
+        manager._ffmpeg_path = os.path.join(self.temp_dir, "ffmpeg.exe")
+        Path(manager._ffmpeg_path).write_text("fake", encoding="utf-8")
+        manager._audio_preflight = manager._audio_preflight.__class__(
+            requested_source="both",
+            final_source="microphone",
+            system_available=False,
+            microphone_available=True,
+            degraded=True,
+            reason="system_unavailable",
+        )
+        manager._record_window_diagnostic(
+            reason=WindowFailureReason.RECT_UNAVAILABLE,
+            hwnd=123,
+            title="Demo",
+            stage="get_window_rect",
+            rect=(1, 2, 300, 200),
+            foreground_result="not_attempted",
+        )
+
+        context = manager.get_diagnostic_context()
+
+        self.assertEqual(context["ffmpeg"]["path"], manager._ffmpeg_path)
+        self.assertTrue(context["ffmpeg"]["exists"])
+        self.assertEqual(context["audio"]["requested_source"], "both")
+        self.assertEqual(context["audio"]["final_source"], "microphone")
+        self.assertTrue(context["audio"]["degraded"])
+        self.assertEqual(context["audio"]["reason"], "system_unavailable")
+        self.assertEqual(context["window"]["hwnd"], 123)
+        self.assertEqual(context["window"]["title"], "Demo")
+        self.assertEqual(context["window"]["reason"], "rect_unavailable")
+
+    def test_finalize_failure_is_exposed_in_diagnostic_context(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = tempfile.mkdtemp(dir=self.temp_dir)
+        manager._video_temp_path = os.path.join(manager._session_dir, "missing.mp4")
+        manager._output_path = os.path.join(self.temp_dir, "final.mp4")
+        manager._audio_temp_paths = []
+        manager._ffmpeg_path = "ffmpeg.exe"
+
+        manager._finalize()
+
+        context = manager.get_diagnostic_context()
+        self.assertEqual(context["recorder"]["last_result"], "")
+        self.assertIn("finalize failed", context["recorder"]["last_failure_reason"])
+
     def test_public_event_handler_can_be_replaced(self):
         events = []
         manager = RecorderManager(self.config)

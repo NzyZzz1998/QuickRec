@@ -108,6 +108,8 @@ class RecorderManager:
         self._on_event = on_event
         self._timer_resolution = TimerResolution()
         self._recording_failed_reason = ""
+        self._last_result_path = ""
+        self._last_failure_reason = ""
         self._disk_check_interval = 1.0
         self._last_disk_check = 0.0
 
@@ -128,6 +130,8 @@ class RecorderManager:
         return not DiskChecker.is_low_space(save_path, quality)
 
     def _finish_failed_recording(self, reason: str) -> None:
+        self._last_result_path = ""
+        self._last_failure_reason = reason
         if self._audio_capturer:
             try:
                 self._audio_capturer.stop()
@@ -266,6 +270,50 @@ class RecorderManager:
     def get_audio_preflight(self) -> AudioPreflightResult:
         return self._audio_preflight
 
+    def get_diagnostic_context(self) -> dict:
+        """返回诊断导出所需的只读录制上下文。"""
+        window = self._last_window_diagnostic
+        audio = self._audio_preflight
+        ffmpeg_path = self._ffmpeg_path or self._get_ffmpeg_path()
+        return {
+            "config": {
+                "save_path": self._config.get("save_path"),
+                "audio_source": self._config.get("audio_source"),
+                "quality": self._config.get("quality"),
+                "fps": self._config.get("fps"),
+            },
+            "recorder": {
+                "state": self.get_state().value,
+                "mode": self._mode.value,
+                "output_path": self._output_path,
+                "session_dir": self._session_dir,
+                "last_result": self._last_result_path,
+                "last_failure_reason": self._last_failure_reason or self._recording_failed_reason,
+            },
+            "ffmpeg": {
+                "path": ffmpeg_path,
+                "exists": bool(ffmpeg_path and os.path.isfile(ffmpeg_path)),
+                "frozen": bool(getattr(sys, "frozen", False)),
+            },
+            "audio": {
+                "requested_source": audio.requested_source,
+                "final_source": audio.final_source,
+                "system_available": audio.system_available,
+                "microphone_available": audio.microphone_available,
+                "degraded": audio.degraded,
+                "reason": audio.reason,
+            },
+            "window": {
+                "hwnd": window.hwnd,
+                "title": window.title,
+                "mode": window.mode,
+                "stage": window.stage,
+                "reason": window.reason.value,
+                "rect": window.rect,
+                "foreground_result": window.foreground_result,
+            },
+        }
+
     # --- 内部实现 ---
 
     def _record_window_diagnostic(
@@ -321,6 +369,8 @@ class RecorderManager:
             self._ffmpeg_path = self._get_ffmpeg_path()
             if not self._ffmpeg_path:
                 logger.error("FFmpeg not found; recording cannot start")
+                self._last_result_path = ""
+                self._last_failure_reason = "ffmpeg not found"
                 return False
 
             # 创建会话目录
@@ -597,7 +647,9 @@ class RecorderManager:
             result_path = self._output_path
         except Exception as e:
             logger.error(f"最终化失败: {e}")
+            self._last_failure_reason = f"finalize failed: {e}"
         finally:
+            self._last_result_path = result_path
             TempCleaner.cleanup_session(self._session_dir)
             with self._lock:
                 self._state_machine.reset()
@@ -639,6 +691,7 @@ class RecorderManager:
             return mixed
         except Exception as e:
             logger.error(f"音频混合失败: {e}")
+            self._last_failure_reason = f"audio mix failed: {e}"
             return ""
 
     @staticmethod

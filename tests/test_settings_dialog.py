@@ -67,6 +67,51 @@ class TestSettingsDialog(unittest.TestCase):
         self.assertEqual(self.config.get("quality"), "low")
         self.assertEqual(self.config.get("fps"), 60)
 
+    def test_diagnostic_controls_exist_and_load_default_dir(self):
+        """测试诊断分组控件存在并加载默认目录"""
+        dialog = SettingsDialog(self.config)
+
+        self.assertTrue(hasattr(dialog, "_edit_diagnostic_dir"))
+        self.assertTrue(hasattr(dialog, "_btn_copy_diagnostic"))
+        self.assertTrue(hasattr(dialog, "_btn_open_diagnostic_dir"))
+        self.assertTrue(hasattr(dialog, "_btn_export_diagnostic"))
+        self.assertEqual(
+            dialog._edit_diagnostic_dir.text(),
+            str(Path(self.temp_dir) / "QuickRecDiagnostics"),
+        )
+
+    def test_save_config_updates_custom_diagnostic_dir(self):
+        """测试保存诊断目录"""
+        dialog = SettingsDialog(self.config)
+        diagnostic_dir = str(Path(self.temp_dir) / "diagnostics")
+        dialog._edit_diagnostic_dir.setText(diagnostic_dir)
+
+        with patch("ui.settings_dialog.enable_autostart"), \
+             patch("ui.settings_dialog.disable_autostart"):
+            dialog._save_config()
+
+        self.assertEqual(self.config.get_diagnostic_dir(), diagnostic_dir)
+
+    def test_diagnostic_action_buttons_emit_current_dir(self):
+        """测试诊断操作按钮携带当前输入目录"""
+        dialog = SettingsDialog(self.config)
+        diagnostic_dir = str(Path(self.temp_dir) / "diagnostics")
+        dialog._edit_diagnostic_dir.setText(diagnostic_dir)
+        copied = []
+        opened = []
+        exported = []
+        dialog.copy_diagnostic_requested.connect(copied.append)
+        dialog.open_diagnostic_dir_requested.connect(opened.append)
+        dialog.export_diagnostic_requested.connect(exported.append)
+
+        dialog._btn_copy_diagnostic.click()
+        dialog._btn_open_diagnostic_dir.click()
+        dialog._btn_export_diagnostic.click()
+
+        self.assertEqual(copied, [diagnostic_dir])
+        self.assertEqual(opened, [diagnostic_dir])
+        self.assertEqual(exported, [diagnostic_dir])
+
     def test_browse_updates_path(self):
         """测试 Browse 更新路径（仅检查可设置文本）"""
         dialog = SettingsDialog(self.config)

@@ -3,13 +3,11 @@ ConfigManager 单元测试
 """
 
 import json
-import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import ConfigManager
@@ -23,11 +21,9 @@ class TestConfigManager(unittest.TestCase):
         self.base_temp_dir = tempfile.mkdtemp()
         self.config_path = Path(self.base_temp_dir) / "config" / "config.json"
 
-        # 使用 patch 替换 config_path
-        with patch("src.config.ConfigManager.__init__", lambda self: None):
-            self.config = ConfigManager()
-            self.config.config_path = self.config_path
-            self.config._config = ConfigManager.defaults.copy()
+        self.config = ConfigManager.__new__(ConfigManager)
+        self.config.config_path = self.config_path
+        self.config._config = ConfigManager.defaults.copy()
 
     def tearDown(self):
         """测试后清理"""
@@ -44,6 +40,77 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(self.config.get("show_countdown"), False)
         self.assertEqual(self.config.get("countdown_seconds"), 3)
         self.assertTrue("Videos" in self.config.get("save_path"))
+        self.assertEqual(self.config.get("diagnostic_keep_days"), 7)
+        self.assertFalse(self.config.get("diagnostic_dir_customized"))
+
+    def test_default_diagnostic_dir_uses_save_path(self):
+        """未自定义诊断目录时使用保存路径下的 QuickRecDiagnostics"""
+        save_path = str(Path(self.base_temp_dir) / "videos")
+        self.config.set("save_path", save_path)
+
+        self.assertEqual(
+            self.config.get_diagnostic_dir(),
+            str(Path(save_path) / "QuickRecDiagnostics"),
+        )
+
+    def test_default_diagnostic_dir_follows_save_path_change(self):
+        """未自定义诊断目录时保存路径变化会同步诊断目录"""
+        new_save_path = str(Path(self.base_temp_dir) / "new-videos")
+
+        self.config.update_save_path(new_save_path)
+
+        self.assertEqual(self.config.get("save_path"), new_save_path)
+        self.assertEqual(
+            self.config.get_diagnostic_dir(),
+            str(Path(new_save_path) / "QuickRecDiagnostics"),
+        )
+        self.assertEqual(self.config.get("diagnostic_dir"), "")
+        self.assertFalse(self.config.get("diagnostic_dir_customized"))
+
+    def test_custom_diagnostic_dir_does_not_follow_save_path_change(self):
+        """已自定义诊断目录时保存路径变化不会覆盖诊断目录"""
+        custom_dir = str(Path(self.base_temp_dir) / "diagnostics")
+        new_save_path = str(Path(self.base_temp_dir) / "new-videos")
+
+        self.config.update_diagnostic_dir(custom_dir)
+        self.config.update_save_path(new_save_path)
+
+        self.assertEqual(self.config.get("save_path"), new_save_path)
+        self.assertEqual(self.config.get_diagnostic_dir(), custom_dir)
+        self.assertEqual(self.config.get("diagnostic_dir"), custom_dir)
+        self.assertTrue(self.config.get("diagnostic_dir_customized"))
+
+    def test_empty_custom_diagnostic_dir_keeps_previous_value(self):
+        """空诊断目录输入不覆盖原值"""
+        custom_dir = str(Path(self.base_temp_dir) / "diagnostics")
+        self.config.update_diagnostic_dir(custom_dir)
+
+        self.config.update_diagnostic_dir("")
+
+        self.assertEqual(self.config.get_diagnostic_dir(), custom_dir)
+
+    def test_legacy_config_without_diagnostic_fields_loads(self):
+        """旧配置缺少诊断字段时可正常加载并补默认值"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"save_path": str(Path(self.base_temp_dir) / "videos")}, f)
+
+        self.config.load()
+
+        self.assertEqual(self.config.get("diagnostic_dir"), "")
+        self.assertEqual(self.config.get("diagnostic_keep_days"), 7)
+        self.assertFalse(self.config.get("diagnostic_dir_customized"))
+
+    def test_utf8_bom_config_loads(self):
+        """带 UTF-8 BOM 的历史配置可正常加载"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.config_path, "w", encoding="utf-8-sig") as f:
+            json.dump({"quality": "medium", "fps": 60}, f)
+
+        self.config.load()
+
+        self.assertEqual(self.config.get("quality"), "medium")
+        self.assertEqual(self.config.get("fps"), 60)
 
     def test_get_with_default(self):
         """测试 get 方法的 default 参数"""

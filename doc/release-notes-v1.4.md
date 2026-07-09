@@ -81,3 +81,47 @@ E:\QRtest\QuickRec_20260705_165730.mp4
 - 继续推进 Lite / Full 分支规划。
 - Lite 方向优先减少依赖和体积。
 - Full 方向面向创作者工作台，规划素材管理、轻编辑、导出队列和质量诊断中心。
+
+---
+
+## v1.4.x 诊断导出能力补充
+
+发布日期：2026-07-09
+
+### 发布定位
+
+v1.4.x 是 Full 版本在 v1.4 稳定性收口后的诊断能力补充，不改变 Lite 范围，不扩展为复杂诊断中心，重点提升录制失败、音频异常、FFmpeg 异常、保存失败和窗口捕获异常时的本地排查效率。
+
+### 新增能力
+
+- 设置页新增“诊断”分组，支持配置诊断目录。
+- 托盘菜单和设置页均支持复制诊断信息、打开日志目录、导出诊断文件。
+- 默认在视频保存路径下生成 `QuickRecDiagnostics` 目录，并写入 `quickrec.log`。
+- 诊断文件使用 UTF-8 文本格式，命名为 `diagnostic_YYYYMMDD_HHMMSS.txt`。
+- 诊断摘要包含应用环境、配置摘要、录制状态、FFmpeg 路径、音频预检、窗口诊断、最近错误和最近日志。
+- 兼容带 UTF-8 BOM 的历史配置文件，避免启动时回退默认配置。
+
+### 验收结果
+
+- `python -m pytest tests/test_config.py tests/test_diagnostics.py tests/test_settings_dialog.py tests/test_main_workflow.py -q`：`45 passed`
+- `python -m ruff check src\config.py tests\test_config.py`：通过
+- `python -m compileall src tests`：通过
+- `python -m pytest -m packaging -q`：`10 passed, 1 skipped`
+- 打包产物 GUI 手动验收：通过
+- 全屏、区域、窗口录制回归：通过
+- 系统声、麦克风、双音频录制回归：通过
+- FFmpeg 缺失异常诊断：通过
+
+关键验收证据：
+
+```text
+E:\QRtest\pkg_audio\QuickRecDiagnostics\diagnostic_20260709_142944.txt
+E:\QRtest\pkg_audio\QuickRecDiagnostics\quickrec.log
+```
+
+### 已知限制
+
+- 当前诊断信息仅保存在本地，不做云上传。
+- 当前不做自动修复、不做独立诊断中心。
+- 当前无需脱敏，用户导出前应自行确认是否包含本机路径、窗口标题等本地上下文。
+- CI 仍无法覆盖真实桌面、真实托盘交互和真实音频设备，发布前仍依赖本地手动验收。

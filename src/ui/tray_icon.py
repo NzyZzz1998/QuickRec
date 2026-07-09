@@ -31,6 +31,9 @@ class _SignalBridge(QObject):
     pause_resume_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     settings_requested = pyqtSignal()
+    copy_diagnostic_requested = pyqtSignal()
+    open_diagnostic_dir_requested = pyqtSignal()
+    export_diagnostic_requested = pyqtSignal()
     exit_requested = pyqtSignal()
 
 
@@ -71,6 +74,9 @@ class TrayIcon:
         self._bridge.pause_resume_requested.connect(self._handle_pause_resume)
         self._bridge.stop_requested.connect(self._handle_stop)
         self._bridge.settings_requested.connect(self._handle_settings)
+        self._bridge.copy_diagnostic_requested.connect(self._handle_copy_diagnostic)
+        self._bridge.open_diagnostic_dir_requested.connect(self._handle_open_diagnostic_dir)
+        self._bridge.export_diagnostic_requested.connect(self._handle_export_diagnostic)
         self._bridge.exit_requested.connect(self._handle_exit)
 
     def _create_icon_image(self):
@@ -91,6 +97,10 @@ class TrayIcon:
             pystray.MenuItem("⚙ 设置", self._on_settings),
             pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("复制诊断信息", self._on_copy_diagnostic),
+            pystray.MenuItem("打开日志目录", self._on_open_diagnostic_dir),
+            pystray.MenuItem("导出诊断文件", self._on_export_diagnostic),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("✕ 退出", self._on_exit),
         )
 
@@ -103,6 +113,10 @@ class TrayIcon:
             pystray.MenuItem("⏹ 停止录制", self._on_stop),
             pystray.MenuItem("⚙ 设置", self._on_settings),
             pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("复制诊断信息", self._on_copy_diagnostic),
+            pystray.MenuItem("打开日志目录", self._on_open_diagnostic_dir),
+            pystray.MenuItem("导出诊断文件", self._on_export_diagnostic),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("✕ 退出", self._on_exit),
         )
@@ -147,6 +161,15 @@ class TrayIcon:
     def _on_settings(self, icon, item):
         self._bridge.settings_requested.emit()
 
+    def _on_copy_diagnostic(self, icon, item):
+        self._bridge.copy_diagnostic_requested.emit()
+
+    def _on_open_diagnostic_dir(self, icon, item):
+        self._bridge.open_diagnostic_dir_requested.emit()
+
+    def _on_export_diagnostic(self, icon, item):
+        self._bridge.export_diagnostic_requested.emit()
+
     def _on_exit(self, icon, item):
         self._bridge.exit_requested.emit()
 
@@ -175,6 +198,18 @@ class TrayIcon:
     def _handle_settings(self):
         if "settings" in self._callbacks:
             self._callbacks["settings"]()
+
+    def _handle_copy_diagnostic(self):
+        if "copy_diagnostic" in self._callbacks:
+            self._callbacks["copy_diagnostic"]()
+
+    def _handle_open_diagnostic_dir(self):
+        if "open_diagnostic_dir" in self._callbacks:
+            self._callbacks["open_diagnostic_dir"]()
+
+    def _handle_export_diagnostic(self):
+        if "export_diagnostic" in self._callbacks:
+            self._callbacks["export_diagnostic"]()
 
     def _handle_exit(self):
         if "exit" in self._callbacks:
