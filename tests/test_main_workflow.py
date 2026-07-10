@@ -65,6 +65,9 @@ class FakeRecorder:
             "window": {"hwnd": 0, "title": "", "mode": "", "stage": "", "reason": "none", "rect": None, "foreground_result": ""},
         }
 
+    def get_mode(self):
+        return main.RecordMode.FULLSCREEN
+
 
 class FakeSignal:
     def __init__(self):
@@ -113,6 +116,9 @@ class FakeTray:
 
     def show_notification(self, *args):
         self.notifications.append(args)
+
+    def show_notification_with_action(self, *args, **kwargs):
+        self.notifications.append(("action", args, kwargs))
 
     def hide(self):
         self.hidden = True
@@ -239,6 +245,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIn("copy_diagnostic", app._tray.callbacks)
         self.assertIn("open_diagnostic_dir", app._tray.callbacks)
         self.assertIn("export_diagnostic", app._tray.callbacks)
+        self.assertIn("recent_recordings", app._tray.callbacks)
 
     def test_copy_diagnostic_info_writes_clipboard_and_notifies(self):
         class Clipboard:
@@ -274,6 +281,27 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             self.assertEqual(len(exported), 1)
             self.assertIn("QuickRec Diagnostic Report", exported[0].read_text(encoding="utf-8"))
             self.assertEqual(app._tray.notifications, [("诊断文件已导出",)])
+
+    def test_handle_saved_writes_recording_history_without_toolbar(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_20260710_153000.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "both"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+
+            app._handle_saved(str(video))
+
+            history_path = Path(temp_dir) / "QuickRecMetadata" / "recordings.json"
+            self.assertTrue(history_path.exists())
+            text = history_path.read_text(encoding="utf-8")
+            self.assertIn("QuickRec_20260710_153000.mp4", text)
+            self.assertIn("both", text)
+            self.assertEqual(app._tray.recording_states, [((False,), {})])
 
     def test_do_start_fullscreen_uses_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

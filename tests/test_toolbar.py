@@ -63,6 +63,24 @@ class TestRecordingToolbar(unittest.TestCase):
         self.assertTrue(hasattr(toolbar, 'resumed'))
         self.assertTrue(hasattr(toolbar, 'stopped'))
         self.assertTrue(hasattr(toolbar, 'cancelled'))
+        self.assertTrue(hasattr(toolbar, 'recent_recordings_requested'))
+
+    def test_result_mode_shows_recent_recordings_button(self):
+        toolbar = RecordingToolbar()
+
+        toolbar.show_result("out.mp4", "1.0MB")
+
+        self.assertFalse(toolbar._btn_recent.isHidden())
+
+    def test_recent_recordings_button_emits_signal(self):
+        toolbar = RecordingToolbar()
+        calls = []
+        toolbar.recent_recordings_requested.connect(lambda: calls.append("recent"))
+        toolbar.show_result("out.mp4", "1.0MB")
+
+        toolbar._btn_recent.click()
+
+        self.assertEqual(calls, ["recent"])
 
     def test_window_flags(self):
         """测试窗口标志"""

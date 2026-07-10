@@ -24,7 +24,6 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from config import ConfigManager
 from recorder.audio_capturer import AudioCapturer, AudioSource
 from recorder.audio_preflight import AudioPreflightResult, plan_audio_source
-from recorder.cursor_overlay import draw_cursor
 from recorder.events import RecordingEvent
 from recorder.frame_resize import resize_bgr_frame
 from recorder.screen_capturer import ScreenCapturer
@@ -596,11 +595,7 @@ class RecorderManager:
         if self._encode_size != self._frame_size:
             frame = resize_bgr_frame(frame, self._encode_size)
 
-        if self._mode == RecordMode.WINDOW:
-            return frame
-
-        capture_region = self._capturer.get_capture_region() if self._capturer else None
-        return draw_cursor(frame, capture_region, size_multiplier=1.0)
+        return frame
 
     def _stop_and_encode(self):
         # 等待录制线程完成 encoder.close()（FFmpeg flush 可能需要数十秒）

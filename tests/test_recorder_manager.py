@@ -564,12 +564,17 @@ class TestRecorderManager(unittest.TestCase):
         manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
         frame = np.zeros((50, 100, 3), dtype=np.uint8)
 
-        with patch.object(recorder_manager, "draw_cursor", side_effect=AssertionError("window mode must not overlay cursor")):
+        with patch.object(
+            recorder_manager,
+            "draw_cursor",
+            side_effect=AssertionError("window mode must not overlay cursor"),
+            create=True,
+        ):
             result = manager._prepare_frame_for_encoding(frame)
 
         self.assertEqual(result.shape, (100, 200, 3))
 
-    def test_region_mode_keeps_cursor_overlay(self):
+    def test_region_mode_does_not_overlay_cursor(self):
         import recorder.recorder_manager as recorder_manager
 
         manager = RecorderManager(self.config)
@@ -578,16 +583,17 @@ class TestRecorderManager(unittest.TestCase):
         manager._encode_size = (100, 50)
         manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
         frame = np.zeros((50, 100, 3), dtype=np.uint8)
-        multipliers = []
 
-        def fake_draw_cursor(frame_arg, capture_region, size_multiplier=1.0):
-            multipliers.append(size_multiplier)
-            return frame_arg
+        with patch.object(
+            recorder_manager,
+            "draw_cursor",
+            side_effect=AssertionError("region mode must not overlay cursor"),
+            create=True,
+        ):
+            result = manager._prepare_frame_for_encoding(frame)
 
-        with patch.object(recorder_manager, "draw_cursor", side_effect=fake_draw_cursor):
-            manager._prepare_frame_for_encoding(frame)
-
-        self.assertEqual(multipliers, [1.0])
+        self.assertIs(result, frame)
+        self.assertTrue(np.all(result == 0))
 
     def test_mix_audio_builds_single_audio_command(self):
         manager = RecorderManager(self.config)

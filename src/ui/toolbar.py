@@ -36,6 +36,7 @@ class RecordingToolbar(QWidget):
 
     open_folder_requested = pyqtSignal()
     open_file_requested = pyqtSignal()
+    recent_recordings_requested = pyqtSignal()
 
     countdown_finished = pyqtSignal()
 
@@ -114,6 +115,12 @@ class RecordingToolbar(QWidget):
         self._btn_open.clicked.connect(self._on_open_folder)
         self._btn_open.hide()
         layout.addWidget(self._btn_open)
+
+        self._btn_recent = QPushButton("最近")
+        self._btn_recent.setFixedSize(70, 28)
+        self._btn_recent.clicked.connect(self._on_recent_recordings)
+        self._btn_recent.hide()
+        layout.addWidget(self._btn_recent)
 
         self._btn_close_result = QPushButton("✕ 关闭")
         self._btn_close_result.setFixedSize(70, 28)
@@ -264,6 +271,7 @@ class RecordingToolbar(QWidget):
         self._btn_cancel.setEnabled(True)
         self._btn_saved.hide()
         self._btn_open.hide()
+        self._btn_recent.hide()
         self._btn_close_result.hide()
 
     def _show_result_buttons(self):
@@ -272,6 +280,7 @@ class RecordingToolbar(QWidget):
         self._btn_cancel.hide()
         self._btn_saved.show()
         self._btn_open.show()
+        self._btn_recent.show()
         self._btn_close_result.show()
 
     def _update_timer(self):
@@ -301,6 +310,10 @@ class RecordingToolbar(QWidget):
     def _on_open_folder(self):
         if self._output_path:
             self.open_folder_requested.emit()
+        self._restart_auto_close()
+
+    def _on_recent_recordings(self):
+        self.recent_recordings_requested.emit()
         self._restart_auto_close()
 
     def _restart_auto_close(self):

@@ -186,6 +186,19 @@
       border-radius: 6px;
       background: #fafafa;
     }
+    .row[hidden] { display: none; }
+    .recent-actions { display: flex; gap: 8px; }
+    .empty-state {
+      min-height: 150px;
+      border: 1px dashed var(--line);
+      border-radius: 6px;
+      background: #fafafa;
+      display: grid;
+      place-content: center;
+      gap: 6px;
+      text-align: center;
+    }
+    .empty-state[hidden] { display: none; }
 
     .media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .thumb {
@@ -275,6 +288,7 @@
         <div class="workspace-title">Workspace</div>
         <button class="nav active" data-page="home"><span class="nav-icon">⌂</span>项目首页</button>
         <button class="nav" data-page="record"><span class="nav-icon">●</span>录制</button>
+        <button class="nav" data-page="recent"><span class="nav-icon">◴</span>最近录制</button>
         <button class="nav" data-page="assets"><span class="nav-icon">▦</span>素材</button>
         <button class="nav" data-page="edit"><span class="nav-icon">✂</span>轻编辑</button>
         <button class="nav" data-page="export"><span class="nav-icon">⇧</span>导出队列</button>
@@ -323,6 +337,69 @@
                 <div class="row"><span>演示：原生分辨率 · 鼠标高亮</span><span class="tag blue">模板</span></div>
                 <div class="row"><span>诊断：全日志 · 硬件冒烟</span><span class="tag amber">M5</span></div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="recent" class="page">
+          <div class="header-row">
+            <div>
+              <h1>最近录制</h1>
+              <p>v1.5 地基能力：保存最近 50 条录制结果，默认记录在视频目录的 QuickRecMetadata 中。</p>
+            </div>
+            <div class="recent-actions">
+              <button class="btn" id="toggleRecentEmpty">演示空状态</button>
+              <button class="btn">打开保存目录</button>
+            </div>
+          </div>
+          <div class="panel">
+            <h2>录制历史</h2>
+            <div class="list" id="recentList">
+              <div class="empty-state" id="recentEmptyState" hidden>
+                <strong>暂无录制记录</strong>
+                <span>完成一次录制后，最新文件会显示在这里。</span>
+              </div>
+              <div class="row">
+                <span>
+                  <b>QuickRec_20260710_153022.mp4</b><br>
+                  <small>全屏录制 · 00:03 · 系统声+麦克风 · E:\QRtest\QuickRec_20260710_153022.mp4</small>
+                </span>
+                <span>
+                  <button class="btn">打开</button>
+                  <button class="btn">打开目录</button>
+                  <button class="btn copy-path">复制路径</button>
+                </span>
+              </div>
+              <div class="row missing-record">
+                <span>
+                  <b>QuickRec_20260710_152801.mp4</b><br>
+                  <small>窗口录制 · 文件已移动或删除</small>
+                </span>
+                <span>
+                  <button class="btn remove-record">从列表移除</button>
+                </span>
+              </div>
+              <div class="row">
+                <span>
+                  <b>QuickRec_20260710_151930.mp4</b><br>
+                  <small>区域录制 · 00:08 · 无声 · E:\QRtest\QuickRec_20260710_151930.mp4</small>
+                </span>
+                <span>
+                  <button class="btn">打开</button>
+                  <button class="btn">打开目录</button>
+                  <button class="btn copy-path">复制路径</button>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="grid cols-2" style="margin-top:14px">
+            <div class="panel">
+              <h2>v1.5 边界</h2>
+              <p>最近录制只做轻量素材入库，不做项目库、剪辑、导出队列真实实现，也不扫描用户目录。</p>
+            </div>
+            <div class="panel">
+              <h2>光标策略</h2>
+              <p>录制输出不再叠加自绘光标；鼠标点击高亮保留为屏幕叠加层，后续通过捕获后端研究评估原生光标方案。</p>
             </div>
           </div>
         </section>
@@ -412,7 +489,10 @@
       document.getElementById("recordIcon").textContent = recording ? "■" : "●";
       document.getElementById("recordIcon").style.background = recording ? "var(--green)" : "var(--red)";
       document.getElementById("recordTitle").textContent = recording ? "正在录制项目素材" : "准备录制";
-      document.getElementById("recordDesc").textContent = recording ? "00:01:12 · 双音频 · 质量诊断正在记录" : "全屏 / 区域 / 窗口模式可在 Full 中作为项目素材入口。特殊窗口仍需诊断链路兜底。";
+      document.getElementById("recordDesc").textContent = recording ? "00:01:12 · 双音频 · 停止后写入最近录制" : "全屏 / 区域 / 窗口模式可在 Full 中作为项目素材入口。特殊窗口仍需诊断链路兜底。";
+      if (!recording) {
+        showPage("recent");
+      }
     });
 
     let exportProgress = 45;
@@ -434,6 +514,32 @@
         document.querySelectorAll(".thumb").forEach((node) => node.classList.remove("selected"));
         thumb.classList.add("selected");
       });
+    });
+
+    document.querySelectorAll(".copy-path").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.textContent = "已复制";
+        setTimeout(() => { btn.textContent = "复制路径"; }, 900);
+      });
+    });
+
+    document.querySelectorAll(".remove-record").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.closest(".row").remove();
+      });
+    });
+
+    const recentList = document.getElementById("recentList");
+    const recentEmptyState = document.getElementById("recentEmptyState");
+    const toggleRecentEmpty = document.getElementById("toggleRecentEmpty");
+    let showingRecentEmpty = false;
+    toggleRecentEmpty.addEventListener("click", () => {
+      showingRecentEmpty = !showingRecentEmpty;
+      recentList.querySelectorAll(":scope > .row").forEach((row) => {
+        row.hidden = showingRecentEmpty;
+      });
+      recentEmptyState.hidden = !showingRecentEmpty;
+      toggleRecentEmpty.textContent = showingRecentEmpty ? "恢复示例记录" : "演示空状态";
     });
   </script>
 </body>

@@ -36,6 +36,7 @@ from recorder.workflow import RecordingWorkflow
 from ui.area_selector import AreaSelector
 from ui.click_highlighter import ClickHighlighter
 from ui.settings_dialog import SettingsDialog
+from ui.recent_recordings_dialog import RecentRecordingsDialog
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
@@ -50,6 +51,7 @@ from utils.diagnostics import (
     resolve_diagnostic_dir,
 )
 from utils.disk_checker import DiskChecker, show_disk_warning
+from utils.recording_history import add_history_item, build_history_item
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,6 +121,7 @@ class QuickRecApp:
         self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
         self._toolbar = None
+        self._recent_recordings_dialog = None
         self._config_saved_pending = False
 
         # v1.2 新增模块
@@ -163,6 +166,7 @@ class QuickRecApp:
                 "pause_resume": self._on_pause_resume,
                 "stop": self._on_stop_recording,
                 "settings": self._show_settings,
+                "recent_recordings": self._show_recent_recordings,
                 "copy_diagnostic": self._on_copy_diagnostic_info,
                 "open_diagnostic_dir": self._on_open_diagnostic_dir,
                 "export_diagnostic": self._on_export_diagnostic_file,
@@ -438,6 +442,7 @@ class QuickRecApp:
         # v1.1: 结果条信号连接
         self._toolbar.open_folder_requested.connect(self._on_open_folder)
         self._toolbar.open_file_requested.connect(self._on_open_file)
+        self._toolbar.recent_recordings_requested.connect(self._show_recent_recordings)
 
         self._toolbar.show()
 
@@ -514,6 +519,7 @@ class QuickRecApp:
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
             size_str = f"{file_size_mb:.1f}MB"
             logger.info(f"录制已保存: {output_path}")
+            self._save_recording_history(output_path)
 
             # v1.1: Toast 通知带"打开文件夹"按钮
             self._tray.show_notification_with_action(
@@ -536,6 +542,33 @@ class QuickRecApp:
             self._window_highlighter.hide_highlight()
             self._window_highlighter = None
         self._click_highlighter.stop()
+
+    def _save_recording_history(self, output_path: str) -> bool:
+        try:
+            mode = self._recorder.get_mode() if self._recorder else "unknown"
+            item = build_history_item(
+                output_path,
+                mode=mode,
+                audio_source=self._config.get("audio_source", "none"),
+                diagnostic_dir=self._config.get_diagnostic_dir(),
+            )
+            result = add_history_item(self._config, item)
+            if not result.ok:
+                logger.warning(f"recording history save failed: {result.error}")
+                return False
+            return True
+        except Exception as exc:
+            logger.warning(f"recording history save failed: {exc}")
+            return False
+
+    def _show_recent_recordings(self):
+        if self._recent_recordings_dialog is None:
+            self._recent_recordings_dialog = RecentRecordingsDialog(self._config)
+        else:
+            self._recent_recordings_dialog.reload()
+        self._recent_recordings_dialog.show()
+        self._recent_recordings_dialog.raise_()
+        self._recent_recordings_dialog.activateWindow()
 
     # --- 设置 ---
 
