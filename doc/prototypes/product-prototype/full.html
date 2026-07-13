@@ -188,6 +188,58 @@
     }
     .row[hidden] { display: none; }
     .recent-actions { display: flex; gap: 8px; }
+    .btn.danger { color: var(--red); border-color: #e4aaa4; }
+    .library-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid #b9d7c5;
+      border-radius: 6px;
+      background: #eef9f2;
+    }
+    .library-banner.warn { border-color: #e8cf8b; background: #fff8e5; }
+    .library-banner.bad { border-color: #e5b4af; background: #fff0ef; }
+    .library-banner[hidden] { display: none; }
+    .library-layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 1.15fr) minmax(300px, .85fr);
+      min-height: 440px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .library-column { padding: 14px; min-width: 0; }
+    .library-column + .library-column { border-left: 1px solid var(--line); }
+    .material-list { display: grid; gap: 6px; margin: 10px 0; }
+    .material-item {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      text-align: left;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .material-item.active { border-color: var(--blue); background: #f4f7ff; }
+    .material-name { display: block; font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .material-meta { color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .detail-grid { display: grid; grid-template-columns: 90px 1fr; gap: 9px 12px; margin: 14px 0; }
+    .detail-grid dt { color: var(--muted); }
+    .detail-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .library-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .task-panel { margin-top: 12px; }
+    .task-panel[hidden] { display: none; }
+    .task-progress { height: 7px; margin: 10px 0; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+    .task-progress span { display: block; width: 62%; height: 100%; background: var(--blue); }
     .empty-state {
       min-height: 150px;
       border: 1px dashed var(--line);
@@ -273,6 +325,11 @@
       .rightbar { display: none; }
       .grid.cols-3, .grid.cols-2, .media-grid { grid-template-columns: 1fr; }
     }
+    @media (max-width: 820px) {
+      .library-layout { grid-template-columns: 1fr; }
+      .library-column + .library-column { border-left: 0; border-top: 1px solid var(--line); }
+      .header-row { flex-direction: column; }
+    }
   </style>
 </head>
 <body>
@@ -288,8 +345,7 @@
         <div class="workspace-title">Workspace</div>
         <button class="nav active" data-page="home"><span class="nav-icon">⌂</span>项目首页</button>
         <button class="nav" data-page="record"><span class="nav-icon">●</span>录制</button>
-        <button class="nav" data-page="recent"><span class="nav-icon">◴</span>最近录制</button>
-        <button class="nav" data-page="assets"><span class="nav-icon">▦</span>素材</button>
+        <button class="nav" data-page="library"><span class="nav-icon">▦</span>素材库</button>
         <button class="nav" data-page="edit"><span class="nav-icon">✂</span>轻编辑</button>
         <button class="nav" data-page="export"><span class="nav-icon">⇧</span>导出队列</button>
         <button class="nav" data-page="quality"><span class="nav-icon">◆</span>质量诊断</button>
@@ -299,7 +355,7 @@
       <main>
         <section id="home" class="page active">
           <div class="header-row">
-            <div><h1>创作者工作台</h1><p>Full 是未来产品线方向，不属于 v1.4 强制开发范围。</p></div>
+            <div><h1>创作者工作台</h1><p>v1.6 先建立跨路径素材库，项目、编辑和导出能力继续分阶段演进。</p></div>
             <button class="btn primary" data-go="record">新建录制项目</button>
           </div>
           <div class="grid cols-3">
@@ -341,66 +397,75 @@
           </div>
         </section>
 
-        <section id="recent" class="page">
+        <section id="library" class="page">
           <div class="header-row">
             <div>
-              <h1>最近录制</h1>
-              <p>v1.5 地基能力：保存最近 50 条录制结果，默认记录在视频目录的 QuickRecMetadata 中。</p>
+              <h1>素材库</h1>
+              <p>126 条本地录制 · 中央索引 · 最近更新于 15:30</p>
             </div>
             <div class="recent-actions">
-              <button class="btn" id="toggleRecentEmpty">演示空状态</button>
-              <button class="btn">打开保存目录</button>
+              <select class="btn" id="libraryDemoState" aria-label="原型状态">
+                <option value="normal">正常状态</option>
+                <option value="migration">迁移摘要</option>
+                <option value="scan">目录重建</option>
+                <option value="recovered">恢复成功</option>
+                <option value="failed">索引失败</option>
+                <option value="empty">空状态</option>
+              </select>
+              <button class="btn" id="importHistory">导入旧目录</button>
+              <button class="btn primary" id="rebuildLibrary">重建目录</button>
             </div>
           </div>
-          <div class="panel">
-            <h2>录制历史</h2>
-            <div class="list" id="recentList">
-              <div class="empty-state" id="recentEmptyState" hidden>
-                <strong>暂无录制记录</strong>
-                <span>完成一次录制后，最新文件会显示在这里。</span>
+          <div class="library-banner" id="libraryBanner" hidden>
+            <span id="libraryBannerText"><b>历史录制已迁移</b><br><small>新增 37 条，跳过重复 2 条，元数据不完整 1 条。</small></span>
+            <button class="btn" id="closeBanner">关闭</button>
+          </div>
+          <div class="empty-state" id="libraryEmpty" hidden>
+            <strong>暂无素材</strong>
+            <span>完成一次录制，或导入以前的 QuickRec 保存目录。</span>
+          </div>
+          <div class="library-layout" id="libraryWorkspace">
+            <div class="library-column">
+              <div class="library-footer"><h2>最近素材</h2><span class="tag blue" id="materialCount">显示 50 / 126</span></div>
+              <div class="material-list" id="materialList">
+                <button class="material-item active" data-name="QuickRec_20260710_153022.mp4" data-status="可用" data-mode="全屏录制" data-audio="系统声音 + 麦克风" data-size="245 MB" data-resolution="1920 × 1080" data-fps="60 FPS" data-duration="00:12:18" data-path="E:\QRtest\A\QuickRec_20260710_153022.mp4">
+                  <span><span class="material-name">QuickRec_20260710_153022.mp4</span><span class="material-meta">15:30 · 00:12:18 · 1920 × 1080 · 245 MB</span></span><span class="tag green">可用</span>
+                </button>
+                <button class="material-item" data-name="QuickRec_20260710_152801.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="系统声音" data-size="86 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:04:42" data-path="E:\QRtest\B\QuickRec_20260710_152801.mp4">
+                  <span><span class="material-name">QuickRec_20260710_152801.mp4</span><span class="material-meta">15:28 · 00:04:42 · 1280 × 720 · 86 MB</span></span><span class="tag red">缺失</span>
+                </button>
+                <button class="material-item" data-name="QuickRec_20260710_151930.mp4" data-status="元数据不完整" data-mode="区域录制" data-audio="无声" data-size="31 MB" data-resolution="-" data-fps="-" data-duration="-" data-path="E:\QRtest\A\QuickRec_20260710_151930.mp4">
+                  <span><span class="material-name">QuickRec_20260710_151930.mp4</span><span class="material-meta">15:19 · 时长未知 · 分辨率未知 · 31 MB</span></span><span class="tag amber">信息不完整</span>
+                </button>
               </div>
-              <div class="row">
-                <span>
-                  <b>QuickRec_20260710_153022.mp4</b><br>
-                  <small>全屏录制 · 00:03 · 系统声+麦克风 · E:\QRtest\QuickRec_20260710_153022.mp4</small>
-                </span>
-                <span>
-                  <button class="btn">打开</button>
-                  <button class="btn">打开目录</button>
-                  <button class="btn copy-path">复制路径</button>
-                </span>
+              <div class="library-footer"><span class="material-meta">按原始录制时间排序</span><button class="btn" id="loadMoreMaterials">加载更多 50 条</button></div>
+            </div>
+            <div class="library-column">
+              <h2 id="detailName">QuickRec_20260710_153022.mp4</h2>
+              <span class="tag green" id="detailStatus">可用</span>
+              <dl class="detail-grid">
+                <dt>录制时间</dt><dd>2026-07-10 15:30</dd>
+                <dt>时长</dt><dd id="detailDuration">00:12:18</dd>
+                <dt>画面</dt><dd id="detailVideo">1920 × 1080 · 60 FPS</dd>
+                <dt>模式</dt><dd id="detailMode">全屏录制</dd>
+                <dt>音频</dt><dd id="detailAudio">系统声音 + 麦克风</dd>
+                <dt>大小</dt><dd id="detailSize">245 MB</dd>
+                <dt>路径</dt><dd id="detailPath">E:\QRtest\A\QuickRec_20260710_153022.mp4</dd>
+                <dt>诊断目录</dt><dd>E:\QRtest\A\QuickRecDiagnostics</dd>
+                <dt>来源</dt><dd>新录制 · 中央索引</dd>
+              </dl>
+              <div class="detail-actions">
+                <button class="btn">打开</button><button class="btn">打开目录</button><button class="btn copy-path">复制路径</button><button class="btn" id="relinkMaterial">重新定位</button>
               </div>
-              <div class="row missing-record">
-                <span>
-                  <b>QuickRec_20260710_152801.mp4</b><br>
-                  <small>窗口录制 · 文件已移动或删除</small>
-                </span>
-                <span>
-                  <button class="btn remove-record">从列表移除</button>
-                </span>
-              </div>
-              <div class="row">
-                <span>
-                  <b>QuickRec_20260710_151930.mp4</b><br>
-                  <small>区域录制 · 00:08 · 无声 · E:\QRtest\QuickRec_20260710_151930.mp4</small>
-                </span>
-                <span>
-                  <button class="btn">打开</button>
-                  <button class="btn">打开目录</button>
-                  <button class="btn copy-path">复制路径</button>
-                </span>
+              <div class="detail-actions" style="margin-top:22px">
+                <button class="btn" id="removeMaterial">从素材库移除</button><button class="btn danger" id="deleteMaterial">删除视频文件</button>
               </div>
             </div>
           </div>
-          <div class="grid cols-2" style="margin-top:14px">
-            <div class="panel">
-              <h2>v1.5 边界</h2>
-              <p>最近录制只做轻量素材入库，不做项目库、剪辑、导出队列真实实现，也不扫描用户目录。</p>
-            </div>
-            <div class="panel">
-              <h2>光标策略</h2>
-              <p>录制输出不再叠加自绘光标；鼠标点击高亮保留为屏幕叠加层，后续通过捕获后端研究评估原生光标方案。</p>
-            </div>
+          <div class="panel task-panel" id="libraryTask" hidden>
+            <div class="library-footer"><div><h2 id="taskTitle">正在扫描目录</h2><p id="taskText">已检查 62 / 100 个文件，找到 48 条 QuickRec 录制。</p></div><button class="btn" id="cancelTask">取消</button></div>
+            <div class="task-progress"><span id="taskProgress"></span></div>
+            <p>确认前不会修改中央索引。</p>
           </div>
         </section>
 
@@ -461,13 +526,13 @@
       <section class="rightbar">
         <h2>项目状态</h2>
         <div class="list">
-          <div class="row"><span>v1.4 M1-M4</span><span class="tag green">完成</span></div>
-          <div class="row"><span>v1.4 M5</span><span class="tag amber">待开发</span></div>
-          <div class="row"><span>Lite / Full</span><span class="tag blue">规划</span></div>
+          <div class="row"><span>v1.5 Full</span><span class="tag green">已发布</span></div>
+          <div class="row"><span>v1.6 素材库</span><span class="tag amber">规划中</span></div>
+          <div class="row"><span>QuickRec Lite</span><span class="tag blue">独立产品线</span></div>
         </div>
         <div class="panel" style="margin-top:14px">
           <h2>边界提醒</h2>
-          <p>Full Workbench 是未来方向，不进入 v1.4 强制开发范围。Lite 继续保持轻量，不做双模式切换。</p>
+          <p>v1.6 不一次性交付完整工作台，也不实现 AI。Lite 继续保持独立轻量路线。</p>
         </div>
       </section>
     </div>
@@ -489,9 +554,9 @@
       document.getElementById("recordIcon").textContent = recording ? "■" : "●";
       document.getElementById("recordIcon").style.background = recording ? "var(--green)" : "var(--red)";
       document.getElementById("recordTitle").textContent = recording ? "正在录制项目素材" : "准备录制";
-      document.getElementById("recordDesc").textContent = recording ? "00:01:12 · 双音频 · 停止后写入最近录制" : "全屏 / 区域 / 窗口模式可在 Full 中作为项目素材入口。特殊窗口仍需诊断链路兜底。";
+      document.getElementById("recordDesc").textContent = recording ? "00:01:12 · 双音频 · 停止后写入素材库" : "全屏 / 区域 / 窗口模式可在 Full 中作为项目素材入口。特殊窗口仍需诊断链路兜底。";
       if (!recording) {
-        showPage("recent");
+        showPage("library");
       }
     });
 
@@ -523,23 +588,91 @@
       });
     });
 
-    document.querySelectorAll(".remove-record").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        btn.closest(".row").remove();
+    const materialItems = document.querySelectorAll(".material-item");
+    materialItems.forEach((item) => {
+      item.addEventListener("click", () => {
+        materialItems.forEach((node) => node.classList.remove("active"));
+        item.classList.add("active");
+        document.getElementById("detailName").textContent = item.dataset.name;
+        document.getElementById("detailStatus").textContent = item.dataset.status;
+        document.getElementById("detailStatus").className = item.dataset.status === "可用" ? "tag green" : item.dataset.status.includes("移动") ? "tag red" : "tag amber";
+        document.getElementById("detailDuration").textContent = item.dataset.duration;
+        document.getElementById("detailVideo").textContent = `${item.dataset.resolution} · ${item.dataset.fps}`;
+        document.getElementById("detailMode").textContent = item.dataset.mode;
+        document.getElementById("detailAudio").textContent = item.dataset.audio;
+        document.getElementById("detailSize").textContent = item.dataset.size;
+        document.getElementById("detailPath").textContent = item.dataset.path;
       });
     });
 
-    const recentList = document.getElementById("recentList");
-    const recentEmptyState = document.getElementById("recentEmptyState");
-    const toggleRecentEmpty = document.getElementById("toggleRecentEmpty");
-    let showingRecentEmpty = false;
-    toggleRecentEmpty.addEventListener("click", () => {
-      showingRecentEmpty = !showingRecentEmpty;
-      recentList.querySelectorAll(":scope > .row").forEach((row) => {
-        row.hidden = showingRecentEmpty;
-      });
-      recentEmptyState.hidden = !showingRecentEmpty;
-      toggleRecentEmpty.textContent = showingRecentEmpty ? "恢复示例记录" : "演示空状态";
+    let visibleMaterials = 50;
+    document.getElementById("loadMoreMaterials").addEventListener("click", (event) => {
+      visibleMaterials = Math.min(126, visibleMaterials + 50);
+      document.getElementById("materialCount").textContent = `显示 ${visibleMaterials} / 126`;
+      if (visibleMaterials >= 126) {
+        event.currentTarget.textContent = "已显示全部";
+        event.currentTarget.disabled = true;
+      }
+    });
+
+    const libraryBanner = document.getElementById("libraryBanner");
+    const libraryWorkspace = document.getElementById("libraryWorkspace");
+    const libraryEmpty = document.getElementById("libraryEmpty");
+    const libraryTask = document.getElementById("libraryTask");
+    const bannerText = document.getElementById("libraryBannerText");
+
+    function showLibraryTask(title) {
+      libraryTask.hidden = false;
+      document.getElementById("taskTitle").textContent = title;
+      document.getElementById("taskText").textContent = "已检查 62 / 100 个文件，找到 48 条 QuickRec 录制。";
+      document.getElementById("taskProgress").style.width = "62%";
+    }
+
+    document.getElementById("importHistory").addEventListener("click", () => showLibraryTask("正在导入旧目录"));
+    document.getElementById("rebuildLibrary").addEventListener("click", () => showLibraryTask("正在重建目录"));
+    document.getElementById("cancelTask").addEventListener("click", () => {
+      document.getElementById("taskTitle").textContent = "扫描已取消";
+      document.getElementById("taskText").textContent = "中央索引未发生变化。";
+      document.getElementById("taskProgress").style.width = "0";
+    });
+    document.getElementById("closeBanner").addEventListener("click", () => { libraryBanner.hidden = true; });
+
+    document.getElementById("libraryDemoState").addEventListener("change", (event) => {
+      const state = event.target.value;
+      libraryBanner.hidden = true;
+      libraryTask.hidden = true;
+      libraryEmpty.hidden = state !== "empty";
+      libraryWorkspace.hidden = state === "empty";
+      if (state === "migration") {
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner";
+        bannerText.innerHTML = "<b>历史录制已迁移</b><br><small>新增 37 条，跳过重复 2 条，元数据不完整 1 条。</small>";
+      } else if (state === "scan") {
+        showLibraryTask("正在重建目录");
+      } else if (state === "recovered") {
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner warn";
+        bannerText.innerHTML = "<b>素材索引已恢复</b><br><small>已保留损坏原件，并恢复最近一份有效备份。</small>";
+      } else if (state === "failed") {
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner bad";
+        bannerText.innerHTML = "<b>素材索引写入失败</b><br><small>视频已保存，可重试加入素材库或打开视频目录。</small>";
+      }
+    });
+
+    document.getElementById("relinkMaterial").addEventListener("click", (event) => {
+      event.currentTarget.textContent = "已选择新位置";
+    });
+    document.getElementById("removeMaterial").addEventListener("click", () => {
+      if (window.confirm("从素材库移除这条记录？视频文件不会被删除。")) {
+        document.querySelector(".material-item.active")?.remove();
+      }
+    });
+    document.getElementById("deleteMaterial").addEventListener("click", () => {
+      if (window.confirm("将此视频移入 Windows 回收站？不会删除诊断日志或其他文件。")) {
+        document.getElementById("detailStatus").textContent = "已移入回收站";
+        document.getElementById("detailStatus").className = "tag amber";
+      }
     });
   </script>
 </body>

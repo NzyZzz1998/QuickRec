@@ -14,3 +14,4 @@ six==1.17.0
 pyaudio>=0.2.14
 soundcard>=0.4
 winotify>=1.1
+Send2Trash==2.1.0

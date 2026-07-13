@@ -19,6 +19,7 @@ from utils.diagnostics import (
     read_recent_log_lines,
     resolve_diagnostic_dir,
 )
+from version import APP_VERSION
 
 
 class TestDiagnostics(unittest.TestCase):
@@ -71,7 +72,7 @@ class TestDiagnostics(unittest.TestCase):
 
     def test_format_snapshot_text_uses_unknown_for_missing_fields(self):
         snapshot = DiagnosticSnapshot(
-            app={"version": "v1.4.x"},
+            app={"version": APP_VERSION},
             config={"save_path": ""},
             recorder={},
             ffmpeg={},
@@ -83,7 +84,7 @@ class TestDiagnostics(unittest.TestCase):
 
         text = format_snapshot_text(snapshot)
 
-        self.assertIn("version: v1.4.x", text)
+        self.assertIn(f"version: {APP_VERSION}", text)
         self.assertIn("save_path: unknown", text)
         self.assertIn("state: unknown", text)
 

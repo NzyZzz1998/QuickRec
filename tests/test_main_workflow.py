@@ -245,7 +245,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIn("copy_diagnostic", app._tray.callbacks)
         self.assertIn("open_diagnostic_dir", app._tray.callbacks)
         self.assertIn("export_diagnostic", app._tray.callbacks)
-        self.assertIn("recent_recordings", app._tray.callbacks)
+        self.assertIn("material_library", app._tray.callbacks)
 
     def test_copy_diagnostic_info_writes_clipboard_and_notifies(self):
         class Clipboard:
@@ -267,6 +267,17 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIn("QuickRec Diagnostic Report", clipboard.text)
         self.assertEqual(app._tray.notifications, [("诊断信息已复制",)])
 
+    def test_diagnostic_report_uses_current_application_version(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app._config = FakeConfig({"save_path": temp_dir})
+            app._recorder = FakeRecorder(app._config)
+
+            text = app._build_diagnostic_text()
+
+        self.assertIn("version: v1.6", text)
+        self.assertNotIn("version: v1.4.x", text)
+
     def test_export_diagnostic_file_writes_file_and_notifies(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,7 +293,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             self.assertIn("QuickRec Diagnostic Report", exported[0].read_text(encoding="utf-8"))
             self.assertEqual(app._tray.notifications, [("诊断文件已导出",)])
 
-    def test_handle_saved_writes_recording_history_without_toolbar(self):
+    def test_handle_saved_writes_central_material_library_without_toolbar(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         with tempfile.TemporaryDirectory() as temp_dir:
             video = Path(temp_dir) / "QuickRec_20260710_153000.mp4"
@@ -293,15 +304,84 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app._toolbar = None
             app._window_highlighter = None
             app._click_highlighter = FakeClickHighlighter()
+            central_index = Path(temp_dir) / "appdata" / "QuickRec" / "recordings.json"
+            app._library_service = main.RecordingLibraryService(central_index)
 
             app._handle_saved(str(video))
 
-            history_path = Path(temp_dir) / "QuickRecMetadata" / "recordings.json"
-            self.assertTrue(history_path.exists())
-            text = history_path.read_text(encoding="utf-8")
+            self.assertTrue(central_index.exists())
+            text = central_index.read_text(encoding="utf-8")
             self.assertIn("QuickRec_20260710_153000.mp4", text)
             self.assertIn("both", text)
+            self.assertFalse((Path(temp_dir) / "QuickRecMetadata" / "recordings.json").exists())
             self.assertEqual(app._tray.recording_states, [((False,), {})])
+
+    def test_handle_saved_keeps_recording_success_when_library_write_fails(self):
+        class FailingLibrary:
+            def add(self, _item):
+                return type("Result", (), {"ok": False, "error": "denied"})()
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_20260710_153001.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "none"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._library_service = FailingLibrary()
+
+            app._handle_saved(str(video))
+
+        action_notifications = [entry for entry in app._tray.notifications if entry[0] == "action"]
+        self.assertEqual(len(action_notifications), 1)
+        self.assertIn(("录制已保存，但素材索引写入失败",), app._tray.notifications)
+
+    def test_initial_migration_imports_current_save_path_legacy_history_once(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_dir = Path(temp_dir) / "videos"
+            legacy_dir = save_dir / "QuickRecMetadata"
+            legacy_dir.mkdir(parents=True)
+            source = legacy_dir / "recordings.json"
+            source.write_text(
+                '{"schema_version":1,"items":[{"id":"legacy-1",'
+                f'"file_path":"{str(save_dir / "QuickRec_old.mp4").replace(chr(92), chr(92) * 2)}",'
+                '"created_at":"2026-07-10T15:00:00+08:00"}]}',
+                encoding="utf-8",
+            )
+            app._config = FakeConfig({"save_path": str(save_dir)})
+            app._library_service = main.RecordingLibraryService(
+                Path(temp_dir) / "appdata" / "QuickRec" / "recordings.json"
+            )
+
+            first = app._run_initial_migration()
+            second = app._run_initial_migration()
+
+        self.assertIsNotNone(first)
+        self.assertTrue(first.ok)
+        self.assertEqual(first.added_count, 1)
+        self.assertIsNone(second)
+
+    def test_save_path_change_prompts_for_legacy_history_only_once(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            save_dir = Path(temp_dir) / "other-videos"
+            legacy_dir = save_dir / "QuickRecMetadata"
+            legacy_dir.mkdir(parents=True)
+            source = legacy_dir / "recordings.json"
+            source.write_text('{"schema_version":1,"items":[]}', encoding="utf-8")
+            app._library_service = main.RecordingLibraryService(
+                Path(temp_dir) / "appdata" / "QuickRec" / "recordings.json"
+            )
+
+            first = app._register_save_path_legacy_prompt(save_dir)
+            second = app._register_save_path_legacy_prompt(save_dir)
+
+        self.assertEqual(first, source)
+        self.assertIsNone(second)
 
     def test_do_start_fullscreen_uses_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

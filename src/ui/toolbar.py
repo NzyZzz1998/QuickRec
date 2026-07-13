@@ -36,7 +36,8 @@ class RecordingToolbar(QWidget):
 
     open_folder_requested = pyqtSignal()
     open_file_requested = pyqtSignal()
-    recent_recordings_requested = pyqtSignal()
+    material_library_requested = pyqtSignal()
+    retry_material_requested = pyqtSignal(str)
 
     countdown_finished = pyqtSignal()
 
@@ -48,6 +49,7 @@ class RecordingToolbar(QWidget):
 
         self._result_mode = False
         self._output_path = ""
+        self._index_failed = False
         self._auto_close_timer = QTimer(self)
         self._auto_close_timer.setSingleShot(True)
         self._auto_close_timer.timeout.connect(self._on_auto_close)
@@ -116,11 +118,11 @@ class RecordingToolbar(QWidget):
         self._btn_open.hide()
         layout.addWidget(self._btn_open)
 
-        self._btn_recent = QPushButton("最近")
-        self._btn_recent.setFixedSize(70, 28)
-        self._btn_recent.clicked.connect(self._on_recent_recordings)
-        self._btn_recent.hide()
-        layout.addWidget(self._btn_recent)
+        self._btn_material = QPushButton("素材库")
+        self._btn_material.setFixedSize(70, 28)
+        self._btn_material.clicked.connect(self._on_material_library)
+        self._btn_material.hide()
+        layout.addWidget(self._btn_material)
 
         self._btn_close_result = QPushButton("✕ 关闭")
         self._btn_close_result.setFixedSize(70, 28)
@@ -241,9 +243,10 @@ class RecordingToolbar(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_cancel.setEnabled(False)
 
-    def show_result(self, output_path: str, file_size: str):
+    def show_result(self, output_path: str, file_size: str, *, index_ok: bool = True):
         self._result_mode = True
         self._output_path = output_path
+        self._index_failed = not index_ok
         self._recording = False
         self._timer.stop()
 
@@ -254,6 +257,7 @@ class RecordingToolbar(QWidget):
         self._indicator.setText("✓")
         self._indicator.setStyleSheet("color: #2ecc71; font-size: 16px;")
         self._auto_close_timer.stop()
+        self._btn_material.setText("素材库" if index_ok else "重试入库")
         self._show_result_buttons()
         self._btn_pause.setEnabled(True)
         self._btn_stop.setEnabled(True)
@@ -271,7 +275,7 @@ class RecordingToolbar(QWidget):
         self._btn_cancel.setEnabled(True)
         self._btn_saved.hide()
         self._btn_open.hide()
-        self._btn_recent.hide()
+        self._btn_material.hide()
         self._btn_close_result.hide()
 
     def _show_result_buttons(self):
@@ -280,7 +284,7 @@ class RecordingToolbar(QWidget):
         self._btn_cancel.hide()
         self._btn_saved.show()
         self._btn_open.show()
-        self._btn_recent.show()
+        self._btn_material.show()
         self._btn_close_result.show()
 
     def _update_timer(self):
@@ -312,9 +316,16 @@ class RecordingToolbar(QWidget):
             self.open_folder_requested.emit()
         self._restart_auto_close()
 
-    def _on_recent_recordings(self):
-        self.recent_recordings_requested.emit()
+    def _on_material_library(self):
+        if self._index_failed and self._output_path:
+            self.retry_material_requested.emit(self._output_path)
+        else:
+            self.material_library_requested.emit()
         self._restart_auto_close()
+
+    def mark_material_index_saved(self) -> None:
+        self._index_failed = False
+        self._btn_material.setText("素材库")
 
     def _restart_auto_close(self):
         if self._result_mode:

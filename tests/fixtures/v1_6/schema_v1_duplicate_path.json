@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "max_items": 50,
+  "items": [
+    {
+      "id": "fixture-newer-duplicate",
+      "file_path": "E:\\QRtest\\QuickRec_20260710_150000.mp4",
+      "file_name": "QuickRec_20260710_150000.mp4",
+      "directory": "E:\\QRtest",
+      "mode": "fullscreen",
+      "audio_source": "both",
+      "created_at": "2026-07-10T15:00:00+08:00",
+      "status": "available"
+    },
+    {
+      "id": "fixture-older-duplicate",
+      "file_path": "e:/qrtest/./QuickRec_20260710_150000.mp4",
+      "file_name": "QuickRec_20260710_150000.mp4",
+      "directory": "e:/qrtest",
+      "mode": "unknown",
+      "audio_source": "unknown",
+      "created_at": "2026-07-10T14:59:00+08:00",
+      "status": "available"
+    }
+  ]
+}

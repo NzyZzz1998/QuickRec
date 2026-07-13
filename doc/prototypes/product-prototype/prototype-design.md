@@ -1,9 +1,9 @@
 # QuickRec 产品原型设计
 
 > 状态：规划原型  
-> 目录：`doc/product-prototype/`  
+> 目录：`doc/prototypes/product-prototype/`
 > 原型入口：`overview.html`  
-> 适用范围：QuickRec v1.1-v1.5 能力沉淀、v1.4-M5 额外补充项、Lite/Full 未来产品线规划
+> 适用范围：QuickRec v1.1-v1.6 能力沉淀、Lite/Full 产品线规划
 
 ## 1. 设计结论
 
@@ -23,9 +23,9 @@
 直接用浏览器打开以下文件：
 
 ```text
-doc/product-prototype/overview.html
-doc/product-prototype/lite.html
-doc/product-prototype/full.html
+doc/prototypes/product-prototype/overview.html
+doc/prototypes/product-prototype/lite.html
+doc/prototypes/product-prototype/full.html
 ```
 
 建议从 `overview.html` 开始查看，再进入 Lite 和 Full。
@@ -57,8 +57,7 @@ flowchart TD
 
     C --> C1["项目首页"]
     C --> C2["录制"]
-    C --> C3["最近录制"]
-    C --> C4["素材"]
+    C --> C3["跨路径素材库"]
     C --> C5["轻编辑"]
     C --> C6["导出队列"]
     C --> C7["质量诊断"]
@@ -114,8 +113,7 @@ Lite 边界：
 核心区域：
 - 项目首页
 - 录制
-- 最近录制
-- 素材
+- 素材库
 - 轻编辑
 - 导出队列
 - 质量诊断中心
@@ -124,8 +122,8 @@ Lite 边界：
 交互：
 - 左侧导航切换多个工作台页面。
 - 模拟开始 / 停止录制。
-- 最近录制中模拟复制路径、移除失效记录，以及空状态与示例记录之间的切换。
-- 素材卡片选中状态切换。
+- 素材库中模拟列表与详情联动、加载更多、复制路径、重新定位和两类删除操作。
+- 素材库支持迁移摘要、目录重建、取消、恢复成功、索引失败和空状态演示。
 - 导出进度推进。
 - 质量诊断状态切换。
 
@@ -144,8 +142,21 @@ Full 边界：
 | v1.4 M1-M4 | 测试基线、CI/Lint/mypy、架构解耦、运行时稳定性、发布收口 | overview 的路线图；Full 的工程健康和质量诊断 |
 | v1.4 M5 | 特殊窗口诊断、音频自检、硬件验收、体积优化、lite/full 规划 | overview 的 M5 区域；Full 的质量诊断；Lite/Full 产品线边界 |
 | v1.5 | 自绘光标收口、最近录制、素材入库、WGC 捕获后端 spike | Full 的最近录制入口、素材入库地基和光标策略说明 |
+| v1.6 | 中央素材索引、历史迁移恢复、目录重建、重新定位、基础元数据 | Full 的跨路径素材库、列表详情、加载更多和异常状态 |
 
-## 7. v1.4-M5 对应关系
+## 7. v1.6 素材库原型边界
+
+`full.html` 中的“素材库”是 v1.6 当前实现目标，包含：
+
+- 默认最近 50 条和逐次加载更多；
+- 左侧列表、右侧详情和窄窗口上下布局；
+- 可用、缺失、元数据不完整和空状态；
+- 迁移摘要、导入旧目录、目录重建、取消和恢复反馈；
+- 打开、打开目录、复制路径、重新定位、从素材库移除和移入回收站。
+
+项目首页、轻编辑、导出队列、模板预设仍用于表达 Full 长期方向，不代表 v1.6 已实现。AI 模型、字幕、摘要、章节、标签和实时 AI 不进入本轮原型验收范围。
+
+## 8. v1.4-M5 对应关系
 
 | M5 模块 | 原型表达 |
 | --- | --- |
@@ -156,7 +167,7 @@ Full 边界：
 | M5.5 打包体积优化具体尝试 | overview 的决策看板；Full 质量诊断中心 |
 | M5.6 lite/full 未来规划 | overview、Lite、Full 三份原型的核心边界 |
 
-## 8. 旧原型目录定位
+## 9. 旧原型目录定位
 
 旧目录 `doc/full-workbench-prototype/` 保留作为历史版本参考。后续产品原型评审和规划应优先查看 `doc/product-prototype/`。
 
@@ -165,7 +176,7 @@ Full 边界：
 - 它记录了 Full 不属于 v1.4 强制开发范围的早期结论。
 - 新原型在此基础上补齐了 Lite、产品线总览、M5 和决策看板。
 
-## 9. 后续建议
+## 10. 后续建议
 
 1. 先依据 `overview.html` 确认 Lite / Full 产品线边界。
 2. 再独立评审 `lite.html`，确认轻量分支能力是否足够克制。

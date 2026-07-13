@@ -6,6 +6,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('ffmpeg/ffmpeg.exe', 'ffmpeg'),
+        ('ffmpeg/ffprobe.exe', 'ffmpeg'),
     ],
     hiddenimports=[
         'dxcam',
@@ -24,6 +25,12 @@ a = Analysis(
         'utils',
         'utils.file_namer',
         'utils.disk_checker',
+        'utils.recording_library_store',
+        'utils.media_metadata',
+        'utils.recycle_bin',
+        'services',
+        'services.recording_library',
+        'send2trash',
         'utils.autostart',
         'recorder',
         'recorder.screen_capturer',

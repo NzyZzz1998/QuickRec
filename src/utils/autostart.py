@@ -46,7 +46,7 @@ def enable_autostart() -> bool:
         True 如果成功写入
     """
     try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTO_RUN_KEY, 0, winreg.KEY_SET_VALUE)
+        key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, AUTO_RUN_KEY, 0, winreg.KEY_SET_VALUE)
         exe_path = _get_executable_path()
         winreg.SetValueEx(key, AUTO_RUN_NAME, 0, winreg.REG_SZ, exe_path)
         winreg.CloseKey(key)

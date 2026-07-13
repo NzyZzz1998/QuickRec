@@ -25,6 +25,9 @@ import logging
 import os
 import platform
 import sys
+import threading
+from datetime import datetime
+from pathlib import Path
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import QApplication
@@ -33,10 +36,11 @@ from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.workflow import RecordingWorkflow
+from services.recording_library import MigrationResult, RecordingLibraryService
 from ui.area_selector import AreaSelector
 from ui.click_highlighter import ClickHighlighter
 from ui.settings_dialog import SettingsDialog
-from ui.recent_recordings_dialog import RecentRecordingsDialog
+from ui.material_library_dialog import MaterialLibraryDialog
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
@@ -51,7 +55,8 @@ from utils.diagnostics import (
     resolve_diagnostic_dir,
 )
 from utils.disk_checker import DiskChecker, show_disk_warning
-from utils.recording_history import add_history_item, build_history_item
+from utils.recording_library_store import resolve_library_file
+from version import APP_VERSION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,6 +108,10 @@ class _WindowLostBridge(QObject):
     window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
+class _MigrationBridge(QObject):
+    initial_migration_finished = pyqtSignal(object)
+
+
 class QuickRecApp:
     """QuickRec 应用主类"""
 
@@ -121,7 +130,10 @@ class QuickRecApp:
         self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
         self._toolbar = None
-        self._recent_recordings_dialog = None
+        self._library_service = RecordingLibraryService(resolve_library_file())
+        self._material_library_dialog = None
+        self._initial_migration_result: MigrationResult | None = None
+        self._migration_thread: threading.Thread | None = None
         self._config_saved_pending = False
 
         # v1.2 新增模块
@@ -132,6 +144,10 @@ class QuickRecApp:
         # 编码完成信号桥
         self._saved_bridge = _SavedBridge()
         self._saved_bridge.saved.connect(self._handle_saved)
+        self._migration_bridge = _MigrationBridge()
+        self._migration_bridge.initial_migration_finished.connect(
+            self._on_initial_migration_finished
+        )
 
         # 快捷键信号桥
         self._hotkey_bridge = _HotkeyBridge()
@@ -166,7 +182,7 @@ class QuickRecApp:
                 "pause_resume": self._on_pause_resume,
                 "stop": self._on_stop_recording,
                 "settings": self._show_settings,
-                "recent_recordings": self._show_recent_recordings,
+                "material_library": self._show_material_library,
                 "copy_diagnostic": self._on_copy_diagnostic_info,
                 "open_diagnostic_dir": self._on_open_diagnostic_dir,
                 "export_diagnostic": self._on_export_diagnostic_file,
@@ -181,8 +197,80 @@ class QuickRecApp:
     def run(self):
         """启动应用"""
         self._tray.show()
+        self._start_initial_migration()
         logger.info("QuickRec 已启动")
         return self._app.exec_()
+
+    def _start_initial_migration(self) -> None:
+        if self._migration_thread is not None and self._migration_thread.is_alive():
+            return
+
+        def migrate() -> None:
+            result = self._run_initial_migration()
+            if result is not None:
+                self._migration_bridge.initial_migration_finished.emit(result)
+
+        self._migration_thread = threading.Thread(
+            target=migrate,
+            name="QuickRecLibraryMigration",
+            daemon=True,
+        )
+        self._migration_thread.start()
+
+    def _run_initial_migration(self) -> MigrationResult | None:
+        save_path = Path(self._config.get("save_path", ""))
+        source = save_path / "QuickRecMetadata" / "recordings.json"
+        if not source.is_file() or self._library_service.has_processed_source(source):
+            return None
+        logger.info("material library migration started: %s", source)
+        result = self._library_service.migrate_v1_history(
+            source,
+            imported_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        if result.ok:
+            logger.info(
+                "material library migration completed: added=%s duplicate=%s skipped=%s pruned=%s",
+                result.added_count,
+                result.duplicate_count,
+                result.skipped_count,
+                result.pruned_count,
+            )
+        else:
+            logger.warning("material library migration failed: %s", result.error)
+        return result
+
+    def _register_save_path_legacy_prompt(self, save_path: str | Path) -> Path | None:
+        source = Path(save_path) / "QuickRecMetadata" / "recordings.json"
+        if not source.is_file() or self._library_service.has_source_status(source):
+            return None
+        written = self._library_service.mark_source_status(
+            source,
+            status="prompted",
+            changed_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        )
+        if not written.ok:
+            logger.warning("material migration prompt status save failed: %s", written.error)
+            return None
+        return source
+
+    def _handle_save_path_changed(self, save_path: str | Path) -> None:
+        source = self._register_save_path_legacy_prompt(save_path)
+        if source is None:
+            return
+        self._tray.show_notification("新保存目录包含旧录制历史，可在素材库中导入")
+        self._show_material_library()
+        self._material_library_dialog.show_legacy_source_prompt(source)
+
+    def _on_initial_migration_finished(self, result: MigrationResult) -> None:
+        self._initial_migration_result = result
+        if result.ok:
+            self._tray.show_notification(
+                f"素材迁移完成：新增 {result.added_count} 条，重复 {result.duplicate_count} 条"
+            )
+        else:
+            self._tray.show_notification("素材迁移失败，请打开素材库重试或稍后处理")
+        if self._material_library_dialog is not None:
+            self._material_library_dialog.show_migration_result(result)
 
     def _setup_hotkeys(self):
         """绑定快捷键（通过信号桥转发到主线程）"""
@@ -442,7 +530,8 @@ class QuickRecApp:
         # v1.1: 结果条信号连接
         self._toolbar.open_folder_requested.connect(self._on_open_folder)
         self._toolbar.open_file_requested.connect(self._on_open_file)
-        self._toolbar.recent_recordings_requested.connect(self._show_recent_recordings)
+        self._toolbar.material_library_requested.connect(self._show_material_library)
+        self._toolbar.retry_material_requested.connect(self._retry_material_item)
 
         self._toolbar.show()
 
@@ -519,7 +608,9 @@ class QuickRecApp:
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
             size_str = f"{file_size_mb:.1f}MB"
             logger.info(f"录制已保存: {output_path}")
-            self._save_recording_history(output_path)
+            index_ok = self._save_material_item(output_path)
+            if not index_ok:
+                self._tray.show_notification("录制已保存，但素材索引写入失败")
 
             # v1.1: Toast 通知带"打开文件夹"按钮
             self._tray.show_notification_with_action(
@@ -531,7 +622,7 @@ class QuickRecApp:
 
             # v1.1: 工具栏显示结果条
             if self._toolbar:
-                self._toolbar.show_result(output_path, size_str)
+                self._toolbar.show_result(output_path, size_str, index_ok=index_ok)
         else:
             logger.error("编码保存失败")
             self._tray.show_notification("保存失败")
@@ -543,32 +634,47 @@ class QuickRecApp:
             self._window_highlighter = None
         self._click_highlighter.stop()
 
-    def _save_recording_history(self, output_path: str) -> bool:
+    def _save_material_item(self, output_path: str) -> bool:
         try:
+            metadata = (
+                self._recorder.get_last_recording_metadata()
+                if self._recorder and hasattr(self._recorder, "get_last_recording_metadata")
+                else {}
+            )
             mode = self._recorder.get_mode() if self._recorder else "unknown"
-            item = build_history_item(
+            metadata.setdefault("mode", getattr(mode, "value", str(mode)))
+            metadata.setdefault("audio_source", self._config.get("audio_source", "none"))
+            result = self._library_service.add_recording(
                 output_path,
-                mode=mode,
-                audio_source=self._config.get("audio_source", "none"),
+                metadata=metadata,
                 diagnostic_dir=self._config.get_diagnostic_dir(),
             )
-            result = add_history_item(self._config, item)
             if not result.ok:
-                logger.warning(f"recording history save failed: {result.error}")
+                logger.warning(f"material library save failed: {result.error}")
                 return False
             return True
         except Exception as exc:
-            logger.warning(f"recording history save failed: {exc}")
+            logger.warning(f"material library save failed: {exc}")
             return False
 
-    def _show_recent_recordings(self):
-        if self._recent_recordings_dialog is None:
-            self._recent_recordings_dialog = RecentRecordingsDialog(self._config)
+    def _retry_material_item(self, output_path: str) -> None:
+        if self._save_material_item(output_path):
+            self._tray.show_notification("素材已加入素材库")
+            if self._toolbar:
+                self._toolbar.mark_material_index_saved()
         else:
-            self._recent_recordings_dialog.reload()
-        self._recent_recordings_dialog.show()
-        self._recent_recordings_dialog.raise_()
-        self._recent_recordings_dialog.activateWindow()
+            self._tray.show_notification("素材索引写入仍然失败，请检查诊断日志")
+
+    def _show_material_library(self):
+        if self._material_library_dialog is None:
+            self._material_library_dialog = MaterialLibraryDialog(self._library_service)
+            if self._initial_migration_result is not None:
+                self._material_library_dialog.show_migration_result(self._initial_migration_result)
+        else:
+            self._material_library_dialog.reload()
+        self._material_library_dialog.show()
+        self._material_library_dialog.raise_()
+        self._material_library_dialog.activateWindow()
 
     # --- 设置 ---
 
@@ -577,6 +683,7 @@ class QuickRecApp:
         # 打开设置期间暂停全局快捷键，避免与快捷键录制控件冲突
         self._hotkey.stop_listening()
         self._config_saved_pending = False
+        save_path_before = self._config.get("save_path", "")
         dialog = SettingsDialog(self._config)
         dialog.config_saved.connect(self._on_config_saved_pend)
         dialog.copy_diagnostic_requested.connect(
@@ -589,6 +696,10 @@ class QuickRecApp:
             lambda path: self._on_export_diagnostic_file(path, dialog)
         )
         dialog.exec_()
+
+        save_path_after = self._config.get("save_path", "")
+        if save_path_after and save_path_after != save_path_before:
+            self._handle_save_path_changed(save_path_after)
 
         # 对话框关闭后，统一重绑定并重新启动快捷键监听
         if self._config_saved_pending:
@@ -612,7 +723,7 @@ class QuickRecApp:
         failure = recorder_context.get("last_failure_reason", "")
         snapshot = DiagnosticSnapshot(
             app={
-                "version": "v1.4.x",
+                "version": APP_VERSION,
                 "python": sys.version.split()[0],
                 "windows": platform.platform(),
                 "frozen": bool(getattr(sys, "frozen", False)),

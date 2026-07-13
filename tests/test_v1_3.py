@@ -104,12 +104,13 @@ class TestVideoEncoderV13(unittest.TestCase):
             [_FFMPEG.replace("ffmpeg.exe", "ffprobe.exe")
              if os.path.isfile(_FFMPEG.replace("ffmpeg.exe", "ffprobe.exe"))
              else _FFMPEG, "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "codec_name", "-of", "default=nw=1", self.output],
+             "-show_entries", "stream=codec_name", "-of", "default=nw=1", self.output],
             capture_output=True, text=True
         ) if os.path.isfile(_FFMPEG.replace("ffmpeg.exe", "ffprobe.exe")) else None
         # ffprobe 缺失时不强测；有时仅打包 ffmpeg
         if out is None:
             self.skipTest("ffprobe 未随包提供，跳过编码格式断言")
+        self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("h264", out.stdout.lower())
 
 

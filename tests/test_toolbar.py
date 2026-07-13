@@ -63,24 +63,36 @@ class TestRecordingToolbar(unittest.TestCase):
         self.assertTrue(hasattr(toolbar, 'resumed'))
         self.assertTrue(hasattr(toolbar, 'stopped'))
         self.assertTrue(hasattr(toolbar, 'cancelled'))
-        self.assertTrue(hasattr(toolbar, 'recent_recordings_requested'))
+        self.assertTrue(hasattr(toolbar, 'material_library_requested'))
 
-    def test_result_mode_shows_recent_recordings_button(self):
+    def test_result_mode_shows_material_library_button(self):
         toolbar = RecordingToolbar()
 
         toolbar.show_result("out.mp4", "1.0MB")
 
-        self.assertFalse(toolbar._btn_recent.isHidden())
+        self.assertFalse(toolbar._btn_material.isHidden())
+        self.assertEqual(toolbar._btn_material.text(), "素材库")
 
-    def test_recent_recordings_button_emits_signal(self):
+    def test_material_library_button_emits_signal(self):
         toolbar = RecordingToolbar()
         calls = []
-        toolbar.recent_recordings_requested.connect(lambda: calls.append("recent"))
+        toolbar.material_library_requested.connect(lambda: calls.append("material"))
         toolbar.show_result("out.mp4", "1.0MB")
 
-        toolbar._btn_recent.click()
+        toolbar._btn_material.click()
 
-        self.assertEqual(calls, ["recent"])
+        self.assertEqual(calls, ["material"])
+
+    def test_index_failure_changes_result_action_to_retry(self):
+        toolbar = RecordingToolbar()
+        retries = []
+        toolbar.retry_material_requested.connect(retries.append)
+
+        toolbar.show_result("out.mp4", "1.0MB", index_ok=False)
+        toolbar._btn_material.click()
+
+        self.assertEqual(toolbar._btn_material.text(), "重试入库")
+        self.assertEqual(retries, ["out.mp4"])
 
     def test_window_flags(self):
         """测试窗口标志"""

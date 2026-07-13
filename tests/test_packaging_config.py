@@ -12,6 +12,10 @@ def test_pyinstaller_spec_includes_ffmpeg_binary():
     assert "('ffmpeg/ffmpeg.exe', 'ffmpeg')" in SPEC_TEXT
 
 
+def test_pyinstaller_spec_includes_ffprobe_binary():
+    assert "('ffmpeg/ffprobe.exe', 'ffmpeg')" in SPEC_TEXT
+
+
 def test_pyinstaller_spec_includes_runtime_hiddenimports():
     required_hiddenimports = [
         "recorder.recorder_manager",
@@ -32,6 +36,11 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "pyaudio",
         "winotify",
         "cv2",
+        "services.recording_library",
+        "utils.recording_library_store",
+        "utils.media_metadata",
+        "utils.recycle_bin",
+        "send2trash",
     ]
 
     for module_name in required_hiddenimports:

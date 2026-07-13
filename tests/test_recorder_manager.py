@@ -159,6 +159,23 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(manager.get_state(), RecorderState.IDLE)
         self.assertIsInstance(manager._state_machine, RecordingStateMachine)
 
+    def test_last_recording_metadata_uses_session_known_values(self):
+        manager = RecorderManager(self.config)
+        manager._last_duration_sec = 3.25
+        manager._encode_size = (1920, 1080)
+        manager._fps = 60
+        manager._mode = RecordMode.REGION
+        manager._audio_source = "both"
+
+        metadata = manager.get_last_recording_metadata()
+
+        self.assertEqual(metadata["duration_sec"], 3.25)
+        self.assertEqual(metadata["width"], 1920)
+        self.assertEqual(metadata["height"], 1080)
+        self.assertEqual(metadata["fps"], 60.0)
+        self.assertEqual(metadata["mode"], "region")
+        self.assertEqual(metadata["audio_source"], "both")
+
     def test_diagnostic_context_contains_recorder_state_and_paths(self):
         manager = RecorderManager(self.config)
         manager._mode = RecordMode.REGION

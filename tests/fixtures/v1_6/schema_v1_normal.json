@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "max_items": 50,
+  "items": [
+    {
+      "id": "fixture-fullscreen-001",
+      "file_path": "E:\\QRtest\\QuickRec_20260710_150000.mp4",
+      "file_name": "QuickRec_20260710_150000.mp4",
+      "directory": "E:\\QRtest",
+      "mode": "fullscreen",
+      "audio_source": "both",
+      "created_at": "2026-07-10T15:00:00+08:00",
+      "duration_sec": 12.5,
+      "file_size_bytes": 1024000,
+      "status": "available",
+      "diagnostic_dir": "E:\\QRtest\\QuickRecDiagnostics"
+    },
+    {
+      "id": "fixture-window-002",
+      "file_path": "E:\\QRtest\\QuickRec_20260710_140000.mp4",
+      "file_name": "QuickRec_20260710_140000.mp4",
+      "directory": "E:\\QRtest",
+      "mode": "window",
+      "audio_source": "system",
+      "created_at": "2026-07-10T14:00:00+08:00",
+      "duration_sec": null,
+      "file_size_bytes": 512000,
+      "status": "available",
+      "diagnostic_dir": null
+    }
+  ]
+}

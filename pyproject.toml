@@ -31,7 +31,14 @@ line-length = 120
 src = ["src", "tests"]
 extend-exclude = [
   "src/main.py",
-  "src/ui",
+  "src/ui/area_selector.py",
+  "src/ui/click_highlighter.py",
+  "src/ui/recent_recordings_dialog.py",
+  "src/ui/settings_dialog.py",
+  "src/ui/toolbar.py",
+  "src/ui/tray_icon.py",
+  "src/ui/window_highlighter.py",
+  "src/ui/window_selector.py",
   "src/recorder/audio_capturer.py",
   "tests/test_area_selector.py",
   "tests/test_config.py",
@@ -59,9 +66,15 @@ follow_imports = "skip"
 check_untyped_defs = false
 warn_unused_ignores = true
 files = [
+  "src/version.py",
   "src/config.py",
+  "src/services/recording_library.py",
+  "src/ui/material_library_dialog.py",
   "src/utils/file_namer.py",
   "src/utils/disk_checker.py",
+  "src/utils/media_metadata.py",
+  "src/utils/recording_library_store.py",
+  "src/utils/recycle_bin.py",
   "src/utils/temp_cleaner.py",
   "src/recorder/events.py",
   "src/recorder/state_machine.py",

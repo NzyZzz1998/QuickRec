@@ -69,6 +69,7 @@ class RecorderManager:
         self._start_time: float = 0
         self._pause_duration: float = 0
         self._pause_start: float = 0
+        self._last_duration_sec: float = 0
         self._output_path: str = ""
         self._lock = threading.Lock()
         self._cancelled = False
@@ -223,8 +224,10 @@ class RecorderManager:
 
     def stop(self, cancel: bool = False) -> str:
         with self._lock:
+            previous_state = self._state_machine.state
             if not self._state_machine.transition_to(RecorderState.STOPPING):
                 return ""
+            self._last_duration_sec = self._calculate_elapsed_seconds(previous_state)
         self._cancelled = cancel
         self._stop_event.set()
         self._resume_event.set()
@@ -239,12 +242,16 @@ class RecorderManager:
         state = self.get_state()
         if state == RecorderState.IDLE:
             return "00:00"
-        elapsed = time.time() - self._start_time - self._pause_duration
-        if state == RecorderState.PAUSED:
-            elapsed -= (time.time() - self._pause_start)
+        elapsed = self._calculate_elapsed_seconds(state)
         minutes = int(elapsed) // 60
         seconds = int(elapsed) % 60
         return f"{minutes:02d}:{seconds:02d}"
+
+    def _calculate_elapsed_seconds(self, state: RecorderState) -> float:
+        elapsed = time.time() - self._start_time - self._pause_duration
+        if state == RecorderState.PAUSED:
+            elapsed -= time.time() - self._pause_start
+        return max(0.0, elapsed)
 
     def is_saving(self) -> bool:
         return self.get_state() == RecorderState.SAVING
@@ -259,6 +266,18 @@ class RecorderManager:
 
     def get_mode(self) -> RecordMode:
         return self._mode
+
+    def get_last_recording_metadata(self) -> dict[str, float | int | str | None]:
+        """返回最终化回调可直接入库的会话已知元数据。"""
+        width, height = self._encode_size if self._encode_size else (0, 0)
+        return {
+            "duration_sec": self._last_duration_sec or None,
+            "width": width or None,
+            "height": height or None,
+            "fps": float(self._fps) if self._fps else None,
+            "mode": self._mode.value,
+            "audio_source": self._audio_source,
+        }
 
     def get_window_hwnd(self) -> int:
         return self._window_hwnd

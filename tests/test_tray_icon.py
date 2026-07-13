@@ -43,7 +43,8 @@ class TestTrayIcon(unittest.TestCase):
         menu = tray._build_idle_menu()
         labels = [item.text for item in menu.items if hasattr(item, "text")]
 
-        self.assertIn("最近录制", labels)
+        self.assertIn("素材库", labels)
+        self.assertNotIn("最近录制", labels)
         self.assertIn("复制诊断信息", labels)
         self.assertIn("打开日志目录", labels)
         self.assertIn("导出诊断文件", labels)
@@ -54,7 +55,8 @@ class TestTrayIcon(unittest.TestCase):
         menu = tray._build_recording_menu()
         labels = [item.text for item in menu.items if hasattr(item, "text")]
 
-        self.assertIn("最近录制", labels)
+        self.assertIn("素材库", labels)
+        self.assertNotIn("最近录制", labels)
         self.assertIn("复制诊断信息", labels)
         self.assertIn("打开日志目录", labels)
         self.assertIn("导出诊断文件", labels)
@@ -62,18 +64,18 @@ class TestTrayIcon(unittest.TestCase):
     def test_diagnostic_callbacks_are_forwarded_by_signal_bridge(self):
         calls = []
         tray = TrayIcon(callbacks={
-            "recent_recordings": lambda: calls.append("recent"),
+            "material_library": lambda: calls.append("material"),
             "copy_diagnostic": lambda: calls.append("copy"),
             "open_diagnostic_dir": lambda: calls.append("open"),
             "export_diagnostic": lambda: calls.append("export"),
         })
 
-        tray._handle_recent_recordings()
+        tray._handle_material_library()
         tray._handle_copy_diagnostic()
         tray._handle_open_diagnostic_dir()
         tray._handle_export_diagnostic()
 
-        self.assertEqual(calls, ["recent", "copy", "open", "export"])
+        self.assertEqual(calls, ["material", "copy", "open", "export"])
 
 
 if __name__ == "__main__":
