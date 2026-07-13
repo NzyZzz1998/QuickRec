@@ -107,4 +107,16 @@
 - 发布阻塞：无。
 - 已知限制：结果条超时后的持久“重试入库”入口延后到后续版本，不阻塞 v1.6。
 - 环境恢复：QuickRec 进程已停止，受控视频与隔离索引存在，临时重定位文件不存在，QuickRec Lite 工作区干净。
-- 下一阶段：可以进入发布收口，但仍需用户单独授权 commit、push、tag 和 GitHub Release。
+- 下一阶段：可以进入发布收口；用户已于后续步骤授权执行 commit、push、tag 和 GitHub Release。
+
+## 11. 正式发布包复核（2026-07-13）
+
+- 发布源提交：`c2c9b27147c96ee01518651fa6d3578c4615d8ce`。
+- 正式 EXE：`E:\QRtest\QuickRec-v1.6-release-dist\QuickRec\QuickRec.exe`。
+- EXE SHA256：`99D7309E8C3BA3F46F7322D9CD79E1126F1C4DD333E1F581B9110EEA26406290`。
+- 发布 ZIP：`E:\QRtest\QuickRec-v1.6-win-x64.zip`。
+- ZIP SHA256：`30F002F8E085220E86C37B1EC672A47739560A80488743A4D6EDE1DB9FED6C69`。
+- 包内 FFmpeg、FFprobe 存在；FFprobe 可解析最终 smoke 视频。
+- 隔离基础启动保持运行 4 秒，结果通过。
+- 最终全屏硬件 smoke：`OK: video stream ok`，证据文件 `E:\QRtest\QuickRec-v1.6-release-smoke\QuickRec_20260713_190501.mp4`。
+- 全量测试 340 passed，coverage 83.75%，packaging 12 passed；ruff、mypy、compileall 通过。

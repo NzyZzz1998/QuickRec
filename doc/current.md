@@ -3,49 +3,43 @@
 ## 当前定位
 
 - 产品线：QuickRec Full
-- 当前版本：v1.5
+- 当前版本：v1.6
 - 当前发布分支：`master`
-- 当前标签：`v1.5`
+- 当前标签：`v1.6`
 - 当前工作区：`E:\codex\QuickRec`
-- 验收产物：`E:\QRtest\QuickRec-v1.5-dist\QuickRec\QuickRec.exe`
-- 验收产物 SHA256：`C2BFECA3BA6204D3EE078F6A9D7E0E17389373CEB2747421868317D55B4D9FC4`
-- GitHub Release 资产：`QuickRec-v1.5-win-x64.zip`
-- GitHub Release：[QuickRec Full v1.5](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.5)
-- 发布 ZIP SHA256：`4B7F1F15DCFBDA8AA988B712D101FDA37682FEAF33749FAB701337C6E07C04B4`
+- 发布源提交：`c2c9b27147c96ee01518651fa6d3578c4615d8ce`
+- 验收产物：`E:\QRtest\QuickRec-v1.6-release-dist\QuickRec\QuickRec.exe`
+- 验收产物 SHA256：`99D7309E8C3BA3F46F7322D9CD79E1126F1C4DD333E1F581B9110EEA26406290`
+- GitHub Release 资产：`QuickRec-v1.6-win-x64.zip`
+- GitHub Release：[QuickRec Full v1.6](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.6)
+- 发布 ZIP SHA256：`30F002F8E085220E86C37B1EC672A47739560A80488743A4D6EDE1DB9FED6C69`
 
 `v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce feat(v1.4.x): add diagnostic export workflow`。本工作区当前 `master` 后续 HEAD 可能包含 post-split 文档治理提交，但不得移动或重写 `v1.4.1` tag。
 
 ## 当前发布状态
 
-v1.5 已完成开发、自动化验证、全屏硬件 smoke、独立打包和 D6.3 GUI/原型验收，当前无发布阻塞项，作为 QuickRec Full 当前正式版本发布。
+v1.6 轻量素材库基础版已完成开发、自动化验证、独立打包、硬件 smoke 和 D7 GUI 手动验收，当前无发布阻塞，作为 QuickRec Full 当前正式版本发布。
 
-v1.6 轻量素材库基础版当前位于 `feature/v1.6-material-library`。中央索引、迁移恢复、素材库 UI、会话元数据和回收站接口已完成实现；自动化、独立打包、硬件 smoke 和 D7 GUI 手动验收均已通过，当前无发布阻塞，正在执行正式发布收口。在 `v1.6` tag 和 GitHub Release 创建完成前，v1.5 仍是远端正式版本。
+v1.5 保留为上一稳定发布和代码/发布包回滚点；回滚不会重写 v1.6 中央素材索引。
 
 v1.4.1 在 v1.4 稳定性与工程化基线之上新增诊断导出能力，仍是当前明确的代码与发布包回滚点。
 
 ## 当前版本文档
 
-- PRD：`doc/releases/v1.5/prd.md`
-- 实施计划：`doc/releases/v1.5/dev_plan.md`
-- 进度：`doc/releases/v1.5/progress.md`
-- 手动验收：`doc/releases/v1.5/manual-verification.md`
-- Bugfix：`doc/releases/v1.5/bugfix-log.md`
-- 捕获后端研究：`doc/releases/v1.5/capture-backend-spike.md`
-- 发布说明：`doc/releases/v1.5/release-notes.md`
-- 变更日志：`doc/releases/v1.5/changelog.md`
+- PRD：`doc/releases/v1.6/prd.md`
+- 实施计划：`doc/releases/v1.6/dev_plan.md`
+- 进度：`doc/releases/v1.6/progress.md`
+- 测试用例：`doc/releases/v1.6/test-cases.md`
+- 手动验收：`doc/releases/v1.6/manual-verification.md`
+- 验证汇总：`doc/releases/v1.6/verification.md`
+- Bugfix：`doc/releases/v1.6/bugfix-log.md`
+- 发布说明：`doc/releases/v1.6/release-notes.md`
+- 变更日志：`doc/releases/v1.6/changelog.md`
 
-## 当前开发版本文档
+## 当前版本过程记录
 
-- v1.6 PRD：`doc/releases/v1.6/prd.md`
-- v1.6 实施计划：`doc/releases/v1.6/dev_plan.md`
-- v1.6 进度：`doc/releases/v1.6/progress.md`
-- v1.6 测试用例：`doc/releases/v1.6/test-cases.md`
-- v1.6 开发日志：`doc/releases/v1.6/dev_log.md`
-- v1.6 缺陷记录：`doc/releases/v1.6/bugfix-log.md`
-- v1.6 发布说明：`doc/releases/v1.6/release-notes.md`
-- v1.6 变更日志：`doc/releases/v1.6/changelog.md`
-- v1.6 验证汇总：`doc/releases/v1.6/verification.md`
-- v1.6 GUI 手动验收：`doc/releases/v1.6/manual-verification.md`
+- 开发日志：`doc/releases/v1.6/dev_log.md`
+- DPI 专项人工验收：`doc/releases/v1.6/manual-dpi-verification.md`
 
 ## 历史与支撑文档
 
