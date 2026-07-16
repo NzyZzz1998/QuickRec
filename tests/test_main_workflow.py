@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import main
+from services.material_ingestion import MaterialIngestionCoordinator
+from services.pending_recordings import PendingRecordingService
 
 
 class FakeQApplication:
@@ -223,6 +226,12 @@ class FakeToolbar:
     def set_paused(self, value):
         self.paused_states.append(value)
 
+    def show_result(self, output_path, file_size, *, index_ok=True):
+        self.result = (output_path, file_size, index_ok)
+
+    def mark_material_index_saved(self):
+        self.material_index_saved = True
+
 
 class TestQuickRecAppWorkflow(unittest.TestCase):
     def test_init_wires_workflow_to_recorder_and_event_callback(self):
@@ -246,6 +255,8 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIn("open_diagnostic_dir", app._tray.callbacks)
         self.assertIn("export_diagnostic", app._tray.callbacks)
         self.assertIn("material_library", app._tray.callbacks)
+        self.assertIsInstance(app._pending_service, PendingRecordingService)
+        self.assertIsInstance(app._ingestion_coordinator, MaterialIngestionCoordinator)
 
     def test_copy_diagnostic_info_writes_clipboard_and_notifies(self):
         class Clipboard:
@@ -275,7 +286,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
             text = app._build_diagnostic_text()
 
-        self.assertIn("version: v1.6", text)
+        self.assertIn("version: v1.6.1", text)
         self.assertNotIn("version: v1.4.x", text)
 
     def test_export_diagnostic_file_writes_file_and_notifies(self):
@@ -306,6 +317,14 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app._click_highlighter = FakeClickHighlighter()
             central_index = Path(temp_dir) / "appdata" / "QuickRec" / "recordings.json"
             app._library_service = main.RecordingLibraryService(central_index)
+            app._pending_service = PendingRecordingService(
+                Path(temp_dir) / "appdata" / "QuickRec" / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
 
             app._handle_saved(str(video))
 
@@ -318,7 +337,12 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
     def test_handle_saved_keeps_recording_success_when_library_write_fails(self):
         class FailingLibrary:
-            def add(self, _item):
+            library_path = Path("denied-recordings.json")
+
+            def find_existing(self, **_kwargs):
+                return None
+
+            def add_recording(self, *_args, **_kwargs):
                 return type("Result", (), {"ok": False, "error": "denied"})()
 
         app = main.QuickRecApp.__new__(main.QuickRecApp)
@@ -332,12 +356,88 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app._window_highlighter = None
             app._click_highlighter = FakeClickHighlighter()
             app._library_service = FailingLibrary()
+            pending_path = Path(temp_dir) / "appdata" / "QuickRec" / "pending-recordings.json"
+            app._pending_service = PendingRecordingService(pending_path)
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
 
             app._handle_saved(str(video))
+
+            pending = app._pending_service.load(temp_dir)
 
         action_notifications = [entry for entry in app._tray.notifications if entry[0] == "action"]
         self.assertEqual(len(action_notifications), 1)
         self.assertIn(("录制已保存，但素材索引写入失败",), app._tray.notifications)
+        self.assertEqual(len(pending.items), 1)
+        self.assertEqual(pending.items[0].file_path, str(video))
+
+    def test_retry_material_item_reuses_pending_record_and_cleans_it_after_success(self):
+        class ToggleLibrary(main.RecordingLibraryService):
+            fail = True
+
+            def add_recording(self, *args, **kwargs):
+                if self.fail:
+                    return type("Result", (), {"ok": False, "error": "denied"})()
+                return super().add_recording(*args, **kwargs)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_20260715_120000.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "none"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = FakeToolbar()
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._library_service = ToggleLibrary(Path(temp_dir) / "recordings.json")
+            app._pending_service = PendingRecordingService(Path(temp_dir) / "pending-recordings.json")
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+            self.assertEqual(len(app._pending_service.load(temp_dir).items), 1)
+            app._library_service.fail = False
+            app._retry_material_item(str(video))
+
+            self.assertEqual(app._pending_service.load(temp_dir).items, [])
+            self.assertEqual(len(app._library_service.load().items), 1)
+            self.assertTrue(app._toolbar.material_index_saved)
+            self.assertIn(("素材已加入素材库",), app._tray.notifications)
+
+    def test_startup_pending_retry_runs_once_in_background_and_reports_recovery(self):
+        completed = threading.Event()
+
+        class Coordinator:
+            calls = []
+
+            def retry_startup(self, save_path):
+                self.calls.append(save_path)
+                return main.StartupRetrySummary(scanned_count=2, succeeded_count=1, failed_count=1)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._config = FakeConfig({"save_path": "E:/QRtest/videos"})
+        app._ingestion_coordinator = Coordinator()
+        app._pending_retry_thread = None
+        app._tray = FakeTray(config=None, callbacks={})
+        app._material_library_dialog = None
+        app._pending_retry_bridge = type("Bridge", (), {"finished": FakeSignal()})()
+        app._pending_retry_bridge.finished.connect(
+            lambda summary: (app._on_pending_retry_finished(summary), completed.set())
+        )
+
+        app._start_pending_retry()
+        self.assertTrue(completed.wait(1))
+        app._pending_retry_thread.join(timeout=1)
+
+        self.assertEqual(app._ingestion_coordinator.calls, ["E:/QRtest/videos"])
+        self.assertIn(("已恢复 1 条录制",), app._tray.notifications)
 
     def test_initial_migration_imports_current_save_path_legacy_history_once(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

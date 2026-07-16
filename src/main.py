@@ -36,11 +36,17 @@ from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.workflow import RecordingWorkflow
+from services.material_ingestion import (
+    IngestionResult,
+    MaterialIngestionCoordinator,
+    StartupRetrySummary,
+)
+from services.pending_recordings import PendingRecordingService
 from services.recording_library import MigrationResult, RecordingLibraryService
 from ui.area_selector import AreaSelector
 from ui.click_highlighter import ClickHighlighter
-from ui.settings_dialog import SettingsDialog
 from ui.material_library_dialog import MaterialLibraryDialog
+from ui.settings_dialog import SettingsDialog
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
@@ -55,6 +61,7 @@ from utils.diagnostics import (
     resolve_diagnostic_dir,
 )
 from utils.disk_checker import DiskChecker, show_disk_warning
+from utils.pending_recording_store import resolve_pending_file
 from utils.recording_library_store import resolve_library_file
 from version import APP_VERSION
 
@@ -112,6 +119,10 @@ class _MigrationBridge(QObject):
     initial_migration_finished = pyqtSignal(object)
 
 
+class _PendingRetryBridge(QObject):
+    finished = pyqtSignal(object)
+
+
 class QuickRecApp:
     """QuickRec 应用主类"""
 
@@ -131,9 +142,16 @@ class QuickRecApp:
         self._hotkey = HotkeyManager()
         self._toolbar = None
         self._library_service = RecordingLibraryService(resolve_library_file())
+        self._pending_service = PendingRecordingService(resolve_pending_file())
+        self._ingestion_coordinator = MaterialIngestionCoordinator(
+            self._library_service,
+            self._pending_service,
+        )
+        self._pending_ids_by_output: dict[str, str] = {}
         self._material_library_dialog = None
         self._initial_migration_result: MigrationResult | None = None
         self._migration_thread: threading.Thread | None = None
+        self._pending_retry_thread: threading.Thread | None = None
         self._config_saved_pending = False
 
         # v1.2 新增模块
@@ -148,6 +166,8 @@ class QuickRecApp:
         self._migration_bridge.initial_migration_finished.connect(
             self._on_initial_migration_finished
         )
+        self._pending_retry_bridge = _PendingRetryBridge()
+        self._pending_retry_bridge.finished.connect(self._on_pending_retry_finished)
 
         # 快捷键信号桥
         self._hotkey_bridge = _HotkeyBridge()
@@ -198,8 +218,31 @@ class QuickRecApp:
         """启动应用"""
         self._tray.show()
         self._start_initial_migration()
+        self._start_pending_retry()
         logger.info("QuickRec 已启动")
         return self._app.exec_()
+
+    def _start_pending_retry(self) -> None:
+        if self._pending_retry_thread is not None and self._pending_retry_thread.is_alive():
+            return
+
+        def retry_pending() -> None:
+            save_path = self._config.get("save_path", "")
+            summary = self._ingestion_coordinator.retry_startup(save_path)
+            self._pending_retry_bridge.finished.emit(summary)
+
+        self._pending_retry_thread = threading.Thread(
+            target=retry_pending,
+            name="QuickRecPendingRetry",
+            daemon=True,
+        )
+        self._pending_retry_thread.start()
+
+    def _on_pending_retry_finished(self, summary: StartupRetrySummary) -> None:
+        if summary.succeeded_count:
+            self._tray.show_notification(f"已恢复 {summary.succeeded_count} 条录制")
+        if self._material_library_dialog is not None:
+            self._material_library_dialog.reload()
 
     def _start_initial_migration(self) -> None:
         if self._migration_thread is not None and self._migration_thread.is_alive():
@@ -608,7 +651,12 @@ class QuickRecApp:
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
             size_str = f"{file_size_mb:.1f}MB"
             logger.info(f"录制已保存: {output_path}")
-            index_ok = self._save_material_item(output_path)
+            ingestion = self._save_material_item(output_path)
+            index_ok = ingestion.formal_indexed
+            if ingestion.pending_id:
+                self._pending_ids_by_output[self._normalize_output_path(output_path)] = (
+                    ingestion.pending_id
+                )
             if not index_ok:
                 self._tray.show_notification("录制已保存，但素材索引写入失败")
 
@@ -634,7 +682,7 @@ class QuickRecApp:
             self._window_highlighter = None
         self._click_highlighter.stop()
 
-    def _save_material_item(self, output_path: str) -> bool:
+    def _save_material_item(self, output_path: str) -> IngestionResult:
         try:
             metadata = (
                 self._recorder.get_last_recording_metadata()
@@ -644,30 +692,66 @@ class QuickRecApp:
             mode = self._recorder.get_mode() if self._recorder else "unknown"
             metadata.setdefault("mode", getattr(mode, "value", str(mode)))
             metadata.setdefault("audio_source", self._config.get("audio_source", "none"))
-            result = self._library_service.add_recording(
+            result = self._ingestion_coordinator.ingest_saved_recording(
                 output_path,
                 metadata=metadata,
                 diagnostic_dir=self._config.get_diagnostic_dir(),
             )
-            if not result.ok:
-                logger.warning(f"material library save failed: {result.error}")
-                return False
-            return True
+            if not result.formal_indexed:
+                logger.warning(
+                    "material ingestion deferred: pending_id=%s persisted=%s error_code=%s error=%s",
+                    result.pending_id,
+                    result.pending_persisted,
+                    result.error_code,
+                    result.error,
+                )
+            return result
         except Exception as exc:
             logger.warning(f"material library save failed: {exc}")
-            return False
+            return IngestionResult(True, False, error_code="INGESTION_UNEXPECTED", error=str(exc))
 
     def _retry_material_item(self, output_path: str) -> None:
-        if self._save_material_item(output_path):
+        normalized = self._normalize_output_path(output_path)
+        pending_id = self._pending_ids_by_output.get(normalized)
+        if pending_id is None:
+            loaded = self._pending_service.load(Path(output_path).parent)
+            if loaded.ok:
+                pending = next(
+                    (
+                        item
+                        for item in loaded.items
+                        if self._normalize_output_path(item.file_path) == normalized
+                    ),
+                    None,
+                )
+                pending_id = pending.pending_id if pending else None
+        if pending_id is None:
+            self._tray.show_notification("未找到待入库记录，请在素材库中查看")
+            return
+        result = self._ingestion_coordinator.retry(
+            pending_id,
+            current_save_dir=Path(output_path).parent,
+        )
+        if result.formal_indexed:
+            self._pending_ids_by_output.pop(normalized, None)
             self._tray.show_notification("素材已加入素材库")
             if self._toolbar:
                 self._toolbar.mark_material_index_saved()
         else:
             self._tray.show_notification("素材索引写入仍然失败，请检查诊断日志")
 
+    @staticmethod
+    def _normalize_output_path(path: str | Path) -> str:
+        return os.path.normcase(os.path.abspath(str(path)))
+
     def _show_material_library(self):
         if self._material_library_dialog is None:
-            self._material_library_dialog = MaterialLibraryDialog(self._library_service)
+            self._material_library_dialog = MaterialLibraryDialog(
+                self._library_service,
+                pending_service=self._pending_service,
+                ingestion_coordinator=self._ingestion_coordinator,
+                current_save_dir=self._config.get("save_path", ""),
+            )
             if self._initial_migration_result is not None:
                 self._material_library_dialog.show_migration_result(self._initial_migration_result)
         else:
@@ -744,7 +828,10 @@ class QuickRecApp:
 
     def _on_copy_diagnostic_info(self, diagnostic_dir: str | None = None, dialog=None):
         try:
-            QApplication.clipboard().setText(self._build_diagnostic_text(diagnostic_dir))
+            clipboard = QApplication.clipboard()
+            if clipboard is None:
+                raise RuntimeError("clipboard is unavailable")
+            clipboard.setText(self._build_diagnostic_text(diagnostic_dir))
             logger.info("diagnostic copied")
             self._tray.show_notification("诊断信息已复制")
             self._set_diagnostic_feedback(dialog, "诊断信息已复制")

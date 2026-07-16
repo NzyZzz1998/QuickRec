@@ -203,24 +203,27 @@ class AudioCapturer:
         try:
             import soundcard as sc
 
-            # 先获取默认扬声器名称，再匹配其 loopback 设备
+            # 默认扬声器与对应 loopback 共享设备 ID；名称前缀可能只是通用的“扬声器”。
             speakers = sc.default_speaker()
-            speakers_name = speakers.name.lower()
+            speaker_id = str(getattr(speakers, "id", ""))
+            speaker_name = str(getattr(speakers, "name", "")).casefold()
+            mics = [
+                mic for mic in sc.all_microphones(include_loopback=True)
+                if getattr(mic, "isloopback", False)
+            ]
 
-            mics = sc.all_microphones(include_loopback=True)
             for mic in mics:
-                if not getattr(mic, 'isloopback', False):
-                    continue
-                # 优先匹配与默认扬声器同名的 loopback
-                mic_name = mic.name.lower()
-                if speakers_name.split("(")[0].strip() in mic_name:
+                if speaker_id and str(getattr(mic, "id", "")) == speaker_id:
+                    logger.info(f"找到匹配的 loopback 设备: {mic.name}")
+                    return mic, 48000
+            for mic in mics:
+                if speaker_name and str(getattr(mic, "name", "")).casefold() == speaker_name:
                     logger.info(f"找到匹配的 loopback 设备: {mic.name}")
                     return mic, 48000
             # fallback: 取第一个 loopback
-            for mic in mics:
-                if getattr(mic, 'isloopback', False):
-                    logger.info(f"使用首个 loopback 设备: {mic.name}")
-                    return mic, 48000
+            if mics:
+                logger.info(f"使用首个 loopback 设备: {mics[0].name}")
+                return mics[0], 48000
 
             return None, 0
         except Exception as e:

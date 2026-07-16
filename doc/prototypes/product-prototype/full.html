@@ -214,6 +214,16 @@
     }
     .library-column { padding: 14px; min-width: 0; }
     .library-column + .library-column { border-left: 1px solid var(--line); }
+    .library-section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 8px 0;
+      padding: 8px 2px 5px;
+      border-bottom: 1px solid var(--line);
+    }
+    .library-section-title h2 { margin: 0; }
     .material-list { display: grid; gap: 6px; margin: 10px 0; }
     .material-item {
       width: 100%;
@@ -229,6 +239,8 @@
       color: var(--text);
     }
     .material-item.active { border-color: var(--blue); background: #f4f7ff; }
+    .material-item.pending { border-left: 4px solid #d39b18; background: #fffcf3; }
+    .material-item.pending.active { border-color: #d39b18; background: #fff7dc; }
     .material-name { display: block; font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .material-meta { color: var(--muted); font-size: 12px; line-height: 1.45; }
     .detail-grid { display: grid; grid-template-columns: 90px 1fr; gap: 9px 12px; margin: 14px 0; }
@@ -401,7 +413,7 @@
           <div class="header-row">
             <div>
               <h1>素材库</h1>
-              <p>126 条本地录制 · 中央索引 · 最近更新于 15:30</p>
+              <p><span id="pendingSummary">2 条待入库</span> · 126 条正式素材 · 最近更新于 15:30</p>
             </div>
             <div class="recent-actions">
               <select class="btn" id="libraryDemoState" aria-label="原型状态">
@@ -410,6 +422,8 @@
                 <option value="scan">目录重建</option>
                 <option value="recovered">恢复成功</option>
                 <option value="failed">索引失败</option>
+                <option value="pending">待入库恢复</option>
+                <option value="pendingMissing">待入库文件缺失</option>
                 <option value="empty">空状态</option>
               </select>
               <button class="btn" id="importHistory">导入旧目录</button>
@@ -426,39 +440,47 @@
           </div>
           <div class="library-layout" id="libraryWorkspace">
             <div class="library-column">
-              <div class="library-footer"><h2>最近素材</h2><span class="tag blue" id="materialCount">显示 50 / 126</span></div>
+              <div class="library-section-title"><h2>待入库</h2><span class="tag amber" id="pendingCount">2 条</span></div>
               <div class="material-list" id="materialList">
-                <button class="material-item active" data-name="QuickRec_20260710_153022.mp4" data-status="可用" data-mode="全屏录制" data-audio="系统声音 + 麦克风" data-size="245 MB" data-resolution="1920 × 1080" data-fps="60 FPS" data-duration="00:12:18" data-path="E:\QRtest\A\QuickRec_20260710_153022.mp4">
+                <button class="material-item pending active" data-kind="pending" data-name="QuickRec_20260715_101422.mp4" data-status="待入库" data-mode="全屏录制" data-audio="系统声音" data-size="118 MB" data-resolution="2560 × 1440" data-fps="60 FPS" data-duration="00:03:26" data-path="E:\QRtest\C\QuickRec_20260715_101422.mp4">
+                  <span><span class="material-name">QuickRec_20260715_101422.mp4</span><span class="material-meta">10:14 · 视频已保存 · 上次重试失败</span></span><span class="tag amber">待入库</span>
+                </button>
+                <button class="material-item pending" data-kind="pending" data-name="QuickRec_20260715_095816.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="无声" data-size="42 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:01:48" data-path="E:\QRtest\D\QuickRec_20260715_095816.mp4">
+                  <span><span class="material-name">QuickRec_20260715_095816.mp4</span><span class="material-meta">09:58 · 等待重新定位 · 原视频不在原路径</span></span><span class="tag red">缺失</span>
+                </button>
+                <div class="library-section-title"><h2>素材</h2><span class="tag blue" id="materialCount">显示 50 / 126</span></div>
+                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_153022.mp4" data-status="可用" data-mode="全屏录制" data-audio="系统声音 + 麦克风" data-size="245 MB" data-resolution="1920 × 1080" data-fps="60 FPS" data-duration="00:12:18" data-path="E:\QRtest\A\QuickRec_20260710_153022.mp4">
                   <span><span class="material-name">QuickRec_20260710_153022.mp4</span><span class="material-meta">15:30 · 00:12:18 · 1920 × 1080 · 245 MB</span></span><span class="tag green">可用</span>
                 </button>
-                <button class="material-item" data-name="QuickRec_20260710_152801.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="系统声音" data-size="86 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:04:42" data-path="E:\QRtest\B\QuickRec_20260710_152801.mp4">
+                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_152801.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="系统声音" data-size="86 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:04:42" data-path="E:\QRtest\B\QuickRec_20260710_152801.mp4">
                   <span><span class="material-name">QuickRec_20260710_152801.mp4</span><span class="material-meta">15:28 · 00:04:42 · 1280 × 720 · 86 MB</span></span><span class="tag red">缺失</span>
                 </button>
-                <button class="material-item" data-name="QuickRec_20260710_151930.mp4" data-status="元数据不完整" data-mode="区域录制" data-audio="无声" data-size="31 MB" data-resolution="-" data-fps="-" data-duration="-" data-path="E:\QRtest\A\QuickRec_20260710_151930.mp4">
+                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_151930.mp4" data-status="元数据不完整" data-mode="区域录制" data-audio="无声" data-size="31 MB" data-resolution="-" data-fps="-" data-duration="-" data-path="E:\QRtest\A\QuickRec_20260710_151930.mp4">
                   <span><span class="material-name">QuickRec_20260710_151930.mp4</span><span class="material-meta">15:19 · 时长未知 · 分辨率未知 · 31 MB</span></span><span class="tag amber">信息不完整</span>
                 </button>
               </div>
               <div class="library-footer"><span class="material-meta">按原始录制时间排序</span><button class="btn" id="loadMoreMaterials">加载更多 50 条</button></div>
             </div>
             <div class="library-column">
-              <h2 id="detailName">QuickRec_20260710_153022.mp4</h2>
-              <span class="tag green" id="detailStatus">可用</span>
+              <h2 id="detailName">QuickRec_20260715_101422.mp4</h2>
+              <span class="tag amber" id="detailStatus">待入库</span>
               <dl class="detail-grid">
                 <dt>录制时间</dt><dd>2026-07-10 15:30</dd>
-                <dt>时长</dt><dd id="detailDuration">00:12:18</dd>
-                <dt>画面</dt><dd id="detailVideo">1920 × 1080 · 60 FPS</dd>
+                <dt>时长</dt><dd id="detailDuration">00:03:26</dd>
+                <dt>画面</dt><dd id="detailVideo">2560 × 1440 · 60 FPS</dd>
                 <dt>模式</dt><dd id="detailMode">全屏录制</dd>
-                <dt>音频</dt><dd id="detailAudio">系统声音 + 麦克风</dd>
-                <dt>大小</dt><dd id="detailSize">245 MB</dd>
-                <dt>路径</dt><dd id="detailPath">E:\QRtest\A\QuickRec_20260710_153022.mp4</dd>
+                <dt>音频</dt><dd id="detailAudio">系统声音</dd>
+                <dt>大小</dt><dd id="detailSize">118 MB</dd>
+                <dt>路径</dt><dd id="detailPath">E:\QRtest\C\QuickRec_20260715_101422.mp4</dd>
                 <dt>诊断目录</dt><dd>E:\QRtest\A\QuickRecDiagnostics</dd>
-                <dt>来源</dt><dd>新录制 · 中央索引</dd>
+                <dt>来源</dt><dd id="detailSource">新录制 · 待入库恢复</dd>
+                <dt>最近失败</dt><dd id="detailFailure">中央素材索引写入失败，可再次重试</dd>
               </dl>
               <div class="detail-actions">
                 <button class="btn">打开</button><button class="btn">打开目录</button><button class="btn copy-path">复制路径</button><button class="btn" id="relinkMaterial">重新定位</button>
               </div>
               <div class="detail-actions" style="margin-top:22px">
-                <button class="btn" id="removeMaterial">从素材库移除</button><button class="btn danger" id="deleteMaterial">删除视频文件</button>
+                <button class="btn primary" id="retryPending">重试入库</button><button class="btn" id="removePending">移除待处理记录</button><button class="btn" id="removeMaterial" hidden>从素材库移除</button><button class="btn danger" id="deleteMaterial" hidden>删除视频文件</button>
               </div>
             </div>
           </div>
@@ -526,13 +548,13 @@
       <section class="rightbar">
         <h2>项目状态</h2>
         <div class="list">
-          <div class="row"><span>v1.5 Full</span><span class="tag green">已发布</span></div>
-          <div class="row"><span>v1.6 素材库</span><span class="tag amber">规划中</span></div>
+          <div class="row"><span>v1.6 素材库</span><span class="tag green">已发布</span></div>
+          <div class="row"><span>v1.6.1 待入库恢复</span><span class="tag amber">需求已确认</span></div>
           <div class="row"><span>QuickRec Lite</span><span class="tag blue">独立产品线</span></div>
         </div>
         <div class="panel" style="margin-top:14px">
           <h2>边界提醒</h2>
-          <p>v1.6 不一次性交付完整工作台，也不实现 AI。Lite 继续保持独立轻量路线。</p>
+          <p>v1.6.1 只补齐视频保存后入库失败的持久恢复闭环，不新增恢复中心。AI 与完整工作台继续留在后续规划，Lite 保持独立轻量路线。</p>
         </div>
       </section>
     </div>
@@ -589,6 +611,24 @@
     });
 
     const materialItems = document.querySelectorAll(".material-item");
+    const retryPending = document.getElementById("retryPending");
+    const removePending = document.getElementById("removePending");
+    const removeMaterial = document.getElementById("removeMaterial");
+    const deleteMaterial = document.getElementById("deleteMaterial");
+
+    function setDetailActions(item) {
+      const isPending = item.dataset.kind === "pending";
+      retryPending.hidden = !isPending;
+      removePending.hidden = !isPending;
+      removeMaterial.hidden = isPending;
+      deleteMaterial.hidden = isPending;
+      document.getElementById("relinkMaterial").hidden = !item.dataset.status.includes("移动");
+      document.getElementById("detailSource").textContent = isPending ? "新录制 · 待入库恢复" : "新录制 · 中央索引";
+      document.getElementById("detailFailure").textContent = isPending
+        ? item.dataset.status.includes("移动") ? "文件不在原路径，请重新定位后重试" : "中央素材索引写入失败，可再次重试"
+        : "-";
+    }
+
     materialItems.forEach((item) => {
       item.addEventListener("click", () => {
         materialItems.forEach((node) => node.classList.remove("active"));
@@ -602,8 +642,10 @@
         document.getElementById("detailAudio").textContent = item.dataset.audio;
         document.getElementById("detailSize").textContent = item.dataset.size;
         document.getElementById("detailPath").textContent = item.dataset.path;
+        setDetailActions(item);
       });
     });
+    setDetailActions(document.querySelector(".material-item.active"));
 
     let visibleMaterials = 50;
     document.getElementById("loadMoreMaterials").addEventListener("click", (event) => {
@@ -657,18 +699,79 @@
         libraryBanner.hidden = false;
         libraryBanner.className = "library-banner bad";
         bannerText.innerHTML = "<b>素材索引写入失败</b><br><small>视频已保存，可重试加入素材库或打开视频目录。</small>";
+      } else if (state === "pending") {
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner warn";
+        bannerText.innerHTML = "<b>有 2 条录制等待加入素材库</b><br><small>视频文件均已保存。QuickRec 将在下次启动自动重试一次，也可立即手动重试。</small>";
+        materialItems[0].click();
+      } else if (state === "pendingMissing") {
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner bad";
+        bannerText.innerHTML = "<b>1 条待入库录制已移动</b><br><small>重新定位正确视频后即可继续入库；移除待处理记录不会删除视频。</small>";
+        materialItems[1].click();
       }
     });
 
     document.getElementById("relinkMaterial").addEventListener("click", (event) => {
+      const item = document.querySelector(".material-item.active");
+      if (!item) return;
       event.currentTarget.textContent = "已选择新位置";
+      if (item.dataset.kind === "pending") {
+        item.dataset.status = "待入库";
+        item.dataset.path = "E:\\QRtest\\已重新定位\\QuickRec_20260715_095816.mp4";
+        item.querySelector(".tag").className = "tag amber";
+        item.querySelector(".tag").textContent = "待入库";
+        item.querySelector(".material-meta").textContent = "09:58 · 已重新定位 · 等待重试入库";
+        document.getElementById("detailStatus").textContent = "待入库";
+        document.getElementById("detailStatus").className = "tag amber";
+        document.getElementById("detailPath").textContent = item.dataset.path;
+        document.getElementById("detailFailure").textContent = "文件已重新定位，可再次重试入库";
+        event.currentTarget.hidden = true;
+      }
     });
-    document.getElementById("removeMaterial").addEventListener("click", () => {
+    retryPending.addEventListener("click", () => {
+      const item = document.querySelector(".material-item.active");
+      if (!item || item.dataset.kind !== "pending") return;
+      retryPending.disabled = true;
+      retryPending.textContent = "正在重试";
+      document.getElementById("detailStatus").textContent = "正在重试";
+      setTimeout(() => {
+        item.dataset.kind = "material";
+        item.dataset.status = "可用";
+        item.classList.remove("pending");
+        item.querySelector(".tag").className = "tag green";
+        item.querySelector(".tag").textContent = "可用";
+        item.querySelector(".material-meta").textContent = "10:14 · 00:03:26 · 2560 × 1440 · 118 MB";
+        document.getElementById("detailStatus").textContent = "可用";
+        document.getElementById("detailStatus").className = "tag green";
+        document.getElementById("pendingCount").textContent = "1 条";
+        document.getElementById("pendingSummary").textContent = "1 条待入库";
+        libraryBanner.hidden = false;
+        libraryBanner.className = "library-banner";
+        bannerText.innerHTML = "<b>已恢复 1 条录制</b><br><small>视频已加入正式素材索引，待处理记录已清理。</small>";
+        retryPending.disabled = false;
+        retryPending.textContent = "重试入库";
+        setDetailActions(item);
+      }, 700);
+    });
+
+    removePending.addEventListener("click", () => {
+      const item = document.querySelector(".material-item.active");
+      if (item && item.dataset.kind === "pending" && window.confirm("只移除这条待处理记录？视频文件不会被删除。")) {
+        item.remove();
+        const remaining = document.querySelectorAll('.material-item[data-kind="pending"]').length;
+        document.getElementById("pendingCount").textContent = `${remaining} 条`;
+        document.getElementById("pendingSummary").textContent = `${remaining} 条待入库`;
+        document.querySelector(".material-item")?.click();
+      }
+    });
+
+    removeMaterial.addEventListener("click", () => {
       if (window.confirm("从素材库移除这条记录？视频文件不会被删除。")) {
         document.querySelector(".material-item.active")?.remove();
       }
     });
-    document.getElementById("deleteMaterial").addEventListener("click", () => {
+    deleteMaterial.addEventListener("click", () => {
       if (window.confirm("将此视频移入 Windows 回收站？不会删除诊断日志或其他文件。")) {
         document.getElementById("detailStatus").textContent = "已移入回收站";
         document.getElementById("detailStatus").className = "tag amber";

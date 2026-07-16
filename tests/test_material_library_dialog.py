@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
@@ -14,9 +15,11 @@ from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
+from services.pending_recordings import PendingRecordingService
 from services.recording_library import DirectoryScanResult, RecordingLibraryService
 from ui.material_library_dialog import MaterialLibraryDialog
 from utils.media_metadata import MediaMetadataResult
+from utils.pending_recording_store import PendingRecordingItem
 from utils.recording_library_store import STATUS_METADATA_INCOMPLETE, MaterialItem
 
 app = QApplication.instance()
@@ -29,6 +32,7 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
         self.service = RecordingLibraryService(self.base_path / "QuickRec" / "recordings.json")
+        self.pending_service = PendingRecordingService(self.base_path / "QuickRec" / "pending-recordings.json")
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -194,6 +198,132 @@ class TestMaterialLibraryDialog(unittest.TestCase):
             QTest.qWait(10)
         self.assertTrue(cancelled.is_set())
         self.assertIsNone(dialog._task)
+
+    def test_pending_items_are_shown_before_formal_items_with_independent_counts(self):
+        video = self.base_path / "QuickRec_pending.mp4"
+        video.write_bytes(b"video")
+        self.assertTrue(self.pending_service.persist(self._pending_item(video)).ok)
+        formal_item = self._item(1)
+        Path(formal_item.file_path).write_bytes(b"video")
+        self.assertTrue(self.service.replace([formal_item]).ok)
+
+        dialog = MaterialLibraryDialog(
+            self.service,
+            pending_service=self.pending_service,
+            current_save_dir=self.base_path,
+        )
+
+        self.assertEqual(dialog._table.rowCount(), 2)
+        self.assertEqual(dialog._table.item(0, 5).text(), "待入库")
+        self.assertEqual(dialog._table.item(1, 5).text(), "可用")
+        self.assertIn("待入库 1 条", dialog._status_label.text())
+        self.assertIn("素材 1 条", dialog._status_label.text())
+
+    def test_pending_only_state_is_not_reported_as_empty_library(self):
+        video = self.base_path / "QuickRec_pending.mp4"
+        video.write_bytes(b"video")
+        self.assertTrue(self.pending_service.persist(self._pending_item(video)).ok)
+
+        dialog = MaterialLibraryDialog(
+            self.service,
+            pending_service=self.pending_service,
+            current_save_dir=self.base_path,
+        )
+
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertNotEqual(dialog._status_label.text(), "暂无素材")
+
+    def test_selecting_pending_item_shows_retry_and_pending_remove_actions(self):
+        video = self.base_path / "QuickRec_pending.mp4"
+        video.write_bytes(b"video")
+        self.assertTrue(self.pending_service.persist(self._pending_item(video)).ok)
+        dialog = MaterialLibraryDialog(
+            self.service,
+            pending_service=self.pending_service,
+            current_save_dir=self.base_path,
+        )
+
+        dialog._table.selectRow(0)
+
+        self.assertFalse(dialog._btn_retry_pending.isHidden())
+        self.assertFalse(dialog._btn_remove_pending.isHidden())
+        self.assertTrue(dialog._btn_remove.isHidden())
+        self.assertTrue(dialog._btn_delete.isHidden())
+        self.assertIn("中央索引写入失败", dialog._detail_failure.text())
+
+    def test_pending_retry_refreshes_item_into_formal_material(self):
+        video = self.base_path / "QuickRec_pending.mp4"
+        video.write_bytes(b"video")
+        item = self._pending_item(video)
+        self.assertTrue(self.pending_service.persist(item).ok)
+        coordinator = SimpleNamespace()
+
+        def retry(pending_id, *, current_save_dir=None):
+            self.assertEqual(pending_id, item.pending_id)
+            self.assertEqual(Path(current_save_dir), self.base_path)
+            self.assertTrue(self.service.add_recording(
+                video,
+                metadata={"mode": "fullscreen", "audio_source": "none"},
+                diagnostic_dir=None,
+                item_id=item.material_id,
+            ).ok)
+            self.assertTrue(self.pending_service.remove(item.pending_id, current_save_dir=self.base_path).ok)
+            return SimpleNamespace(formal_indexed=True, error="")
+
+        coordinator.retry = retry
+        dialog = MaterialLibraryDialog(
+            self.service,
+            pending_service=self.pending_service,
+            ingestion_coordinator=coordinator,
+            current_save_dir=self.base_path,
+        )
+        dialog._table.selectRow(0)
+
+        dialog._btn_retry_pending.click()
+
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertEqual(dialog._table.item(0, 5).text(), "可用")
+        self.assertIn("素材已加入素材库", dialog._status_label.text())
+
+    def test_remove_pending_confirmation_keeps_video_file(self):
+        video = self.base_path / "QuickRec_pending.mp4"
+        video.write_bytes(b"video")
+        item = self._pending_item(video)
+        self.assertTrue(self.pending_service.persist(item).ok)
+        dialog = MaterialLibraryDialog(
+            self.service,
+            pending_service=self.pending_service,
+            current_save_dir=self.base_path,
+        )
+        dialog._table.selectRow(0)
+
+        with patch("ui.material_library_dialog.QMessageBox.question", return_value=QMessageBox.Yes):
+            dialog._btn_remove_pending.click()
+
+        self.assertTrue(video.exists())
+        self.assertEqual(self.pending_service.load(self.base_path).items, [])
+        self.assertEqual(dialog._table.rowCount(), 0)
+
+    def _pending_item(self, path: Path) -> PendingRecordingItem:
+        return PendingRecordingItem(
+            pending_id="pending-1",
+            material_id="material-1",
+            file_path=str(path),
+            file_name=path.name,
+            created_at="2026-07-15T10:00:00+08:00",
+            queued_at="2026-07-15T10:01:00+08:00",
+            updated_at="2026-07-15T10:01:00+08:00",
+            status="pending",
+            attempt_count=1,
+            capture_mode="fullscreen",
+            audio_source="none",
+            last_error_summary="中央索引写入失败",
+            duration_seconds=2.0,
+            width=1920,
+            height=1080,
+            fps=60,
+            file_size_bytes=path.stat().st_size,
+        )
 
     def _item(self, index: int) -> MaterialItem:
         path = self.base_path / f"QuickRec_{index:03d}.mp4"

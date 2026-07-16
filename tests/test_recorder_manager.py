@@ -1,5 +1,7 @@
+import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -625,8 +627,10 @@ class TestRecorderManager(unittest.TestCase):
         cmd = run.call_args.args[0]
         self.assertIn("-shortest", cmd)
         self.assertNotIn("-filter_complex", cmd)
+        self.assertIn("-ac", cmd)
+        self.assertEqual(cmd[cmd.index("-ac") + 1], "2")
 
-    def test_mix_audio_builds_two_audio_amerge_command(self):
+    def test_mix_audio_builds_two_audio_stereo_amix_command(self):
         manager = RecorderManager(self.config)
         manager._session_dir = self.temp_dir
         manager._ffmpeg_path = "ffmpeg.exe"
@@ -639,7 +643,53 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(result, os.path.join(self.temp_dir, "mixed.mp4"))
         cmd = run.call_args.args[0]
         self.assertIn("-filter_complex", cmd)
-        self.assertIn("[1:a][2:a]amerge=inputs=2[a]", cmd)
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("aformat=sample_rates=48000:channel_layouts=stereo", filter_graph)
+        self.assertIn("amix=inputs=2", filter_graph)
+        self.assertNotIn("amerge", filter_graph)
+
+    def test_mix_audio_downmixes_eight_channel_system_and_mono_mic_to_stereo(self):
+        ffmpeg = Path(__file__).parent.parent / "ffmpeg" / "ffmpeg.exe"
+        ffprobe = ffmpeg.with_name("ffprobe.exe")
+        if not ffmpeg.is_file() or not ffprobe.is_file():
+            self.skipTest("bundled ffmpeg tools are not available")
+
+        video_path = os.path.join(self.temp_dir, "video.mp4")
+        system_path = self._write_wav("system-8ch.wav", channels=8, frames=4800)
+        mic_path = self._write_wav("mic-mono.wav", channels=1, frames=4800)
+        subprocess.run(
+            [
+                str(ffmpeg), "-y", "-f", "lavfi", "-i",
+                "color=c=black:s=320x240:r=25", "-t", "0.1",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", video_path,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = str(ffmpeg)
+        result = manager._mix_audio(video_path, [system_path, mic_path])
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.isfile(result))
+        probe = subprocess.run(
+            [
+                str(ffprobe), "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,channels,channel_layout",
+                "-of", "json", result,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        streams = json.loads(probe.stdout)["streams"]
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0]["codec_name"], "aac")
+        self.assertEqual(streams[0]["channels"], 2)
 
     def test_mix_audio_returns_empty_on_ffmpeg_failure(self):
         manager = RecorderManager(self.config)

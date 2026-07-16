@@ -692,10 +692,16 @@ class RecorderManager:
         for ap in audio_paths:
             cmd.extend(["-i", ap])
         if len(audio_paths) == 1:
-            cmd.extend(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", mixed])
+            cmd.extend([
+                "-c:v", "copy", "-c:a", "aac", "-ac", "2",
+                "-b:a", "192k", "-shortest", mixed,
+            ])
         else:
             cmd.extend([
-                "-filter_complex", "[1:a][2:a]amerge=inputs=2[a]",
+                "-filter_complex",
+                "[1:a]aformat=sample_rates=48000:channel_layouts=stereo[sys];"
+                "[2:a]aformat=sample_rates=48000:channel_layouts=stereo[mic];"
+                "[sys][mic]amix=inputs=2:duration=longest:dropout_transition=0[a]",
                 "-map", "0:v", "-map", "[a]",
                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", mixed,
             ])

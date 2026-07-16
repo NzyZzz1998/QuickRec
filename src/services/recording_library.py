@@ -105,6 +105,7 @@ class RecordingLibraryService:
         *,
         metadata: dict[str, Any],
         diagnostic_dir: str | None,
+        item_id: str | None = None,
     ) -> LibraryWriteResult:
         path = Path(output_path)
         try:
@@ -115,7 +116,7 @@ class RecordingLibraryService:
             stat.st_mtime
         ).astimezone().isoformat(timespec="seconds")
         item = MaterialItem(
-            id=uuid.uuid4().hex,
+            id=item_id or uuid.uuid4().hex,
             file_path=str(path),
             file_name=path.name,
             directory=str(path.parent),
@@ -131,6 +132,26 @@ class RecordingLibraryService:
             diagnostic_dir=diagnostic_dir,
         )
         return self.add(item)
+
+    def find_existing(
+        self,
+        *,
+        item_id: str | None = None,
+        file_path: str | Path | None = None,
+    ) -> MaterialItem | None:
+        loaded = self.load()
+        if not loaded.ok:
+            return None
+        normalized = normalize_windows_path(file_path) if file_path is not None else None
+        return next(
+            (
+                item
+                for item in loaded.items
+                if (item_id is not None and item.id == item_id)
+                or (normalized is not None and normalize_windows_path(item.file_path) == normalized)
+            ),
+            None,
+        )
 
     def has_processed_source(self, source_path: str | Path) -> bool:
         normalized = normalize_windows_path(source_path)
