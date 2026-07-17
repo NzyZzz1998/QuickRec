@@ -1,7 +1,7 @@
 # QuickRec Full v1.6.1 测试用例
 
 > 版本：v1.6.1  
-> 当前状态：自动化已执行，GUI 手动验收待执行  
+> 当前状态：自动化与 GUI 手动验收均已完成
 > PRD：[prd.md](prd.md)  
 > Progress：[progress.md](progress.md)
 

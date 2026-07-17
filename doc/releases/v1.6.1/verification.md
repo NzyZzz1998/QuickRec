@@ -1,32 +1,33 @@
 # QuickRec Full v1.6.1 自动验证记录
 
 > 验证时间：2026-07-17
-> 分支：`feature/v1.6.1-pending-ingestion`  
-> 源码 HEAD：`8a1ee4710de70d5dd74c2478771a50a762b528ca`，工作区仅有验收文档更新
-> 结论：自动化、候选包基础检查、核心降级链路、设置与诊断回归及 v1.6 素材库快速回归通过；其余 GUI 项以手动验收清单为准
+> 发布分支：`master`
+> 功能实现提交：`8a1ee4710de70d5dd74c2478771a50a762b528ca`
+> 结论：自动化、锁定候选包、核心降级链路、录制回归、设置诊断、素材库与 GUI 人工验收全部通过
 
-## 1. 候选包身份
+## 1. 最终候选包身份
 
 | 对象 | 路径 | 大小 | SHA256 |
 | --- | --- | ---: | --- |
-| QuickRec.exe | `E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe` | 6,886,986 字节 | `505284D20663C73200C6322B609DD9E0D436FC6CAF624383A9D682B18A4D6B39` |
-| ffprobe.exe | `E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\_internal\ffmpeg\ffprobe.exe` | 99,066,368 字节 | `192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D` |
+| QuickRec.exe | `E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe` | 6,887,366 字节 | `2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092` |
+| ffmpeg.exe | `E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe` | 99,264,000 字节 | `5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D` |
+| ffprobe.exe | `E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\_internal\ffmpeg\ffprobe.exe` | 99,066,368 字节 | `192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D` |
 
 构建命令：
 
 ```powershell
 python -m PyInstaller build_std.spec --clean --noconfirm `
-  --distpath E:\QRtest\QuickRec-v1.6.1-dist `
-  --workpath E:\QRtest\QuickRec-v1.6.1-build
+  --distpath E:\QRtest\QuickRec-v1.6.1-audiofix2-dist `
+  --workpath E:\QRtest\QuickRec-v1.6.1-audiofix2-build
 ```
 
-身份原始记录：`E:\QRtest\QuickRec-v1.6.1-acceptance\build-identity.json`。
+初始候选身份原始记录：`E:\QRtest\QuickRec-v1.6.1-acceptance\build-identity.json`。音频修复后的最终候选身份以本节文件实测哈希和 `manual-verification.md` 为准；初始候选不再用于发布。
 
 ## 2. 自动化门禁
 
 | 检查 | 结果 |
 | --- | --- |
-| 全量 pytest | 374 passed、24 deselected、22 subtests passed |
+| 全量 pytest | 修复后 376 passed、24 deselected、22 subtests passed |
 | 全项目 coverage | 83.99%，门禁 80% |
 | 新增存储模块 | 89% |
 | 新增待入库服务 | 81% |
@@ -61,16 +62,16 @@ python scripts\hardware_smoke.py `
 
 `E:\QRtest\QuickRec-v1.6.1-acceptance\hardware-smoke\QuickRec_20260715_144056.mp4`
 
-## 5. 尚未覆盖
+## 5. GUI 覆盖过程与最终状态
 
-- 打包产物 GUI 下的正式索引失败、主待入库失败和双重失败链路。
+- 已通过：打包产物 GUI 下的正式索引失败、主待入库失败和双重失败链路。
 - 已通过：主待入库记录、视频目录降级标记、双重写入失败保视频、重启自动恢复、故障未恢复时单次重试，以及普通启动下托盘素材库入口。
 - 已通过：素材库待入库项置顶、独立计数、详情字段与手动重试；重试后正式索引仅新增一条且待入库清零。
 - 已通过：缺失文件状态、取消重新定位、损坏 MP4 拒绝、中文空格路径有效 MP4 重新定位，以及仅移除待处理记录且保留视频。
 - 已通过：待入库 200 条与正式素材 200 条独立展示，分批加载 50/100/150/200 正常；第 201 条只淘汰最旧元数据且保留 MP4。
 - 已通过：当前系统 100% DPI 与长中文空格路径布局无关键裁切或乱码。
 - 已通过：候选包全屏与区域录制、无声模式；区域样本为 1728×1080、30 FPS，索引模式与 FFprobe 一致。
-- 待补证：窗口录制、三类有声模式、设置与诊断快速回归和 125%/150% DPI。
+- 已补证：系统声音和双音频具有 MP4、FFprobe、日志与索引证据；窗口录制、麦克风听感和 125%/150% DPI 由用户使用锁定候选包人工确认通过。
 - v1.6 历史 GUI 证据可追溯：迁移、恢复、重建、重新定位、回收站、诊断和三档 DPI 在 v1.6 正式发布验收中通过；本轮以 93 项自动回归确认相关基础能力未出现已知回退，但仍保留 v1.6.1 候选包快速 GUI 抽查项。
 
 ## GUI 阶段证据（2026-07-16）
@@ -88,7 +89,7 @@ python scripts\hardware_smoke.py `
 - 全屏、区域、窗口与四类音频的打包产物回归。
 - 100%、125%、150% DPI。
 
-以上必须按 [manual-verification.md](manual-verification.md) 完成后，才能判断是否可发布。
+上述自动化工具限制已按 [manual-verification.md](manual-verification.md) 完成人工补证，当前不存在未关闭的 GUI 发布阻塞。
 
 ## 6. 音频阻塞修复候选（2026-07-16）
 
@@ -100,7 +101,7 @@ python scripts\hardware_smoke.py `
 - 最终候选 SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
 - 定向样本：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\audiofix2\both\videos\QuickRec_20260716_230446.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-21.1 dB`、峰值 `-6.2 dB`，日志无混音失败。
 - 系统声音单模式定向样本：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\audiofix2\system\videos\QuickRec_20260716_234947.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，中央索引记录 `audio_source=system`。
-- 当前结论：结构、设备选择、系统声音单模式、双音频非静音、索引一致性与用户听感均通过，BUG-161-01 已关闭；麦克风单独模式仍按验收清单补证。
+- 当前结论：结构、设备选择、系统声音单模式、麦克风单独模式、双音频非静音、索引一致性与用户听感均通过，BUG-161-01 已关闭。
 
 ## 7. 设置、诊断与素材库自动 GUI 回归（2026-07-17）
 
@@ -113,3 +114,12 @@ python scripts\hardware_smoke.py `
 - 持久化：重启后重新定位记录仍存在，两条已移除记录未恢复，素材库共 14 条。
 - 环境：候选包进程已停止，真实 `%APPDATA%\QuickRec` 文件哈希未变化，QuickRec Lite 工作区干净。
 - 证据目录：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\auto3`；机器可读汇总为 `verification-summary.json`。
+
+## 8. 发布前验证结论
+
+- 自动化门禁：通过。修复后全量结果为 376 passed、24 deselected、22 subtests passed；packaging 12 passed。
+- 静态与文档门禁：ruff、mypy、compileall、UTF-8/乱码检查和 `git diff --check` 通过。
+- 候选包：最终 EXE、FFmpeg 与 FFprobe 身份已锁定，旧候选包不再作为发布对象。
+- GUI 验收：核心待入库、录制与音频、设置诊断、素材库、文件操作、容量和三档 DPI 均通过。
+- 环境恢复：真实 `%APPDATA%\QuickRec` 未被测试覆盖，候选包进程已停止，QuickRec Lite 工作区干净。
+- 最终判断：**验证通过，可进入发布收口；尚未创建 v1.6.1 tag 或 GitHub Release。**
