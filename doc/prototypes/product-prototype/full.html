@@ -241,12 +241,14 @@
     .material-item.active { border-color: var(--blue); background: #f4f7ff; }
     .material-item.pending { border-left: 4px solid #d39b18; background: #fffcf3; }
     .material-item.pending.active { border-color: #d39b18; background: #fff7dc; }
+    .material-item[hidden], .library-section-title[hidden] { display: none; }
     .material-name { display: block; font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .material-meta { color: var(--muted); font-size: 12px; line-height: 1.45; }
     .detail-grid { display: grid; grid-template-columns: 90px 1fr; gap: 9px 12px; margin: 14px 0; }
     .detail-grid dt { color: var(--muted); }
     .detail-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
     .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .detail-actions[hidden] { display: none; }
     .library-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .task-panel { margin-top: 12px; }
     .task-panel[hidden] { display: none; }
@@ -263,6 +265,60 @@
       text-align: center;
     }
     .empty-state[hidden] { display: none; }
+    .query-toolbar {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+    .query-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .query-input-wrap { position: relative; flex: 1 1 360px; min-width: 220px; }
+    .query-input {
+      width: 100%;
+      min-height: 36px;
+      padding: 7px 36px 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--text);
+    }
+    .query-clear {
+      position: absolute;
+      top: 50%;
+      right: 5px;
+      width: 28px;
+      height: 28px;
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .query-count { white-space: nowrap; font-size: 13px; color: var(--muted); }
+    .query-select { min-width: 128px; max-width: 210px; }
+    .query-select.sort { min-width: 180px; }
+    .query-feedback {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 9px 11px;
+      border: 1px solid #e5b4af;
+      border-radius: 6px;
+      background: #fff0ef;
+      color: #8f2e25;
+    }
+    .query-feedback[hidden], .library-section[hidden], .library-footer[hidden] { display: none; }
+    .detail-placeholder { min-height: 300px; border: 0; background: transparent; }
 
     .media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     .thumb {
@@ -341,6 +397,9 @@
       .library-layout { grid-template-columns: 1fr; }
       .library-column + .library-column { border-left: 0; border-top: 1px solid var(--line); }
       .header-row { flex-direction: column; }
+      .query-row { flex-wrap: wrap; }
+      .query-input-wrap { flex-basis: 100%; }
+      .query-select, .query-select.sort { flex: 1 1 160px; max-width: none; }
     }
   </style>
 </head>
@@ -424,11 +483,66 @@
                 <option value="failed">索引失败</option>
                 <option value="pending">待入库恢复</option>
                 <option value="pendingMissing">待入库文件缺失</option>
+                <option value="queryError">查询异常</option>
                 <option value="empty">空状态</option>
               </select>
               <button class="btn" id="importHistory">导入旧目录</button>
               <button class="btn primary" id="rebuildLibrary">重建目录</button>
             </div>
+          </div>
+          <div class="query-toolbar" aria-label="素材查询条件">
+            <div class="query-row">
+              <div class="query-input-wrap">
+                <input class="query-input" id="materialSearch" type="search" placeholder="搜索文件名或完整路径" aria-label="搜索文件名或完整路径">
+                <button class="query-clear" id="clearMaterialSearch" title="清除搜索词" aria-label="清除搜索词">×</button>
+              </div>
+              <span class="query-count" id="queryResultCount" aria-live="polite">匹配 128 / 共 128 条</span>
+              <button class="btn" id="resetMaterialQuery">重置条件</button>
+            </div>
+            <div class="query-row">
+              <select class="btn query-select" id="statusFilter" aria-label="按状态筛选">
+                <option value="all">全部状态</option>
+                <option value="available">可用</option>
+                <option value="pending">待入库</option>
+                <option value="retry_failed">入库失败</option>
+                <option value="missing">文件缺失</option>
+                <option value="metadata_incomplete">信息不完整</option>
+              </select>
+              <select class="btn query-select" id="modeFilter" aria-label="按录制模式筛选">
+                <option value="all">全部录制模式</option>
+                <option value="全屏录制">全屏录制</option>
+                <option value="区域录制">区域录制</option>
+                <option value="窗口录制">窗口录制</option>
+                <option value="未知">未知</option>
+              </select>
+              <select class="btn query-select" id="audioFilter" aria-label="按音频模式筛选">
+                <option value="all">全部音频模式</option>
+                <option value="无声">无声</option>
+                <option value="系统声音">系统声音</option>
+                <option value="麦克风">麦克风</option>
+                <option value="系统声音 + 麦克风">系统声音 + 麦克风</option>
+                <option value="未知">未知</option>
+              </select>
+              <select class="btn query-select" id="timeFilter" aria-label="按录制时间筛选">
+                <option value="all">全部时间</option>
+                <option value="today">今天</option>
+                <option value="7">最近 7 天</option>
+                <option value="30">最近 30 天</option>
+                <option value="90">最近 90 天</option>
+              </select>
+              <select class="btn query-select sort" id="sortMaterials" aria-label="素材排序">
+                <option value="created_desc">录制时间：最新优先</option>
+                <option value="created_asc">录制时间：最早优先</option>
+                <option value="duration_desc">时长：最长优先</option>
+                <option value="duration_asc">时长：最短优先</option>
+                <option value="size_desc">文件大小：最大优先</option>
+                <option value="size_asc">文件大小：最小优先</option>
+              </select>
+            </div>
+          </div>
+          <div class="query-feedback" id="queryFeedback" role="status" hidden>
+            <span>筛选结果刷新失败，已保留上一次有效结果。</span>
+            <button class="btn" id="resetQueryFromError">重置条件</button>
           </div>
           <div class="library-banner" id="libraryBanner" hidden>
             <span id="libraryBannerText"><b>历史录制已迁移</b><br><small>新增 37 条，跳过重复 2 条，元数据不完整 1 条。</small></span>
@@ -440,46 +554,51 @@
           </div>
           <div class="library-layout" id="libraryWorkspace">
             <div class="library-column">
-              <div class="library-section-title"><h2>待入库</h2><span class="tag amber" id="pendingCount">2 条</span></div>
+              <div class="empty-state" id="queryEmpty" hidden>
+                <strong>没有符合当前条件的素材</strong>
+                <span>调整搜索或筛选条件，或恢复默认条件。</span>
+                <button class="btn" id="resetQueryFromEmpty">重置条件</button>
+              </div>
+              <div class="library-section-title" id="pendingHeader"><h2>待入库</h2><span class="tag amber" id="pendingCount">匹配 2 / 共 2 条</span></div>
               <div class="material-list" id="materialList">
-                <button class="material-item pending active" data-kind="pending" data-name="QuickRec_20260715_101422.mp4" data-status="待入库" data-mode="全屏录制" data-audio="系统声音" data-size="118 MB" data-resolution="2560 × 1440" data-fps="60 FPS" data-duration="00:03:26" data-path="E:\QRtest\C\QuickRec_20260715_101422.mp4">
+                <button class="material-item pending active" data-id="pending-101422" data-kind="pending" data-name="QuickRec_20260715_101422.mp4" data-status="待入库" data-mode="全屏录制" data-audio="系统声音" data-size="118 MB" data-size-bytes="123731968" data-resolution="2560 × 1440" data-fps="60 FPS" data-duration="00:03:26" data-duration-seconds="206" data-created="2026-07-17T10:14:22+08:00" data-path="E:\QRtest\C\QuickRec_20260715_101422.mp4">
                   <span><span class="material-name">QuickRec_20260715_101422.mp4</span><span class="material-meta">10:14 · 视频已保存 · 上次重试失败</span></span><span class="tag amber">待入库</span>
                 </button>
-                <button class="material-item pending" data-kind="pending" data-name="QuickRec_20260715_095816.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="无声" data-size="42 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:01:48" data-path="E:\QRtest\D\QuickRec_20260715_095816.mp4">
+                <button class="material-item pending" data-id="pending-095816" data-kind="pending" data-name="QuickRec_20260715_095816.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="无声" data-size="42 MB" data-size-bytes="44040192" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:01:48" data-duration-seconds="108" data-created="2026-07-17T09:58:16+08:00" data-path="E:\QRtest\D\QuickRec_20260715_095816.mp4">
                   <span><span class="material-name">QuickRec_20260715_095816.mp4</span><span class="material-meta">09:58 · 等待重新定位 · 原视频不在原路径</span></span><span class="tag red">缺失</span>
                 </button>
-                <div class="library-section-title"><h2>素材</h2><span class="tag blue" id="materialCount">显示 50 / 126</span></div>
-                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_153022.mp4" data-status="可用" data-mode="全屏录制" data-audio="系统声音 + 麦克风" data-size="245 MB" data-resolution="1920 × 1080" data-fps="60 FPS" data-duration="00:12:18" data-path="E:\QRtest\A\QuickRec_20260710_153022.mp4">
+                <div class="library-section-title" id="formalHeader"><h2>素材</h2><span class="tag blue" id="materialCount">显示 50 / 匹配 126 / 共 126 条</span></div>
+                <button class="material-item" data-id="material-153022" data-kind="material" data-name="QuickRec_20260710_153022.mp4" data-status="可用" data-mode="全屏录制" data-audio="系统声音 + 麦克风" data-size="245 MB" data-size-bytes="256901120" data-resolution="1920 × 1080" data-fps="60 FPS" data-duration="00:12:18" data-duration-seconds="738" data-created="2026-07-10T15:30:22+08:00" data-path="E:\QRtest\A\QuickRec_20260710_153022.mp4">
                   <span><span class="material-name">QuickRec_20260710_153022.mp4</span><span class="material-meta">15:30 · 00:12:18 · 1920 × 1080 · 245 MB</span></span><span class="tag green">可用</span>
                 </button>
-                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_152801.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="系统声音" data-size="86 MB" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:04:42" data-path="E:\QRtest\B\QuickRec_20260710_152801.mp4">
+                <button class="material-item" data-id="material-152801" data-kind="material" data-name="QuickRec_20260710_152801.mp4" data-status="文件已移动或删除" data-mode="窗口录制" data-audio="系统声音" data-size="86 MB" data-size-bytes="90177536" data-resolution="1280 × 720" data-fps="30 FPS" data-duration="00:04:42" data-duration-seconds="282" data-created="2026-07-10T15:28:01+08:00" data-path="E:\QRtest\B\QuickRec_20260710_152801.mp4">
                   <span><span class="material-name">QuickRec_20260710_152801.mp4</span><span class="material-meta">15:28 · 00:04:42 · 1280 × 720 · 86 MB</span></span><span class="tag red">缺失</span>
                 </button>
-                <button class="material-item" data-kind="material" data-name="QuickRec_20260710_151930.mp4" data-status="元数据不完整" data-mode="区域录制" data-audio="无声" data-size="31 MB" data-resolution="-" data-fps="-" data-duration="-" data-path="E:\QRtest\A\QuickRec_20260710_151930.mp4">
-                  <span><span class="material-name">QuickRec_20260710_151930.mp4</span><span class="material-meta">15:19 · 时长未知 · 分辨率未知 · 31 MB</span></span><span class="tag amber">信息不完整</span>
+                <button class="material-item" data-id="material-151930" data-kind="material" data-name="中文 演示_20260710_151930.mp4" data-status="元数据不完整" data-mode="区域录制" data-audio="无声" data-size="31 MB" data-size-bytes="32505856" data-resolution="-" data-fps="-" data-duration="-" data-duration-seconds="" data-created="2026-07-10T15:19:30+08:00" data-path="E:\QRtest\中文 素材\中文 演示_20260710_151930.mp4">
+                  <span><span class="material-name">中文 演示_20260710_151930.mp4</span><span class="material-meta">15:19 · 时长未知 · 分辨率未知 · 31 MB</span></span><span class="tag amber">信息不完整</span>
                 </button>
               </div>
-              <div class="library-footer"><span class="material-meta">按原始录制时间排序</span><button class="btn" id="loadMoreMaterials">加载更多 50 条</button></div>
+              <div class="library-footer" id="libraryFooter"><span class="material-meta" id="sortSummary">录制时间：最新优先</span><button class="btn" id="loadMoreMaterials">加载更多 50 条</button></div>
             </div>
             <div class="library-column">
               <h2 id="detailName">QuickRec_20260715_101422.mp4</h2>
               <span class="tag amber" id="detailStatus">待入库</span>
               <dl class="detail-grid">
-                <dt>录制时间</dt><dd>2026-07-10 15:30</dd>
+                <dt>录制时间</dt><dd id="detailTime">2026-07-17 10:14</dd>
                 <dt>时长</dt><dd id="detailDuration">00:03:26</dd>
                 <dt>画面</dt><dd id="detailVideo">2560 × 1440 · 60 FPS</dd>
                 <dt>模式</dt><dd id="detailMode">全屏录制</dd>
                 <dt>音频</dt><dd id="detailAudio">系统声音</dd>
                 <dt>大小</dt><dd id="detailSize">118 MB</dd>
                 <dt>路径</dt><dd id="detailPath">E:\QRtest\C\QuickRec_20260715_101422.mp4</dd>
-                <dt>诊断目录</dt><dd>E:\QRtest\A\QuickRecDiagnostics</dd>
+                <dt>诊断目录</dt><dd id="detailDiagnostic">E:\QRtest\C\QuickRecDiagnostics</dd>
                 <dt>来源</dt><dd id="detailSource">新录制 · 待入库恢复</dd>
                 <dt>最近失败</dt><dd id="detailFailure">中央素材索引写入失败，可再次重试</dd>
               </dl>
-              <div class="detail-actions">
+              <div class="detail-actions" id="detailFileActions">
                 <button class="btn">打开</button><button class="btn">打开目录</button><button class="btn copy-path">复制路径</button><button class="btn" id="relinkMaterial">重新定位</button>
               </div>
-              <div class="detail-actions" style="margin-top:22px">
+              <div class="detail-actions" id="detailManageActions" style="margin-top:22px">
                 <button class="btn primary" id="retryPending">重试入库</button><button class="btn" id="removePending">移除待处理记录</button><button class="btn" id="removeMaterial" hidden>从素材库移除</button><button class="btn danger" id="deleteMaterial" hidden>删除视频文件</button>
               </div>
             </div>
@@ -550,11 +669,12 @@
         <div class="list">
           <div class="row"><span>v1.6 素材库</span><span class="tag green">已发布</span></div>
           <div class="row"><span>v1.6.1 待入库恢复</span><span class="tag amber">需求已确认</span></div>
+          <div class="row"><span>v1.7 素材发现</span><span class="tag blue">PRD 待评审</span></div>
           <div class="row"><span>QuickRec Lite</span><span class="tag blue">独立产品线</span></div>
         </div>
         <div class="panel" style="margin-top:14px">
           <h2>边界提醒</h2>
-          <p>v1.6.1 只补齐视频保存后入库失败的持久恢复闭环，不新增恢复中心。AI 与完整工作台继续留在后续规划，Lite 保持独立轻量路线。</p>
+          <p>v1.7 只增强素材库内的搜索、筛选、排序和查询状态，不进行全局 UI 重构。AI 与完整工作台继续留在后续规划，Lite 保持独立轻量路线。</p>
         </div>
       </section>
     </div>
@@ -610,7 +730,55 @@
       });
     });
 
-    const materialItems = document.querySelectorAll(".material-item");
+    const materialList = document.getElementById("materialList");
+    const prototypeModes = ["全屏录制", "区域录制", "窗口录制", "未知"];
+    const prototypeAudio = ["无声", "系统声音", "麦克风", "系统声音 + 麦克风", "未知"];
+    const prototypeStatuses = ["可用", "可用", "可用", "文件已移动或删除", "元数据不完整"];
+    for (let index = 4; index <= 126; index += 1) {
+      const created = new Date(Date.parse("2026-07-17T08:00:00+08:00") - index * 20 * 60 * 60 * 1000);
+      const name = index % 17 === 0
+        ? `课程 演示_${String(index).padStart(3, "0")}.mp4`
+        : `QuickRec_demo_${String(index).padStart(3, "0")}.mp4`;
+      const mode = prototypeModes[index % prototypeModes.length];
+      const audio = prototypeAudio[index % prototypeAudio.length];
+      const status = prototypeStatuses[index % prototypeStatuses.length];
+      const durationSeconds = index % 13 === 0 ? "" : String(35 + index * 7);
+      const sizeBytes = index % 11 === 0 ? "" : String((18 + index) * 1024 * 1024);
+      const directory = index % 17 === 0 ? "中文 项目" : `Project-${(index % 5) + 1}`;
+      const item = document.createElement("button");
+      item.className = "material-item";
+      Object.assign(item.dataset, {
+        id: `material-generated-${String(index).padStart(3, "0")}`,
+        kind: "material",
+        name,
+        status,
+        mode,
+        audio,
+        size: sizeBytes ? `${18 + index} MB` : "-",
+        sizeBytes,
+        resolution: index % 4 === 0 ? "2560 × 1440" : "1920 × 1080",
+        fps: index % 3 === 0 ? "30 FPS" : "60 FPS",
+        duration: durationSeconds ? `${Math.floor(Number(durationSeconds) / 60).toString().padStart(2, "0")}:${(Number(durationSeconds) % 60).toString().padStart(2, "0")}` : "-",
+        durationSeconds,
+        created: created.toISOString(),
+        path: `E:\\QRtest\\${directory}\\${name}`,
+      });
+      const content = document.createElement("span");
+      const itemName = document.createElement("span");
+      itemName.className = "material-name";
+      itemName.textContent = name;
+      const meta = document.createElement("span");
+      meta.className = "material-meta";
+      meta.textContent = `${created.toLocaleDateString("zh-CN")} · ${item.dataset.duration === "-" ? "时长未知" : item.dataset.duration} · ${item.dataset.resolution} · ${item.dataset.size}`;
+      content.append(itemName, meta);
+      const statusTag = document.createElement("span");
+      statusTag.className = status === "可用" ? "tag green" : status.includes("移动") ? "tag red" : "tag amber";
+      statusTag.textContent = status === "文件已移动或删除" ? "缺失" : status === "元数据不完整" ? "信息不完整" : status;
+      item.append(content, statusTag);
+      materialList.appendChild(item);
+    }
+
+    const materialItems = Array.from(document.querySelectorAll(".material-item"));
     const retryPending = document.getElementById("retryPending");
     const removePending = document.getElementById("removePending");
     const removeMaterial = document.getElementById("removeMaterial");
@@ -618,6 +786,8 @@
 
     function setDetailActions(item) {
       const isPending = item.dataset.kind === "pending";
+      document.getElementById("detailFileActions").hidden = false;
+      document.getElementById("detailManageActions").hidden = false;
       retryPending.hidden = !isPending;
       removePending.hidden = !isPending;
       removeMaterial.hidden = isPending;
@@ -629,6 +799,24 @@
         : "-";
     }
 
+    function clearMaterialDetail() {
+      materialItems.forEach((node) => node.classList.remove("active"));
+      document.getElementById("detailName").textContent = "未选择素材";
+      document.getElementById("detailStatus").textContent = "-";
+      document.getElementById("detailStatus").className = "tag";
+      for (const id of ["detailDuration", "detailVideo", "detailMode", "detailAudio", "detailSize", "detailPath", "detailSource", "detailFailure"]) {
+        document.getElementById(id).textContent = "-";
+      }
+      document.querySelectorAll(".detail-grid dd").forEach((node) => { node.textContent = "-"; });
+      document.getElementById("detailFileActions").hidden = true;
+      document.getElementById("detailManageActions").hidden = true;
+      retryPending.hidden = true;
+      removePending.hidden = true;
+      removeMaterial.hidden = true;
+      deleteMaterial.hidden = true;
+      document.getElementById("relinkMaterial").hidden = true;
+    }
+
     materialItems.forEach((item) => {
       item.addEventListener("click", () => {
         materialItems.forEach((node) => node.classList.remove("active"));
@@ -636,26 +824,184 @@
         document.getElementById("detailName").textContent = item.dataset.name;
         document.getElementById("detailStatus").textContent = item.dataset.status;
         document.getElementById("detailStatus").className = item.dataset.status === "可用" ? "tag green" : item.dataset.status.includes("移动") ? "tag red" : "tag amber";
+        document.getElementById("detailTime").textContent = new Date(item.dataset.created).toLocaleString("zh-CN", { hour12: false });
         document.getElementById("detailDuration").textContent = item.dataset.duration;
         document.getElementById("detailVideo").textContent = `${item.dataset.resolution} · ${item.dataset.fps}`;
         document.getElementById("detailMode").textContent = item.dataset.mode;
         document.getElementById("detailAudio").textContent = item.dataset.audio;
         document.getElementById("detailSize").textContent = item.dataset.size;
         document.getElementById("detailPath").textContent = item.dataset.path;
+        document.getElementById("detailDiagnostic").textContent = `${item.dataset.path.slice(0, item.dataset.path.lastIndexOf("\\"))}\\QuickRecDiagnostics`;
         setDetailActions(item);
       });
     });
     setDetailActions(document.querySelector(".material-item.active"));
 
     let visibleMaterials = 50;
-    document.getElementById("loadMoreMaterials").addEventListener("click", (event) => {
-      visibleMaterials = Math.min(126, visibleMaterials + 50);
-      document.getElementById("materialCount").textContent = `显示 ${visibleMaterials} / 126`;
-      if (visibleMaterials >= 126) {
-        event.currentTarget.textContent = "已显示全部";
-        event.currentTarget.disabled = true;
+    let lastValidQueryResult = null;
+    const queryControls = {
+      search: document.getElementById("materialSearch"),
+      status: document.getElementById("statusFilter"),
+      mode: document.getElementById("modeFilter"),
+      audio: document.getElementById("audioFilter"),
+      time: document.getElementById("timeFilter"),
+      sort: document.getElementById("sortMaterials"),
+    };
+    const sortLabels = {
+      created_desc: "录制时间：最新优先",
+      created_asc: "录制时间：最早优先",
+      duration_desc: "时长：最长优先",
+      duration_asc: "时长：最短优先",
+      size_desc: "文件大小：最大优先",
+      size_asc: "文件大小：最小优先",
+    };
+
+    function statusKey(item) {
+      if (item.dataset.status === "可用") return "available";
+      if (item.dataset.status === "待入库" || item.dataset.status === "正在重试") return "pending";
+      if (item.dataset.status === "入库失败") return "retry_failed";
+      if (item.dataset.status.includes("移动") || item.dataset.status.includes("缺失")) return "missing";
+      return "metadata_incomplete";
+    }
+
+    function compareOptionalNumber(left, right, direction) {
+      const leftValue = Number(left);
+      const rightValue = Number(right);
+      const leftMissing = left === "" || Number.isNaN(leftValue);
+      const rightMissing = right === "" || Number.isNaN(rightValue);
+      if (leftMissing && rightMissing) return 0;
+      if (leftMissing) return 1;
+      if (rightMissing) return -1;
+      return direction * (leftValue - rightValue);
+    }
+
+    function compareItems(left, right) {
+      const sort = queryControls.sort.value;
+      let result = 0;
+      if (sort === "created_desc" || sort === "created_asc") {
+        result = (sort === "created_desc" ? -1 : 1) * (Date.parse(left.dataset.created) - Date.parse(right.dataset.created));
+      } else if (sort.startsWith("duration")) {
+        result = compareOptionalNumber(left.dataset.durationSeconds, right.dataset.durationSeconds, sort.endsWith("desc") ? -1 : 1);
+      } else {
+        result = compareOptionalNumber(left.dataset.sizeBytes, right.dataset.sizeBytes, sort.endsWith("desc") ? -1 : 1);
       }
+      if (result !== 0) return result;
+      const createdFallback = Date.parse(right.dataset.created) - Date.parse(left.dataset.created);
+      return createdFallback || left.dataset.id.localeCompare(right.dataset.id, "zh-CN");
+    }
+
+    function matchesQuery(item) {
+      const keyword = queryControls.search.value.trim().toLocaleLowerCase("zh-CN");
+      const textMatched = !keyword
+        || item.dataset.name.toLocaleLowerCase("zh-CN").includes(keyword)
+        || item.dataset.path.toLocaleLowerCase("zh-CN").includes(keyword);
+      const statusMatched = queryControls.status.value === "all" || statusKey(item) === queryControls.status.value;
+      const modeMatched = queryControls.mode.value === "all" || item.dataset.mode === queryControls.mode.value;
+      const audioMatched = queryControls.audio.value === "all" || item.dataset.audio === queryControls.audio.value;
+      let timeMatched = true;
+      if (queryControls.time.value !== "all") {
+        const prototypeNow = new Date("2026-07-17T16:00:00+08:00");
+        const created = new Date(item.dataset.created);
+        if (Number.isNaN(created.getTime())) {
+          timeMatched = false;
+        } else if (queryControls.time.value === "today") {
+          const start = new Date(prototypeNow);
+          start.setHours(0, 0, 0, 0);
+          timeMatched = created >= start && created <= prototypeNow;
+        } else {
+          const days = Number(queryControls.time.value);
+          timeMatched = created >= new Date(prototypeNow.getTime() - days * 24 * 60 * 60 * 1000) && created <= prototypeNow;
+        }
+      }
+      return textMatched && statusMatched && modeMatched && audioMatched && timeMatched;
+    }
+
+    function renderQueryResult(result) {
+      const { pendingMatches, formalMatches, pendingTotal, formalTotal } = result;
+      const active = document.querySelector(".material-item.active");
+      const visibleFormal = formalMatches.slice(0, visibleMaterials);
+      const visibleSet = new Set([...pendingMatches, ...visibleFormal]);
+      const formalHeader = document.getElementById("formalHeader");
+      pendingMatches.forEach((item) => materialList.insertBefore(item, formalHeader));
+      formalMatches.forEach((item) => materialList.appendChild(item));
+      materialItems.forEach((item) => { item.hidden = !visibleSet.has(item); });
+
+      document.getElementById("pendingHeader").hidden = pendingTotal === 0;
+      formalHeader.hidden = formalTotal === 0;
+      document.getElementById("pendingCount").textContent = `匹配 ${pendingMatches.length} / 共 ${pendingTotal} 条`;
+      document.getElementById("materialCount").textContent = `显示 ${visibleFormal.length} / 匹配 ${formalMatches.length} / 共 ${formalTotal} 条`;
+      document.getElementById("queryResultCount").textContent = `匹配 ${pendingMatches.length + formalMatches.length} / 共 ${pendingTotal + formalTotal} 条`;
+      document.getElementById("sortSummary").textContent = sortLabels[queryControls.sort.value];
+
+      const noResult = pendingMatches.length + formalMatches.length === 0;
+      document.getElementById("queryEmpty").hidden = !noResult;
+      document.getElementById("libraryFooter").hidden = formalMatches.length === 0;
+      const loadMore = document.getElementById("loadMoreMaterials");
+      loadMore.disabled = visibleFormal.length >= formalMatches.length;
+      loadMore.textContent = loadMore.disabled ? "已显示全部" : "加载更多 50 条";
+
+      if (active && !visibleSet.has(active)) clearMaterialDetail();
+    }
+
+    function applyMaterialQuery() {
+      try {
+        document.getElementById("queryFeedback").hidden = true;
+        const pendingItems = materialItems.filter((item) => item.isConnected && item.dataset.kind === "pending");
+        const formalItems = materialItems.filter((item) => item.isConnected && item.dataset.kind === "material");
+        const result = {
+          pendingMatches: pendingItems.filter(matchesQuery).sort(compareItems),
+          formalMatches: formalItems.filter(matchesQuery).sort(compareItems),
+          pendingTotal: pendingItems.length,
+          formalTotal: formalItems.length,
+        };
+        lastValidQueryResult = result;
+        renderQueryResult(result);
+      } catch (error) {
+        document.getElementById("queryFeedback").hidden = false;
+        if (lastValidQueryResult) renderQueryResult(lastValidQueryResult);
+      }
+    }
+
+    function resetMaterialQuery() {
+      queryControls.search.value = "";
+      queryControls.status.value = "all";
+      queryControls.mode.value = "all";
+      queryControls.audio.value = "all";
+      queryControls.time.value = "all";
+      queryControls.sort.value = "created_desc";
+      visibleMaterials = 50;
+      applyMaterialQuery();
+    }
+
+    let searchTimer = null;
+    queryControls.search.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      document.getElementById("queryResultCount").textContent = "正在筛选…";
+      searchTimer = setTimeout(() => {
+        visibleMaterials = 50;
+        applyMaterialQuery();
+      }, 150);
     });
+    for (const control of [queryControls.status, queryControls.mode, queryControls.audio, queryControls.time, queryControls.sort]) {
+      control.addEventListener("change", () => {
+        visibleMaterials = 50;
+        applyMaterialQuery();
+      });
+    }
+    document.getElementById("clearMaterialSearch").addEventListener("click", () => {
+      queryControls.search.value = "";
+      visibleMaterials = 50;
+      applyMaterialQuery();
+      queryControls.search.focus();
+    });
+    for (const id of ["resetMaterialQuery", "resetQueryFromError", "resetQueryFromEmpty"]) {
+      document.getElementById(id).addEventListener("click", resetMaterialQuery);
+    }
+    document.getElementById("loadMoreMaterials").addEventListener("click", () => {
+      visibleMaterials += 50;
+      applyMaterialQuery();
+    });
+    applyMaterialQuery();
 
     const libraryBanner = document.getElementById("libraryBanner");
     const libraryWorkspace = document.getElementById("libraryWorkspace");
@@ -683,6 +1029,7 @@
       const state = event.target.value;
       libraryBanner.hidden = true;
       libraryTask.hidden = true;
+      document.getElementById("queryFeedback").hidden = true;
       libraryEmpty.hidden = state !== "empty";
       libraryWorkspace.hidden = state === "empty";
       if (state === "migration") {
@@ -709,6 +1056,8 @@
         libraryBanner.className = "library-banner bad";
         bannerText.innerHTML = "<b>1 条待入库录制已移动</b><br><small>重新定位正确视频后即可继续入库；移除待处理记录不会删除视频。</small>";
         materialItems[1].click();
+      } else if (state === "queryError") {
+        document.getElementById("queryFeedback").hidden = false;
       }
     });
 
@@ -727,6 +1076,7 @@
         document.getElementById("detailPath").textContent = item.dataset.path;
         document.getElementById("detailFailure").textContent = "文件已重新定位，可再次重试入库";
         event.currentTarget.hidden = true;
+        applyMaterialQuery();
       }
     });
     retryPending.addEventListener("click", () => {
@@ -752,6 +1102,7 @@
         retryPending.disabled = false;
         retryPending.textContent = "重试入库";
         setDetailActions(item);
+        applyMaterialQuery();
       }, 700);
     });
 
@@ -760,15 +1111,17 @@
       if (item && item.dataset.kind === "pending" && window.confirm("只移除这条待处理记录？视频文件不会被删除。")) {
         item.remove();
         const remaining = document.querySelectorAll('.material-item[data-kind="pending"]').length;
-        document.getElementById("pendingCount").textContent = `${remaining} 条`;
         document.getElementById("pendingSummary").textContent = `${remaining} 条待入库`;
-        document.querySelector(".material-item")?.click();
+        clearMaterialDetail();
+        applyMaterialQuery();
       }
     });
 
     removeMaterial.addEventListener("click", () => {
       if (window.confirm("从素材库移除这条记录？视频文件不会被删除。")) {
         document.querySelector(".material-item.active")?.remove();
+        clearMaterialDetail();
+        applyMaterialQuery();
       }
     });
     deleteMaterial.addEventListener("click", () => {
