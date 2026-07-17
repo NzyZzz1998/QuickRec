@@ -1,6 +1,6 @@
 # QuickRec Full v1.6.1 变更日志
 
-> 状态：开发与验收已完成，待正式发布
+> 状态：正式发布（2026-07-18）
 > 基线：QuickRec Full v1.6
 > 回滚点：`v1.6` tag（`ac8d151aababb5e7c37b3dcc646ae10c8593acf3`）
 
@@ -30,3 +30,4 @@
 - 修复后全量测试：376 passed、24 deselected、22 subtests passed。
 - Packaging：12 passed；ruff、mypy、compileall、UTF-8/乱码检查和 `git diff --check` 通过。
 - 锁定候选包 GUI 手动验收通过；EXE SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
+- 发布资产 `QuickRec-v1.6.1-win-x64.zip` SHA256：`CE72D690DD46950C46CDEE2F3999B6F64E6DC0362B20CAC21FC53A34FCE197CF`。

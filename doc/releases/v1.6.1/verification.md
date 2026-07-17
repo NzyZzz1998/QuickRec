@@ -122,4 +122,11 @@ python scripts\hardware_smoke.py `
 - 候选包：最终 EXE、FFmpeg 与 FFprobe 身份已锁定，旧候选包不再作为发布对象。
 - GUI 验收：核心待入库、录制与音频、设置诊断、素材库、文件操作、容量和三档 DPI 均通过。
 - 环境恢复：真实 `%APPDATA%\QuickRec` 未被测试覆盖，候选包进程已停止，QuickRec Lite 工作区干净。
-- 最终判断：**验证通过，可进入发布收口；尚未创建 v1.6.1 tag 或 GitHub Release。**
+- 最终判断：**验证通过，发布资产已锁定，可执行 v1.6.1 tag 与 GitHub Release 发布。**
+
+## 9. 发布资产
+
+- 发布资产：`E:\QRtest\QuickRec-v1.6.1-win-x64.zip`。
+- 大小：160,071,928 字节。
+- SHA256：`CE72D690DD46950C46CDEE2F3999B6F64E6DC0362B20CAC21FC53A34FCE197CF`。
+- 压缩包结构检查通过：包含 `QuickRec/QuickRec.exe`、`QuickRec/_internal/ffmpeg/ffmpeg.exe` 和 `QuickRec/_internal/ffmpeg/ffprobe.exe`，共 261 个条目。

@@ -1,6 +1,6 @@
 # QuickRec Full v1.6.1 发布说明
 
-> 状态：开发与验收已完成，待正式发布
+> 状态：正式发布（2026-07-18）
 
 ## 主要变化
 
@@ -18,14 +18,14 @@
 - 修复后全量测试：376 passed、24 deselected、22 subtests passed。
 - Packaging：12 passed；ruff、mypy、compileall 与 `git diff --check` 通过。
 - 锁定候选包 GUI 验收通过，覆盖待入库恢复、三类录制、四类音频、设置诊断、素材库回归、容量边界与三档 DPI。
-- 候选 EXE：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`。
-- EXE SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
+- 发布资产：`QuickRec-v1.6.1-win-x64.zip`（160,071,928 字节）。
+- 发布 ZIP SHA256：`CE72D690DD46950C46CDEE2F3999B6F64E6DC0362B20CAC21FC53A34FCE197CF`。
+- 锁定 EXE SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
 
 ## 已知边界
 
-- 不提供复杂恢复中心、云同步、AI、剪辑、导出队列或新捕获后端。
 - 启动自动重试每条每次启动最多一次；失败项由素材库长期承接。
-- 本文描述的能力已完成验收；在远端 tag 和 GitHub Release 创建前，v1.6 仍是正式公开版本。
+- 不提供复杂恢复中心、云同步、AI、剪辑、导出队列或新捕获后端。
 
 ## 回滚
 

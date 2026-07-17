@@ -1,7 +1,7 @@
 # QuickRec Full v1.6.1 开发日志
 
 > 版本：v1.6.1  
-> 状态：实施与验收已完成，待正式发布
+> 状态：正式发布
 > 事实源：[prd.md](prd.md)、[dev_plan.md](dev_plan.md)、[progress.md](progress.md)  
 > 记录边界：只记录实施批次、关键改动、验证摘要与未闭合风险。
 
@@ -39,4 +39,4 @@
 - 修复后全量测试 376 passed、24 deselected、22 subtests passed；packaging 12 passed，静态门禁通过。
 - 核心待入库链路、录制与音频、设置诊断、素材库、容量边界和三档 DPI 验收通过。
 - 最终候选 EXE SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
-- 当前无发布阻塞，等待远端推送、tag 和 GitHub Release 授权。
+- 当前无发布阻塞；用户已授权完成 `master`、`v1.6.1` tag 与 GitHub Release 发布闭环。
