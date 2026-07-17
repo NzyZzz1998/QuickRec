@@ -3,22 +3,28 @@
 ## 当前定位
 
 - 产品线：QuickRec Full
-- 当前版本：v1.6
+- 当前正式版本：v1.6
+- 当前开发版本：v1.6.1
 - 当前发布分支：`master`
+- 当前开发分支：`feature/v1.6.1-pending-ingestion`
 - 当前标签：`v1.6`
 - 当前工作区：`E:\codex\QuickRec`
 - 发布源提交：`c2c9b27147c96ee01518651fa6d3578c4615d8ce`
-- 验收产物：`E:\QRtest\QuickRec-v1.6-release-dist\QuickRec\QuickRec.exe`
-- 验收产物 SHA256：`99D7309E8C3BA3F46F7322D9CD79E1126F1C4DD333E1F581B9110EEA26406290`
+- v1.6 本地历史展开包：已清理，可从 GitHub Release 重新下载
 - GitHub Release 资产：`QuickRec-v1.6-win-x64.zip`
 - GitHub Release：[QuickRec Full v1.6](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.6)
 - 发布 ZIP SHA256：`30F002F8E085220E86C37B1EC672A47739560A80488743A4D6EDE1DB9FED6C69`
+- v1.6.1 本地候选：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`
+- v1.6.1 候选 SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`
+- v1.6.1 验收证据：`E:\QRtest\QuickRec-v1.6.1-acceptance`
 
 `v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce feat(v1.4.x): add diagnostic export workflow`。本工作区当前 `master` 后续 HEAD 可能包含 post-split 文档治理提交，但不得移动或重写 `v1.4.1` tag。
 
 ## 当前发布状态
 
 v1.6 轻量素材库基础版已完成开发、自动化验证、独立打包、硬件 smoke 和 D7 GUI 手动验收，当前无发布阻塞，作为 QuickRec Full 当前正式版本发布。
+
+v1.6.1 处于候选验收阶段，当前本地只保留锁定候选包和对应验收证据；尚未创建 v1.6.1 tag 或 GitHub Release。
 
 v1.5 保留为上一稳定发布和代码/发布包回滚点；回滚不会重写 v1.6 中央素材索引。
 

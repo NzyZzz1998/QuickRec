@@ -402,7 +402,7 @@
 - 验证对象：v1.6.1 新增存储、服务、协调器、素材库 UI、主流程和打包配置。
 - 验证方式：全量 pytest、coverage、packaging、ruff、mypy、compileall、乱码检查与 `git diff --check`。
 - 验证结果：374 passed、24 deselected、22 subtests passed；全项目覆盖率 83.99%；新增模块均超过 80%；packaging 12 passed；静态门禁通过。
-- 原型截图：`E:\QRtest\QuickRec-v1.6.1-prototype.png`。
+- 原型截图：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\prototype\QuickRec-v1.6.1-prototype.png`。
 - 证据状态：`新测`。
 - 失效条件：PRD 契约、原型交互或相关文件发生变化。
 - GUI 新证据：正式索引写入失败后的主记录、降级标记、双重失败保视频、启动自动恢复、单次失败重试、素材库手动重试、缺失状态、重新定位和仅移除记录均已通过。

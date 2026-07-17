@@ -98,8 +98,8 @@ python scripts\hardware_smoke.py `
 - 自动验证：全量 376 passed、24 deselected、22 subtests passed；packaging 12 passed；ruff、mypy、compileall 和 diff 检查通过。
 - 最终候选包：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`。
 - 最终候选 SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
-- 定向样本：`E:\QRtest\QuickRec-v1.6.1-audiofix2-acceptance\videos\QuickRec_20260716_230446.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-21.1 dB`、峰值 `-6.2 dB`，日志无混音失败。
-- 系统声音单模式定向样本：`E:\QRtest\QuickRec-v1.6.1-audiofix2-system-acceptance\videos\QuickRec_20260716_234947.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，中央索引记录 `audio_source=system`。
+- 定向样本：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\audiofix2\both\videos\QuickRec_20260716_230446.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-21.1 dB`、峰值 `-6.2 dB`，日志无混音失败。
+- 系统声音单模式定向样本：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\audiofix2\system\videos\QuickRec_20260716_234947.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，中央索引记录 `audio_source=system`。
 - 当前结论：结构、设备选择、系统声音单模式、双音频非静音、索引一致性与用户听感均通过，BUG-161-01 已关闭；麦克风单独模式仍按验收清单补证。
 
 ## 7. 设置、诊断与素材库自动 GUI 回归（2026-07-17）
