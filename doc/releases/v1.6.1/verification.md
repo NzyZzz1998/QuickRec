@@ -1,9 +1,9 @@
 # QuickRec Full v1.6.1 自动验证记录
 
-> 验证时间：2026-07-15  
+> 验证时间：2026-07-17
 > 分支：`feature/v1.6.1-pending-ingestion`  
-> 源码 HEAD：`83494cd51f6bd78885c528d6fc333fd07b101848`，工作区包含本轮未提交实现  
-> 结论：自动化、候选包基础检查与核心降级链路通过，GUI 手动验收尚未完成
+> 源码 HEAD：`8a1ee4710de70d5dd74c2478771a50a762b528ca`，工作区仅有验收文档更新
+> 结论：自动化、候选包基础检查、核心降级链路、设置与诊断回归及 v1.6 素材库快速回归通过；其余 GUI 项以手动验收清单为准
 
 ## 1. 候选包身份
 
@@ -101,3 +101,15 @@ python scripts\hardware_smoke.py `
 - 定向样本：`E:\QRtest\QuickRec-v1.6.1-audiofix2-acceptance\videos\QuickRec_20260716_230446.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-21.1 dB`、峰值 `-6.2 dB`，日志无混音失败。
 - 系统声音单模式定向样本：`E:\QRtest\QuickRec-v1.6.1-audiofix2-system-acceptance\videos\QuickRec_20260716_234947.mp4`，H.264 + 48 kHz 双声道 AAC，平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，中央索引记录 `audio_source=system`。
 - 当前结论：结构、设备选择、系统声音单模式、双音频非静音、索引一致性与用户听感均通过，BUG-161-01 已关闭；麦克风单独模式仍按验收清单补证。
+
+## 7. 设置、诊断与素材库自动 GUI 回归（2026-07-17）
+
+- 锁定候选包：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`，SHA256 为 `2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
+- 设置持久化：FPS 30 -> 60，保存并重启后仍为 60；验收后恢复为 30。
+- 诊断入口：复制诊断信息、打开隔离日志目录、导出诊断文件均通过；导出文件 `diagnostic_20260717_171246.txt` 可按 UTF-8 读取。
+- 目录重建：有效 QuickRec MP4 入库，损坏 MP4 失败且不阻断，非视频文件未入库。
+- 重新定位：取消不修改记录，损坏 MP4 被拒绝且仍可重试，中文空格路径有效 MP4 成功并保留 2 秒、640 x 360、24 FPS 元数据。
+- 文件操作：仅移除索引后 MP4 保留；移入回收站后原路径和索引移除，Windows 回收站中可核对同名文件及原始目录。
+- 持久化：重启后重新定位记录仍存在，两条已移除记录未恢复，素材库共 14 条。
+- 环境：候选包进程已停止，真实 `%APPDATA%\QuickRec` 文件哈希未变化，QuickRec Lite 工作区干净。
+- 证据目录：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence\auto3`；机器可读汇总为 `verification-summary.json`。

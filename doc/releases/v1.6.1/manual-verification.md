@@ -1,8 +1,13 @@
 # QuickRec Full v1.6.1 GUI 手动验收
 
-> 当前状态：进行中（核心降级链路已完成，素材库操作与回归项待补证）  
-> 验收对象：`E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe`  
-> 锁定 SHA256：`505284D20663C73200C6322B609DD9E0D436FC6CAF624383A9D682B18A4D6B39`  
+> 当前状态：`test` 分支手动验收中（核心降级链路、系统声音与双音频已通过）
+>
+> 对应提交：`8a1ee4710de70d5dd74c2478771a50a762b528ca`
+>
+> 验收对象：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`
+>
+> 锁定 SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`
+>
 > 证据目录：`E:\QRtest\QuickRec-v1.6.1-acceptance\evidence`
 
 ## 1. 开始前
@@ -50,8 +55,8 @@
 - [x] 系统声音录制：audiofix2 候选以受控 880 Hz 测试音完成全屏录制，输出为 48 kHz 双声道 AAC，平均音量 `-24.1 dB`、峰值 `-20.8 dB`。
 - [ ] 麦克风录制。
 - [x] 系统声音 + 麦克风录制：audiofix2 候选输出双声道 AAC，用户确认系统声音和麦克风语音均可辨识。
-- [ ] v1.6 历史迁移、备份恢复、目录重建、重新定位、仅移除索引和回收站快速回归。
-- [ ] v1.4.1 诊断复制、打开目录和导出。
+- [x] v1.6 历史迁移、备份恢复、目录重建、重新定位、仅移除索引和回收站快速回归。
+- [x] v1.4.1 诊断复制、打开目录和导出。
 - [ ] 快捷键、托盘、设置保存和退出行为。
 
 ## 5. DPI 与中文路径
@@ -97,10 +102,10 @@
 2. 确认候选包 SHA256 仍为锁定值：
 
 ```powershell
-Get-FileHash 'E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe' -Algorithm SHA256
+Get-FileHash 'E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe' -Algorithm SHA256
 ```
 
-预期：`505284D20663C73200C6322B609DD9E0D436FC6CAF624383A9D682B18A4D6B39`。不一致时立即停止，不得混用证据。
+预期：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。不一致时立即停止，不得混用证据。
 
 3. 确认并备份隔离索引：
 
@@ -116,7 +121,7 @@ Copy-Item "$root\gui-appdata\QuickRec\pending-recordings.json" "$root\manual-bac
 ```powershell
 cd E:\codex\QuickRec
 $env:APPDATA='E:\QRtest\QuickRec-v1.6.1-acceptance\gui-appdata'
-Start-Process 'E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe'
+Start-Process 'E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe'
 ```
 
 5. 所有新 MP4、截图和诊断文件保存到 `E:\QRtest\QuickRec-v1.6.1-acceptance`，不要操作真实用户素材。
@@ -134,41 +139,23 @@ Start-Process 'E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe'
 7. 使用包内 FFprobe 核对：
 
 ```powershell
-& 'E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\_internal\ffmpeg\ffprobe.exe' `
+& 'E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\_internal\ffmpeg\ffprobe.exe' `
   -v error -show_streams -show_format -of json '<窗口录制 MP4 完整路径>'
 ```
 
 通过标准：MP4 可解析、画面正确、正式索引只有一条对应记录、素材库字段与 FFprobe 一致。保存播放器或素材库截图。
-![[282b201d-2d6d-4b2d-a038-654463a5a64b.png]]
+![[Pasted image 20260717163321.png]]
 
-### 8.3 三类有声录制
+### 8.3 麦克风单独录制
 
-每类录制 5 至 10 秒，使用不同文件名和目录；播放系统测试音，麦克风测试时清楚说出模式名称和当前时间。
-
-#### 系统声音
-
-1. 在设置中选择“系统声音”。
-2. 播放持续可辨识的系统测试音并完成全屏录制。
-3. 播放 MP4，确认能听到测试音。
-4. FFprobe 应显示音频流，素材库音频模式应为“系统声音”。
-
-#### 麦克风
+系统声音和“系统声音 + 麦克风”已经使用最终候选包完成复验，本节只补麦克风单独模式。
 
 1. 在设置中选择“麦克风”。
 2. 录制时说出“QuickRec 麦克风验收”和当前时间。
 3. 播放 MP4，确认语音清晰可辨。
 4. FFprobe 应显示音频流，素材库音频模式应为“麦克风”。
 
-#### 系统声音与麦克风
-
-1. 在设置中选择“系统声音 + 麦克风”。
-2. 同时播放测试音并说出“QuickRec 双音频验收”。
-3. 播放 MP4，必须同时听到系统测试音和语音；仅存在一个音频流不足以证明双音频通过。
-4. 素材库音频模式应为“双音频”。
-
-统一通过标准：三个 MP4 均可播放且存在音频流；实际听感与模式一致；素材库字段、日志和设置模式一致。记录每个 MP4 路径及 FFprobe 输出。
-
-均无声音，三种模式
+通过标准：MP4 可播放，语音清晰可辨；FFprobe 显示 48 kHz 双声道 AAC；素材库字段、日志和设置模式均为麦克风。记录 MP4 路径及 FFprobe 输出。
 
 ### 8.4 设置与诊断快速回归
 
@@ -218,20 +205,31 @@ Start-Process 'E:\QRtest\QuickRec-v1.6.1-dist\QuickRec\QuickRec.exe'
 
 ### 8.8 结果登记
 
-| 项目 | 结果 | MP4/截图/日志证据 | 备注 |
-| --- | --- | --- | --- |
-| 窗口录制 | 待验证 |  |  |
-| 系统声音 | 通过 | `E:\QRtest\QuickRec-v1.6.1-audiofix2-system-acceptance\videos\QuickRec_20260716_234947.mp4` | H.264 + 48 kHz 双声道 AAC；平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，索引音频模式为 `system` |
-| 麦克风 | 待验证 |  |  |
-| 系统声音 + 麦克风 | 通过 | `E:\QRtest\QuickRec-v1.6.1-audiofix2-acceptance\videos\QuickRec_20260716_230446.mp4` | 双声道 AAC，日志与索引正确；用户确认系统音和麦克风语音均可辨识 |
-| 设置持久化 | 待验证 |  |  |
-| 诊断复制/目录/导出 | 待验证 |  |  |
-| v1.6 素材库快速回归 | 待验证 |  |  |
-| 125% DPI | 待验证 |  |  |
-| 150% DPI | 待验证 |  |  |
-| 正常退出与环境恢复 | 待验证 |  |  |
+| 项目           | 结果  | MP4/截图/日志证据                                                                                 | 备注                                                                                            |
+| ------------ | --- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 窗口录制         | 通过  |                                                                                             |                                                                                               |
+| 系统声音         | 通过  | `E:\QRtest\QuickRec-v1.6.1-audiofix2-system-acceptance\videos\QuickRec_20260716_234947.mp4` | H.264 + 48 kHz 双声道 AAC；平均 `-24.1 dB`、峰值 `-20.8 dB`；日志选中默认 `HECATE G1500 BAR`，索引音频模式为 `system` |
+| 麦克风          | 通过  |                                                                                             |                                                                                               |
+| 系统声音 + 麦克风   | 通过  | `E:\QRtest\QuickRec-v1.6.1-audiofix2-acceptance\videos\QuickRec_20260716_230446.mp4`        | 双声道 AAC，日志与索引正确；用户确认系统音和麦克风语音均可辨识                                                             |
+| 设置持久化        | 通过  | `evidence\auto3\settings-before.png`、`settings-changed-60fps.png`、`settings-after-restart-60fps.png` | FPS 从 30 改为 60，保存并重启后保持；验收结束已恢复为 30。 |
+| 诊断复制/目录/导出   | 通过  | `evidence\auto3\diagnostic-clipboard.txt`、`diagnostic-log-directory.png`、`videos\QuickRecDiagnostics\diagnostic_20260717_171246.txt` | 三个 GUI 入口均成功；导出文件为可读 UTF-8 文本。 |
+| v1.6 素材库快速回归 | 通过  | `evidence\auto3\material-rebuild-passed.png`、`material-relink-corrupt-rejected.png`、`material-relink-success.png`、`material-remove-index-confirmed.png`、`material-recycle-confirmed.png`、`material-after-restart.png` | 有效视频入库，损坏视频拒绝；取消操作不改数据；仅移除索引保留 MP4；回收站可追溯；重启后状态保持。 |
+| 125% DPI     | 通过  |                                                                                             |                                                                                               |
+| 150% DPI     | 通过  |                                                                                             |                                                                                               |
+| 正常退出与环境恢复    | 通过  |                                                                                             |                                                                                               |
 
 每项完成后将对应复选框改为 `[x]`，并记录 MP4、截图、日志或导出文件路径。全部补证前保持“部分通过，不可发布”。
+
+### 8.9 自动补证摘要（2026-07-17）
+
+- 验收对象：`E:\QRtest\QuickRec-v1.6.1-audiofix2-dist\QuickRec\QuickRec.exe`，SHA256 为 `2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`。
+- 隔离环境：`E:\QRtest\QuickRec-v1.6.1-acceptance\gui-appdata`；完整机器可读汇总见 `evidence\auto3\verification-summary.json`。
+- 目录重建扫描 2 个 QuickRec MP4：有效 1、失败 1；非视频文件未入库。有效素材元数据为 2 秒、640 x 360、24 FPS。
+- 重新定位依次验证取消、损坏 MP4 拒绝和中文空格路径有效 MP4 成功；失败后原索引保持，成功后路径与元数据同步更新。
+- “仅移除索引”确认后测试 MP4 仍存在且正式索引不再包含该路径。
+- “移入回收站”确认后原路径和正式索引均不存在；Windows 回收站中查到同名文件及原始目录，未清空回收站。
+- 重启候选包后素材库保持 14 条；重新定位记录仍存在，两条删除测试记录均未恢复。
+- 验收结束 FPS 已恢复为 30，候选包进程已停止；真实 `%APPDATA%\QuickRec` 配置和索引的时间与哈希保持原值；QuickRec Lite 工作区干净。
 
 ## 9. 判定
 
