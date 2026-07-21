@@ -1,18 +1,18 @@
 # QuickRec Full
 
-QuickRec Full 是 QuickRec 的完整功能产品线工作区，当前正式版本为 **v1.6.1**。v1.6.1 在 v1.6 素材库基础版上补齐待入库恢复闭环，并修复多声道双音频混音与回环设备选择问题；本目录不承接 QuickRec Lite 的轻量化裁剪路线。
+QuickRec Full 是 QuickRec 的完整功能产品线工作区，当前正式版本为 **v1.7**。v1.7 在 v1.6.1 中央素材库基础上增加素材搜索、筛选与排序能力；本目录不承接 QuickRec Lite 的轻量化裁剪路线。
 
-QuickRec Full v1.7 已完成开发、自动化门禁、独立打包与 GUI 技术验收，当前处于发布就绪状态；在 `v1.7` tag 与 GitHub Release 创建完成前，v1.6.1 仍是当前正式版本。
+QuickRec Full v1.7 已完成开发、自动化门禁、独立打包与 GUI 技术验收，并作为当前正式版本发布。
 
 > 当前路径：`E:\codex\QuickRec`
 > 当前发布分支：`master`
-> 当前标签：`v1.6.1`
+> 当前标签：`v1.7`
 > 当前文档入口：`doc/current.md`
-> 当前版本目录：`doc/releases/v1.6.1/`
-> v1.6.1 发布包：`QuickRec-v1.6.1-win-x64.zip`
+> 当前版本目录：`doc/releases/v1.7/`
+> v1.7 发布包：`QuickRec-v1.7-win-x64.zip`
 > v1.6.1 Release：[GitHub Releases](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.6.1)
 > 发布 ZIP SHA256：`CE72D690DD46950C46CDEE2F3999B6F64E6DC0362B20CAC21FC53A34FCE197CF`
-> v1.7 发布就绪包：`E:\QRtest\QuickRec-v1.7-win-x64.zip`
+> v1.7 Release：[GitHub Releases](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.7)
 > v1.7 ZIP SHA256：`0C200C549D1E4ED495BC381298E1A3157B1534526337899DB9ED9C655A37E963`
 
 `v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce feat(v1.4.x): add diagnostic export workflow`。当前 `master` 后续 HEAD 可能包含 workspace split / 文档治理提交，不代表移动或重写 `v1.4.1` 发布点。
@@ -87,7 +87,7 @@ doc/
 
 v1.6 历史发布文档保留在 `doc/releases/v1.6/`；v1.6.1 以 `progress.md` 和 `verification.md` 为发布状态事实源。
 
-v1.7 发布就绪资料位于 `doc/releases/v1.7/`；在正式 tag 与 Release 完成前，不替代 v1.6.1 的当前正式版本地位。
+v1.7 正式发布资料位于 `doc/releases/v1.7/`；v1.6.1 继续作为直接回滚点保留。
 
 ## 运行
 

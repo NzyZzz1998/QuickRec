@@ -2,7 +2,7 @@
 
 ## 追踪信息
 
-- 当前状态：实施、自动验证与 D6 GUI 技术验收完成，发布就绪
+- 当前状态：实施、自动验证与 D6 GUI 技术验收完成，已正式发布
 - 目标版本：QuickRec Full v1.7
 - 上游来源：`IDEA-001`、`IDEA-002`、`IDEA-003`、`IDEA-008`、`IDEA-009`
 - 来源文件：`doc/archive/ideas/mypm-idea-pool-v1.7-2026-07-17.md`

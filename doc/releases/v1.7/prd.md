@@ -2,7 +2,7 @@
 
 > 版本：v1.7
 > 类型：正式推进型 PRD
-> 状态：开发与 GUI 技术验收完成，发布就绪
+> 状态：开发与 GUI 技术验收完成，已正式发布
 > 产品线：QuickRec Full
 > 上游需求：`IDEA-001`、`IDEA-002`、`IDEA-003`、`IDEA-008`、`IDEA-009`
 > 来源：`doc/archive/ideas/mypm-idea-pool-v1.7-2026-07-17.md`

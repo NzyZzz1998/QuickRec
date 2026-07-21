@@ -1,6 +1,6 @@
 # QuickRec Full v1.7 发布说明
 
-> 状态：发布就绪，待创建 tag 与 GitHub Release
+> 状态：正式发布
 > 收口日期：2026-07-21
 
 ## 本版定位
