@@ -39,6 +39,8 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "services.recording_library",
         "services.pending_recordings",
         "services.material_ingestion",
+        "services.material_query",
+        "services.material_query_session",
         "utils.recording_library_store",
         "utils.pending_recording_store",
         "utils.media_metadata",

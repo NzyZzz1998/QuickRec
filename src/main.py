@@ -26,11 +26,12 @@ import os
 import platform
 import sys
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLineEdit
 
 from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
@@ -171,11 +172,21 @@ class QuickRecApp:
 
         # 快捷键信号桥
         self._hotkey_bridge = _HotkeyBridge()
-        self._hotkey_bridge.start_requested.connect(self._on_start_fullscreen)
-        self._hotkey_bridge.stop_requested.connect(self._on_stop_recording)
-        self._hotkey_bridge.pause_requested.connect(self._on_pause_resume)
-        self._hotkey_bridge.area_requested.connect(self._on_start_region)
-        self._hotkey_bridge.window_requested.connect(self._on_start_window)
+        self._hotkey_bridge.start_requested.connect(
+            lambda: self._run_hotkey_action(self._on_start_fullscreen)
+        )
+        self._hotkey_bridge.stop_requested.connect(
+            lambda: self._run_hotkey_action(self._on_stop_recording)
+        )
+        self._hotkey_bridge.pause_requested.connect(
+            lambda: self._run_hotkey_action(self._on_pause_resume)
+        )
+        self._hotkey_bridge.area_requested.connect(
+            lambda: self._run_hotkey_action(self._on_start_region)
+        )
+        self._hotkey_bridge.window_requested.connect(
+            lambda: self._run_hotkey_action(self._on_start_window)
+        )
 
         # 区域选择器信号桥
         self._area_bridge = _AreaBridge()
@@ -328,6 +339,16 @@ class QuickRecApp:
         self._hotkey.register(shortcut_pause, self._hotkey_bridge.pause_requested.emit)
         self._hotkey.register(shortcut_area, self._hotkey_bridge.area_requested.emit)
         self._hotkey.register(shortcut_window, self._hotkey_bridge.window_requested.emit)
+
+    @staticmethod
+    def _is_text_input_focused() -> bool:
+        return isinstance(QApplication.focusWidget(), QLineEdit)
+
+    def _run_hotkey_action(self, callback: Callable[[], None]) -> None:
+        if self._is_text_input_focused():
+            logger.debug("全局快捷键已忽略：QuickRec 文本输入框正在编辑")
+            return
+        callback()
 
     # --- 全屏录制 ---
 
@@ -657,6 +678,9 @@ class QuickRecApp:
                 self._pending_ids_by_output[self._normalize_output_path(output_path)] = (
                     ingestion.pending_id
                 )
+            material_dialog = getattr(self, "_material_library_dialog", None)
+            if material_dialog is not None:
+                material_dialog.reload()
             if not index_ok:
                 self._tray.show_notification("录制已保存，但素材索引写入失败")
 

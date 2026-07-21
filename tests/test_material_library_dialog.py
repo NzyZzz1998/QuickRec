@@ -15,6 +15,8 @@ from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
+from services.material_query import MaterialQueryEngine
+from services.material_query_session import MaterialQuerySession
 from services.pending_recordings import PendingRecordingService
 from services.recording_library import DirectoryScanResult, RecordingLibraryService
 from ui.material_library_dialog import MaterialLibraryDialog
@@ -65,6 +67,116 @@ class TestMaterialLibraryDialog(unittest.TestCase):
 
         self.assertEqual(dialog._table.rowCount(), 200)
         self.assertTrue(dialog._btn_load_more.isHidden())
+
+    def test_keyword_search_matches_file_name_or_path_after_debounce(self):
+        name_match = self._item(1)
+        name_match.file_name = "Target Demo.mp4"
+        path_match = self._item(2)
+        path_match.file_path = str(self.base_path / "目标目录" / "plain.mp4")
+        miss = self._item(3)
+        self.assertTrue(self.service.replace([name_match, path_match, miss]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+
+        dialog._search_input.setText("target")
+        QTest.qWait(180)
+        QApplication.processEvents()
+
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertIn("匹配 1 / 共 3 条", dialog._query_count_label.text())
+
+        dialog._search_input.setText("目标目录")
+        QTest.qWait(180)
+        QApplication.processEvents()
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertEqual(dialog._table.item(0, 0).text(), path_match.file_name)
+
+    def test_filter_categories_combine_with_and_and_sorting_updates_rows(self):
+        wanted = self._item(1)
+        wanted.mode = "window"
+        wanted.audio_source = "both"
+        wanted.duration_sec = 10
+        other = self._item(2)
+        other.mode = "region"
+        other.audio_source = "none"
+        other.duration_sec = 20
+        self.assertTrue(self.service.replace([wanted, other]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+
+        dialog._mode_combo.setCurrentIndex(dialog._mode_combo.findData("window"))
+        dialog._audio_combo.setCurrentIndex(dialog._audio_combo.findData("both"))
+        QApplication.processEvents()
+
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertEqual(dialog._table.item(0, 0).text(), wanted.file_name)
+
+        dialog._btn_reset_query.click()
+        dialog._sort_combo.setCurrentIndex(dialog._sort_combo.findData("duration_desc"))
+        QApplication.processEvents()
+        self.assertEqual(dialog._table.item(0, 0).text(), other.file_name)
+
+    def test_no_match_state_can_reset_to_full_library(self):
+        self.assertTrue(self.service.replace([self._item(1)]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+
+        dialog._search_input.setText("does-not-exist")
+        QTest.qWait(180)
+        QApplication.processEvents()
+
+        self.assertEqual(dialog._table.rowCount(), 0)
+        self.assertIn("没有符合当前条件", dialog._status_label.text())
+
+        dialog._btn_reset_query.click()
+        QApplication.processEvents()
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertEqual(dialog._search_input.text(), "")
+
+    def test_query_failure_keeps_last_rows_and_shows_non_blocking_feedback(self):
+        self.assertTrue(self.service.replace([self._item(1)]).ok)
+        engine = MaterialQueryEngine()
+        session = MaterialQuerySession(engine=engine)
+        dialog = MaterialLibraryDialog(self.service, query_session=session)
+        self.assertEqual(dialog._table.rowCount(), 1)
+
+        with patch.object(engine, "execute", side_effect=RuntimeError("private path")):
+            dialog._status_combo.setCurrentIndex(dialog._status_combo.findData("available"))
+            QApplication.processEvents()
+
+        self.assertEqual(dialog._table.rowCount(), 1)
+        self.assertIn("已保留上一次有效结果", dialog._status_label.text())
+
+    def test_query_runs_before_formal_pagination(self):
+        items = [self._item(index) for index in range(120)]
+        for index, item in enumerate(items):
+            item.file_name = f"match-{index:03d}.mp4" if index < 60 else f"other-{index:03d}.mp4"
+        self.assertTrue(self.service.replace(items).ok)
+        dialog = MaterialLibraryDialog(self.service)
+
+        dialog._search_input.setText("match-")
+        QTest.qWait(180)
+        QApplication.processEvents()
+
+        self.assertEqual(dialog._table.rowCount(), 50)
+        self.assertIn("显示 50 / 60", dialog._status_label.text())
+        dialog._btn_load_more.click()
+        self.assertEqual(dialog._table.rowCount(), 60)
+        self.assertTrue(dialog._btn_load_more.isHidden())
+
+    def test_close_keeps_conditions_but_resets_page_and_selection(self):
+        items = [self._item(index) for index in range(80)]
+        self.assertTrue(self.service.replace(items).ok)
+        dialog = MaterialLibraryDialog(self.service)
+        dialog._search_input.setText("QuickRec")
+        QTest.qWait(180)
+        dialog._btn_load_more.click()
+        dialog._table.selectRow(0)
+        self.assertEqual(dialog._table.rowCount(), 80)
+
+        dialog.close()
+        dialog.reload()
+
+        self.assertEqual(dialog._search_input.text(), "QuickRec")
+        self.assertEqual(dialog._table.rowCount(), 50)
+        self.assertEqual(dialog._table.currentRow(), -1)
 
     def test_selection_updates_detail_panel(self):
         self.assertTrue(self.service.replace([self._item(1)]).ok)

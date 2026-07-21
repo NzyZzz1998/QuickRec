@@ -6,14 +6,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -23,6 +25,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from services.material_query import MaterialQueryResult
+from services.material_query_session import MaterialQuerySession
 from services.pending_recordings import PendingRecordingService
 from services.recording_library import DirectoryScanResult, MigrationResult, RecordingLibraryService
 from utils.pending_recording_store import PendingRecordingItem
@@ -71,6 +75,7 @@ class MaterialLibraryDialog(QDialog):
         pending_service: PendingRecordingService | None = None,
         ingestion_coordinator: Any = None,
         current_save_dir: str | Path | None = None,
+        query_session: MaterialQuerySession | None = None,
     ):
         super().__init__(parent)
         self._service = service
@@ -80,7 +85,11 @@ class MaterialLibraryDialog(QDialog):
         self._items: list[MaterialItem] = []
         self._pending_items: list[PendingRecordingItem] = []
         self._rows: list[tuple[str, MaterialItem | PendingRecordingItem]] = []
-        self._visible_count = self.PAGE_SIZE
+        self._query_session = query_session or MaterialQuerySession(page_size=self.PAGE_SIZE)
+        self._query_result = MaterialQueryResult.empty()
+        self._library_load_error = ""
+        self._pending_load_error = ""
+        self._library_recovered = False
         self._task: _LibraryTask | None = None
         self._task_result_handler: Callable[[Any], None] | None = None
         self._close_when_task_done = False
@@ -93,6 +102,64 @@ class MaterialLibraryDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(10)
+
+        query_row = QHBoxLayout()
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("搜索文件名或完整路径")
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.setAccessibleName("搜索素材文件名或完整路径")
+        query_row.addWidget(self._search_input, 1)
+        self._query_count_label = QLabel("匹配 0 / 共 0 条")
+        self._query_count_label.setMinimumWidth(130)
+        query_row.addWidget(self._query_count_label)
+        self._btn_reset_query = QPushButton("重置条件")
+        self._btn_reset_query.setToolTip("清除搜索、筛选和排序条件")
+        query_row.addWidget(self._btn_reset_query)
+        root.addLayout(query_row)
+
+        filter_row = QHBoxLayout()
+        self._status_combo = self._create_combo(
+            [("全部状态", "all"), ("可用", "available"), ("待入库", "pending"),
+             ("入库失败", "retry_failed"), ("文件缺失", "missing"),
+             ("信息不完整", "metadata_incomplete")],
+            "按素材状态筛选",
+        )
+        self._mode_combo = self._create_combo(
+            [("全部模式", "all"), ("全屏录制", "fullscreen"), ("区域录制", "region"),
+             ("窗口录制", "window"), ("未知模式", "unknown")],
+            "按录制模式筛选",
+        )
+        self._audio_combo = self._create_combo(
+            [("全部音频", "all"), ("无声", "none"), ("系统声音", "system"),
+             ("麦克风", "microphone"), ("系统声音 + 麦克风", "both"), ("未知音频", "unknown")],
+            "按音频模式筛选",
+        )
+        self._time_combo = self._create_combo(
+            [("全部时间", "all"), ("今天", "today"), ("最近 7 天", "last_7_days"),
+             ("最近 30 天", "last_30_days"), ("最近 90 天", "last_90_days")],
+            "按录制时间筛选",
+        )
+        self._sort_combo = self._create_combo(
+            [("录制时间：最新优先", "created_desc"), ("录制时间：最早优先", "created_asc"),
+             ("时长：最长优先", "duration_desc"), ("时长：最短优先", "duration_asc"),
+             ("文件大小：最大优先", "size_desc"), ("文件大小：最小优先", "size_asc")],
+            "素材排序方式",
+        )
+        for combo in (self._status_combo, self._mode_combo, self._audio_combo, self._time_combo, self._sort_combo):
+            combo.setMinimumWidth(125)
+            filter_row.addWidget(combo)
+        filter_row.addStretch()
+        root.addLayout(filter_row)
+
+        self._query_timer = QTimer(self)
+        self._query_timer.setSingleShot(True)
+        self._query_timer.setInterval(150)
+        self._query_timer.timeout.connect(self._apply_query_controls)
+        self._search_input.textChanged.connect(self._on_search_changed)
+        for combo in (self._status_combo, self._mode_combo, self._audio_combo, self._time_combo, self._sort_combo):
+            combo.currentIndexChanged.connect(self._on_query_control_changed)
+        self._btn_reset_query.clicked.connect(self._reset_query)
+        self._restore_query_controls()
 
         toolbar = QHBoxLayout()
         self._status_label = QLabel("")
@@ -133,6 +200,14 @@ class MaterialLibraryDialog(QDialog):
         close_button.clicked.connect(self._close_dialog)
         footer.addWidget(close_button)
         root.addLayout(footer)
+
+    @staticmethod
+    def _create_combo(options: list[tuple[str, str]], accessible_name: str) -> QComboBox:
+        combo = QComboBox()
+        combo.setAccessibleName(accessible_name)
+        for label, value in options:
+            combo.addItem(label, value)
+        return combo
 
     def _create_detail_panel(self) -> QWidget:
         panel = QWidget()
@@ -209,34 +284,21 @@ class MaterialLibraryDialog(QDialog):
         selected = self._selected_entry()
         selected_key = self._entry_key(selected) if selected else None
         loaded = self._service.load()
+        self._library_load_error = loaded.error if not loaded.ok else ""
+        self._library_recovered = loaded.recovered
         if not loaded.ok:
             self._items = []
-            self._status_label.setText(f"素材索引加载失败：{loaded.error}")
         else:
             self._items = loaded.items
-            if not self._items:
-                self._status_label.setText("暂无素材")
-            else:
-                self._status_label.setText(
-                    f"显示 {min(self._visible_count, len(self._items))} / {len(self._items)} 条素材"
-                )
-                if loaded.recovered:
-                    self._status_label.setText("素材索引已从最近有效备份恢复")
         if self._pending_service is not None:
             pending = self._pending_service.load(self._current_save_dir)
             self._pending_items = pending.items
-            if not pending.ok:
-                self._status_label.setText(f"待入库记录加载失败：{pending.error}")
+            self._pending_load_error = pending.error if not pending.ok else ""
         else:
             self._pending_items = []
-        if loaded.ok and (self._pending_items or self._items):
-            self._set_count_status()
-        self._render_items()
-        if selected_key:
-            for row, entry in enumerate(self._rows):
-                if self._entry_key(entry) == selected_key:
-                    self._table.selectRow(row)
-                    break
+            self._pending_load_error = ""
+        self._set_query_controls_enabled(loaded.ok)
+        self._refresh_query(selected_key=selected_key)
 
     def show_migration_result(self, result: MigrationResult) -> None:
         if result.ok:
@@ -256,9 +318,8 @@ class MaterialLibraryDialog(QDialog):
         )
 
     def _render_items(self) -> None:
-        visible_items = self._items[: self._visible_count]
-        self._rows = [("pending", item) for item in self._pending_items]
-        self._rows.extend(("material", item) for item in visible_items)
+        self._rows = [("pending", item) for item in self._query_result.pending_items]
+        self._rows.extend(("material", item) for item in self._query_result.visible_formal_items)
         self._table.setRowCount(len(self._rows))
         for row, (kind, item) in enumerate(self._rows):
             if kind == "pending":
@@ -288,13 +349,14 @@ class MaterialLibraryDialog(QDialog):
                 cell.setData(Qt.UserRole, item_id)
                 self._table.setItem(row, column, cell)
         self._table.resizeColumnsToContents()
-        self._btn_load_more.setVisible(len(self._items) > self._visible_count)
+        self._btn_load_more.setVisible(self._query_result.has_more)
         self._update_detail()
 
     def _load_more(self) -> None:
-        self._visible_count = min(len(self._items), self._visible_count + self.PAGE_SIZE)
-        self._set_count_status()
-        self._render_items()
+        selected = self._selected_entry()
+        selected_key = self._entry_key(selected) if selected else None
+        self._query_session.load_more(self._query_result.formal_matched)
+        self._refresh_query(selected_key=selected_key)
 
     def _selected_item(self) -> MaterialItem | None:
         entry = self._selected_entry()
@@ -319,18 +381,113 @@ class MaterialLibraryDialog(QDialog):
         return (kind, item.pending_id if isinstance(item, PendingRecordingItem) else item.id)
 
     def _set_count_status(self) -> None:
-        if not self._pending_items and not self._items:
+        result = self._query_result
+        self._query_count_label.setText(f"匹配 {result.matched_total} / 共 {result.source_total} 条")
+        if self._library_load_error:
+            self._status_label.setText(f"素材索引加载失败：{self._library_load_error}")
+            return
+        if self._pending_load_error:
+            self._status_label.setText(f"待入库记录加载失败：{self._pending_load_error}")
+            return
+        if result.source_total == 0 and self._query_session.criteria.is_default:
             self._status_label.setText("暂无素材")
+            return
+        if result.matched_total == 0:
+            self._status_label.setText("没有符合当前条件的素材，可点击“重置条件”恢复")
+            return
+        if self._library_recovered:
+            self._status_label.setText("素材索引已从最近有效备份恢复")
+            self._library_recovered = False
             return
         if self._pending_service is None:
             self._status_label.setText(
-                f"显示 {min(self._visible_count, len(self._items))} / {len(self._items)} 条素材"
+                f"显示 {result.visible_formal_count} / {result.formal_matched} 条素材"
+                f"（共 {result.formal_total} 条）"
             )
             return
         self._status_label.setText(
-            f"待入库 {len(self._pending_items)} 条 · "
-            f"素材 {len(self._items)} 条（显示 {min(self._visible_count, len(self._items))} 条）"
+            f"待入库 {result.pending_matched} 条（匹配 {result.pending_matched} / 共 {result.pending_total}）· "
+            f"素材 {result.formal_matched} 条（显示 {result.visible_formal_count} / "
+            f"匹配 {result.formal_matched} / 共 {result.formal_total}）"
         )
+
+    def _on_search_changed(self, _text: str) -> None:
+        self._query_timer.start()
+
+    def _on_query_control_changed(self, _index: int) -> None:
+        self._query_timer.stop()
+        self._apply_query_controls()
+
+    def _apply_query_controls(self) -> None:
+        self._query_session.update(
+            keyword=self._search_input.text(),
+            status=str(self._status_combo.currentData()),
+            mode=str(self._mode_combo.currentData()),
+            audio=str(self._audio_combo.currentData()),
+            time_range=str(self._time_combo.currentData()),
+            sort_order=str(self._sort_combo.currentData()),
+        )
+        self._refresh_query()
+
+    def _reset_query(self) -> None:
+        self._query_timer.stop()
+        self._query_session.reset()
+        self._restore_query_controls()
+        self._refresh_query()
+
+    def _restore_query_controls(self) -> None:
+        criteria = self._query_session.criteria
+        controls = (
+            (self._search_input, criteria.keyword),
+            (self._status_combo, criteria.status),
+            (self._mode_combo, criteria.mode),
+            (self._audio_combo, criteria.audio),
+            (self._time_combo, criteria.time_range),
+            (self._sort_combo, criteria.sort_order),
+        )
+        for control, value in controls:
+            control.blockSignals(True)
+            if isinstance(control, QLineEdit):
+                control.setText(value)
+            else:
+                index = control.findData(value)
+                control.setCurrentIndex(max(0, index))
+            control.blockSignals(False)
+
+    def _refresh_query(self, *, selected_key: tuple[str, str] | None = None) -> None:
+        outcome = self._query_session.execute(self._items, self._pending_items)
+        self._query_result = outcome.result
+        self._render_items()
+        restored = False
+        if selected_key:
+            for row, entry in enumerate(self._rows):
+                if self._entry_key(entry) == selected_key:
+                    self._table.selectRow(row)
+                    restored = True
+                    break
+        if not restored:
+            self._table.clearSelection()
+            self._table.setCurrentCell(-1, -1)
+            self._update_detail()
+        if outcome.ok:
+            self._set_count_status()
+        else:
+            self._query_count_label.setText(
+                f"匹配 {self._query_result.matched_total} / 共 {self._query_result.source_total} 条"
+            )
+            self._status_label.setText("素材查询失败，已保留上一次有效结果；可重置条件后重试")
+
+    def _set_query_controls_enabled(self, enabled: bool) -> None:
+        for control in (
+            self._search_input,
+            self._status_combo,
+            self._mode_combo,
+            self._audio_combo,
+            self._time_combo,
+            self._sort_combo,
+            self._btn_reset_query,
+        ):
+            control.setEnabled(enabled)
 
     def _update_detail(self) -> None:
         entry = self._selected_entry()
@@ -703,6 +860,11 @@ class MaterialLibraryDialog(QDialog):
                 self._status_label.setText("正在取消素材任务…")
             event.ignore()
             return
+        self._query_timer.stop()
+        self._query_session.reset_page()
+        self._table.clearSelection()
+        self._table.setCurrentCell(-1, -1)
+        self._update_detail()
         super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:

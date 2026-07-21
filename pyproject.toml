@@ -69,6 +69,8 @@ files = [
   "src/version.py",
   "src/config.py",
   "src/services/recording_library.py",
+  "src/services/material_query.py",
+  "src/services/material_query_session.py",
   "src/ui/material_library_dialog.py",
   "src/utils/file_namer.py",
   "src/utils/disk_checker.py",
