@@ -32,6 +32,8 @@ a = Analysis(
         'services.recording_library',
         'services.pending_recordings',
         'services.material_ingestion',
+        'services.material_query',
+        'services.material_query_session',
         'utils.pending_recording_store',
         'send2trash',
         'utils.autostart',

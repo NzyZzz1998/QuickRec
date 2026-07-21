@@ -286,7 +286,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
             text = app._build_diagnostic_text()
 
-        self.assertIn("version: v1.6.1", text)
+        self.assertIn("version: v1.7", text)
         self.assertNotIn("version: v1.4.x", text)
 
     def test_export_diagnostic_file_writes_file_and_notifies(self):
@@ -334,6 +334,58 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             self.assertIn("both", text)
             self.assertFalse((Path(temp_dir) / "QuickRecMetadata" / "recordings.json").exists())
             self.assertEqual(app._tray.recording_states, [((False,), {})])
+
+    def test_handle_saved_refreshes_open_material_library_after_index_write(self):
+        class FakeMaterialLibraryDialog:
+            def __init__(self):
+                self.reload_count = 0
+
+            def reload(self):
+                self.reload_count += 1
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_20260719_195537.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "none"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = FakeMaterialLibraryDialog()
+            central_index = Path(temp_dir) / "appdata" / "QuickRec" / "recordings.json"
+            app._library_service = main.RecordingLibraryService(central_index)
+            app._pending_service = PendingRecordingService(
+                Path(temp_dir) / "appdata" / "QuickRec" / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+
+            self.assertEqual(app._material_library_dialog.reload_count, 1)
+
+    def test_global_hotkey_is_ignored_while_text_input_has_focus(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        callback_calls = []
+
+        with patch.object(main.QuickRecApp, "_is_text_input_focused", return_value=True):
+            app._run_hotkey_action(lambda: callback_calls.append("called"))
+
+        self.assertEqual(callback_calls, [])
+
+    def test_global_hotkey_runs_without_text_input_focus(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        callback_calls = []
+
+        with patch.object(main.QuickRecApp, "_is_text_input_focused", return_value=False):
+            app._run_hotkey_action(lambda: callback_calls.append("called"))
+
+        self.assertEqual(callback_calls, ["called"])
 
     def test_handle_saved_keeps_recording_success_when_library_write_fails(self):
         class FailingLibrary:
