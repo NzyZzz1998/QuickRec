@@ -3,14 +3,16 @@ ConfigManager 单元测试
 """
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from config import ConfigManager
+from config import ConfigManager, ConfigSaveResult
 
 
 class TestConfigManager(unittest.TestCase):
@@ -41,6 +43,7 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(self.config.get("countdown_seconds"), 3)
         self.assertTrue("Videos" in self.config.get("save_path"))
         self.assertEqual(self.config.get("diagnostic_keep_days"), 7)
+        self.assertEqual(self.config.get("workbench_geometry"), {})
         self.assertFalse(self.config.get("diagnostic_dir_customized"))
 
     def test_default_diagnostic_dir_uses_save_path(self):
@@ -129,7 +132,7 @@ class TestConfigManager(unittest.TestCase):
         """测试 save 和 load 一致性"""
         self.config.set("quality", "low")
         self.config.set("fps", 60)
-        self.config.save()
+        result = self.config.save()
 
         # 创建新的实例并加载
         new_config = ConfigManager.__new__(ConfigManager)
@@ -137,8 +140,80 @@ class TestConfigManager(unittest.TestCase):
         new_config._config = ConfigManager.defaults.copy()
         new_config.load()
 
+        self.assertTrue(result.ok)
         self.assertEqual(new_config.get("quality"), "low")
         self.assertEqual(new_config.get("fps"), 60)
+
+    def test_save_candidate_directory_failure_preserves_memory_and_file(self):
+        """配置目录不可写时不提交候选配置"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text('{"quality": "high"}', encoding="utf-8")
+        candidate = {**self.config._config, "quality": "low"}
+
+        with patch("config.Path.mkdir", side_effect=PermissionError("denied")):
+            result = self.config.save_candidate(candidate)
+
+        self.assertIsInstance(result, ConfigSaveResult)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stage, "prepare_directory")
+        self.assertEqual(self.config.get("quality"), "high")
+        self.assertEqual(
+            json.loads(self.config_path.read_text(encoding="utf-8"))["quality"],
+            "high",
+        )
+
+    def test_save_candidate_temp_write_failure_preserves_memory_and_file(self):
+        """临时文件写入失败时不污染正式文件"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text('{"quality": "high"}', encoding="utf-8")
+        candidate = {**self.config._config, "quality": "low"}
+
+        with patch("config.tempfile.NamedTemporaryFile", side_effect=OSError("write failed")):
+            result = self.config.save_candidate(candidate)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stage, "write_temp")
+        self.assertEqual(self.config.get("quality"), "high")
+        self.assertEqual(
+            json.loads(self.config_path.read_text(encoding="utf-8"))["quality"],
+            "high",
+        )
+
+    def test_save_candidate_replace_failure_preserves_memory_and_file(self):
+        """原子替换失败时不提交候选配置并清理临时文件"""
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text('{"quality": "high"}', encoding="utf-8")
+        candidate = {**self.config._config, "quality": "low"}
+
+        with patch("config.os.replace", side_effect=OSError("replace failed")):
+            result = self.config.save_candidate(candidate)
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stage, "replace")
+        self.assertEqual(self.config.get("quality"), "high")
+        self.assertEqual(
+            json.loads(self.config_path.read_text(encoding="utf-8"))["quality"],
+            "high",
+        )
+        self.assertEqual(
+            [path for path in self.config_path.parent.iterdir() if path != self.config_path],
+            [],
+        )
+
+    def test_save_candidate_commits_only_after_atomic_replace(self):
+        """候选配置仅在正式文件替换成功后进入内存"""
+        candidate = {**self.config._config, "quality": "low", "fps": 60}
+
+        result = self.config.save_candidate(candidate)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.stage, "complete")
+        self.assertEqual(self.config.get("quality"), "low")
+        self.assertEqual(self.config.get("fps"), 60)
+        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["quality"], "low")
+        self.assertEqual(persisted["fps"], 60)
+        self.assertEqual(os.path.dirname(result.path), str(self.config_path.parent))
 
     def test_file_not_exist(self):
         """测试文件不存在时使用默认值"""

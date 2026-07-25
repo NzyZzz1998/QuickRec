@@ -5,12 +5,11 @@
 v1.1: 修复 Win11 点击穿透、新增确认对话框、最小尺寸提示、白色虚线边框。
 """
 
-from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer
-from PyQt5.QtGui import QPainter, QPen, QColor, QFont
-from PyQt5.QtWidgets import (
-    QWidget, QApplication, QDesktopWidget,
-    QPushButton, QLabel, QHBoxLayout, QVBoxLayout
-)
+from PyQt5.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton, QWidget
+
+from ui.design_system import set_button_icon
 
 
 class AreaSelector(QWidget):
@@ -57,6 +56,22 @@ class AreaSelector(QWidget):
         self.setStyleSheet("background: transparent;")
         # 强焦点策略，确保 Win11 下可接收键盘输入
         self.setFocusPolicy(Qt.StrongFocus)
+        self._instruction_label = QLabel("拖动鼠标选择区域 · Esc 或右键取消", self)
+        self._instruction_label.setAccessibleName("区域选择操作提示")
+        self._instruction_label.setStyleSheet(
+            """
+            QLabel {
+                padding: 7px 12px;
+                border: 1px solid rgba(255, 255, 255, 80);
+                border-radius: 4px;
+                color: #FFFFFF;
+                background: rgba(17, 24, 34, 220);
+                font-family: "Microsoft YaHei UI", "Segoe UI";
+                font-size: 12px;
+            }
+            """
+        )
+        self._instruction_label.adjustSize()
 
     def show_fullscreen(self):
         """全屏显示选择器"""
@@ -65,6 +80,7 @@ class AreaSelector(QWidget):
             geo = desktop.geometry()
             self.setGeometry(geo)
         self.show()
+        self._position_instruction()
         self.raise_()          # 提升到最顶层
         self.activateWindow()  # 激活窗口
         self.setFocus()        # 强制获取焦点
@@ -165,29 +181,34 @@ class AreaSelector(QWidget):
         self._clear_confirm()
 
         widget = QWidget(self)
+        widget.setObjectName("areaConfirm")
         widget.setStyleSheet("""
-            QWidget {
-                background-color: rgba(26, 26, 46, 230);
-                border-radius: 8px;
+            QWidget#areaConfirm {
+                background-color: rgba(23, 28, 37, 245);
+                border: 1px solid #46546A;
+                border-radius: 7px;
+                font-family: "Microsoft YaHei UI", "Segoe UI";
             }
-            QPushButton {
-                background-color: transparent;
-                color: #bdc3c7;
-                border: 1px solid #555;
+            QWidget#areaConfirm QPushButton {
+                min-height: 32px;
+                padding: 0 12px;
+                color: #DCE3ED;
+                border: 1px solid #536075;
                 border-radius: 4px;
-                padding: 6px 16px;
-                font-size: 13px;
+                background: #232C39;
+                font-size: 12px;
             }
-            QPushButton:hover {
-                background-color: rgba(255, 255, 255, 30);
-                color: #ffffff;
+            QWidget#areaConfirm QPushButton:hover {
+                background: #303B4A;
+                color: #FFFFFF;
             }
-            QPushButton#btn_start {
-                color: #2ecc71;
-                border-color: #2ecc71;
+            QWidget#areaConfirm QPushButton#btn_start {
+                color: #FFFFFF;
+                border-color: #2563EB;
+                background: #2563EB;
             }
-            QPushButton#btn_start:hover {
-                background-color: rgba(46, 204, 113, 30);
+            QWidget#areaConfirm QPushButton#btn_start:hover {
+                background: #1D4ED8;
             }
         """)
 
@@ -195,11 +216,17 @@ class AreaSelector(QWidget):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
-        btn_start = QPushButton("▶ 开始录制")
+        btn_start = QPushButton("开始录制")
         btn_start.setObjectName("btn_start")
+        btn_start.setToolTip("确认当前选区并进入倒计时或开始录制")
+        btn_start.setAccessibleName("确认区域并开始录制")
+        set_button_icon(btn_start, "record", color="#FFFFFF")
         btn_start.clicked.connect(self._on_start_recording)
 
-        btn_cancel = QPushButton("✕ 取消")
+        btn_cancel = QPushButton("取消")
+        btn_cancel.setToolTip("放弃当前选区并返回上一个入口")
+        btn_cancel.setAccessibleName("取消区域选择")
+        set_button_icon(btn_cancel, "close", color="#DCE3ED")
         btn_cancel.clicked.connect(self._on_cancel)
 
         layout.addWidget(btn_start)
@@ -235,7 +262,22 @@ class AreaSelector(QWidget):
 
         self._tip_label = label
         # 1秒后自动关闭
-        QTimer.singleShot(1000, label.close)
+        def close_tip() -> None:
+            label.close()
+
+        QTimer.singleShot(1000, close_tip)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_instruction_label"):
+            self._position_instruction()
+
+    def _position_instruction(self) -> None:
+        self._instruction_label.adjustSize()
+        self._instruction_label.move(
+            max(12, (self.width() - self._instruction_label.width()) // 2),
+            max(12, self.height() - self._instruction_label.height() - 20),
+        )
 
     def _clear_confirm(self):
         """清除确认对话框"""

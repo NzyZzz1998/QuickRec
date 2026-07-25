@@ -3,6 +3,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -51,6 +52,7 @@ class FakeRecorder:
         self.event_handler = None
         self.window_lost_callback = None
         self.window_lost_connected = False
+        self.last_metadata = {}
 
     def set_event_handler(self, callback):
         self.event_handler = callback
@@ -70,6 +72,9 @@ class FakeRecorder:
 
     def get_mode(self):
         return main.RecordMode.FULLSCREEN
+
+    def get_last_recording_metadata(self):
+        return dict(self.last_metadata)
 
 
 class FakeSignal:
@@ -233,7 +238,147 @@ class FakeToolbar:
         self.material_index_saved = True
 
 
+class FakeWorkbenchCoordinator:
+    def __init__(self):
+        self.hidden = 0
+        self.opened_pages = []
+
+    def hide(self):
+        self.hidden += 1
+
+    def open(self, page):
+        self.opened_pages.append(page)
+        return object()
+
+
+class FakeRecordingPage:
+    def __init__(self):
+        self.states = []
+        self.results = []
+        self.clear_count = 0
+
+    def set_recording_state(self, state, *, mode=""):
+        self.states.append((state, mode))
+
+    def show_result(
+        self,
+        output_path,
+        size_text,
+        *,
+        index_ok,
+        performance_text="",
+        performance_stable=True,
+    ):
+        self.results.append(
+            (
+                output_path,
+                size_text,
+                index_ok,
+                performance_text,
+                performance_stable,
+            )
+        )
+
+    def clear_result(self):
+        self.clear_count += 1
+
+
 class TestQuickRecAppWorkflow(unittest.TestCase):
+    class _ReadinessBox:
+        AcceptRole = 1
+        ActionRole = 2
+        Cancel = 3
+        selected_label = ""
+
+        def __init__(self):
+            self.buttons = {}
+
+        def setWindowTitle(self, _title):
+            pass
+
+        def setText(self, _text):
+            pass
+
+        def setInformativeText(self, _text):
+            pass
+
+        def addButton(self, label, _role=None):
+            button = object()
+            if isinstance(label, str):
+                self.buttons[label] = button
+            return button
+
+        def exec_(self):
+            return 0
+
+        def clickedButton(self):
+            return self.buttons.get(self.selected_label)
+
+    @staticmethod
+    def _readiness_app(*, ready=False):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._config = FakeConfig({"fps": 120})
+        app._capture_capability = SimpleNamespace(
+            inspect=lambda: SimpleNamespace(
+                readiness=SimpleNamespace(
+                    ready=ready,
+                    reason="" if ready else "录制环境已变化，需要重新检测",
+                )
+            )
+        )
+        app._recorder = SimpleNamespace(
+            overrides=[],
+            set_next_fps_override=lambda value: app._recorder.overrides.append(value),
+        )
+        app._tray = SimpleNamespace(
+            notifications=[],
+            show_notification=lambda message: app._tray.notifications.append(message),
+        )
+        return app
+
+    def test_120_quick_validation_allows_matching_cache(self):
+        app = self._readiness_app(ready=True)
+
+        with patch("main.QMessageBox") as message_box:
+            self.assertTrue(app._check_120_capture_readiness())
+
+        message_box.assert_not_called()
+
+    def test_120_quick_validation_can_rerun_detection(self):
+        app = self._readiness_app()
+        self._ReadinessBox.selected_label = "重新检测"
+
+        with patch("main.QMessageBox", self._ReadinessBox), patch(
+            "main.CaptureSelfTestDialog.execute",
+            return_value=SimpleNamespace(passed=True),
+        ) as execute:
+            self.assertTrue(app._check_120_capture_readiness())
+
+        execute.assert_called_once_with(app._capture_capability)
+        self.assertEqual(app._recorder.overrides, [])
+
+    def test_120_quick_validation_can_use_60_for_current_recording(self):
+        app = self._readiness_app()
+        self._ReadinessBox.selected_label = "本次改用 60 FPS"
+
+        with patch("main.QMessageBox", self._ReadinessBox):
+            self.assertTrue(app._check_120_capture_readiness())
+
+        self.assertEqual(app._recorder.overrides, [60])
+        self.assertEqual(
+            app._tray.notifications,
+            ["本次全屏录制将使用 60 FPS"],
+        )
+
+    def test_120_quick_validation_cancel_keeps_current_configuration(self):
+        app = self._readiness_app()
+        self._ReadinessBox.selected_label = ""
+
+        with patch("main.QMessageBox", self._ReadinessBox):
+            self.assertFalse(app._check_120_capture_readiness())
+
+        self.assertEqual(app._recorder.overrides, [])
+
     def test_init_wires_workflow_to_recorder_and_event_callback(self):
         with patch("main.QApplication", FakeQApplication), \
                 patch("main.ConfigManager", FakeConfig), \
@@ -255,8 +400,81 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIn("open_diagnostic_dir", app._tray.callbacks)
         self.assertIn("export_diagnostic", app._tray.callbacks)
         self.assertIn("material_library", app._tray.callbacks)
+        self.assertIn("open_workbench", app._tray.callbacks)
+        self.assertIn("diagnostics", app._tray.callbacks)
+        self.assertIsInstance(app._workbench, main.WorkbenchCoordinator)
         self.assertIsInstance(app._pending_service, PendingRecordingService)
         self.assertIsInstance(app._ingestion_coordinator, MaterialIngestionCoordinator)
+
+    def test_show_workbench_routes_to_requested_page(self):
+        class Coordinator:
+            def __init__(self):
+                self.pages = []
+                self.result = object()
+
+            def open(self, page):
+                self.pages.append(page)
+                return self.result
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench = Coordinator()
+
+        result = app._show_workbench(main.WorkbenchPage.MATERIALS)
+
+        self.assertIs(result, app._workbench.result)
+        self.assertEqual(app._workbench.pages, [main.WorkbenchPage.MATERIALS])
+
+    def test_tray_open_workbench_preserves_same_process_page_memory(self):
+        with patch("main.QApplication", FakeQApplication), \
+                patch("main.ConfigManager", FakeConfig), \
+                patch("main.initialize_file_logging"), \
+                patch("main.RecorderManager", FakeRecorder), \
+                patch("main.RecordingWorkflow", FakeWorkflow), \
+                patch("main.HotkeyManager", FakeHotkey), \
+                patch("main.ClickHighlighter", FakeClickHighlighter), \
+                patch("main.TrayIcon", FakeTray):
+            app = main.QuickRecApp()
+
+        with patch.object(app, "_show_workbench") as show_workbench:
+            app._tray.callbacks["open_workbench"]()
+
+        show_workbench.assert_called_once_with()
+
+    def test_workbench_recording_request_hides_and_selection_cancel_restores(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench = FakeWorkbenchCoordinator()
+        app._recording_page = FakeRecordingPage()
+        app._recording_source = None
+        app._recording_mode = ""
+        app._area_selector = object()
+
+        app._begin_recording_request("workbench", "region")
+        app._on_selection_cancelled()
+
+        self.assertEqual(app._workbench.hidden, 1)
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.RECORDING],
+        )
+        self.assertEqual(app._recording_page.clear_count, 1)
+        self.assertEqual(
+            app._recording_page.states,
+            [("selecting", "region"), ("idle", "")],
+        )
+        self.assertIsNone(app._recording_source)
+
+    def test_show_material_library_routes_to_embedded_workbench_page(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench = FakeWorkbenchCoordinator()
+        app._material_library_dialog = object()
+
+        result = app._show_material_library()
+
+        self.assertIsNotNone(result)
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.MATERIALS],
+        )
 
     def test_copy_diagnostic_info_writes_clipboard_and_notifies(self):
         class Clipboard:
@@ -368,6 +586,57 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app._handle_saved(str(video))
 
             self.assertEqual(app._material_library_dialog.reload_count, 1)
+
+    def test_workbench_source_save_restores_workbench_without_result_toolbar(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_workbench.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "none"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = FakeToolbar()
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_page = FakeRecordingPage()
+            app._recording_source = "workbench"
+            app._recording_mode = "fullscreen"
+            app._library_service = main.RecordingLibraryService(
+                Path(temp_dir) / "recordings.json"
+            )
+            app._pending_service = PendingRecordingService(
+                Path(temp_dir) / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+            app._recorder.last_metadata = {
+                "target_fps": 120,
+                "average_fps": 110.0,
+                "minimum_one_second_fps": 106,
+                "stable": False,
+            }
+
+            app._handle_saved(str(video))
+
+        self.assertIsNone(app._toolbar)
+        self.assertEqual(len(app._recording_page.results), 1)
+        self.assertIn("未稳定达到 120 FPS", app._recording_page.results[0][3])
+        self.assertFalse(app._recording_page.results[0][4])
+        self.assertIn(
+            ("录制已保存，但本次未稳定达到 120 FPS",),
+            app._tray.notifications,
+        )
+        self.assertEqual(app._recording_page.states[-1], ("idle", ""))
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.RECORDING],
+        )
+        self.assertIsNone(app._recording_source)
 
     def test_global_hotkey_is_ignored_while_text_input_has_focus(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
@@ -562,6 +831,60 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertTrue(app._workflow.start_fullscreen_called)
         self.assertIsNone(app._toolbar)
         self.assertEqual(app._tray.notifications, [("录制启动失败，请检查 FFmpeg 或录制环境",)])
+
+    def test_workbench_source_start_failure_restores_recording_page(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._hotkey = FakeHotkey()
+        app._workflow = FakeWorkflow(manager=None)
+        app._workflow.start_fullscreen_result = False
+        app._toolbar = FakeToolbar()
+        app._tray = FakeTray(config=None, callbacks={})
+        app._workbench = FakeWorkbenchCoordinator()
+        app._recording_page = FakeRecordingPage()
+        app._recording_source = "workbench"
+        app._recording_mode = "fullscreen"
+
+        app._do_start_fullscreen()
+
+        self.assertIsNone(app._toolbar)
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.RECORDING],
+        )
+        self.assertIsNone(app._recording_source)
+
+    def test_hotkey_source_save_keeps_result_toolbar_without_opening_workbench(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "QuickRec_hotkey.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig({"save_path": temp_dir, "audio_source": "none"})
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = FakeToolbar()
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_page = FakeRecordingPage()
+            app._recording_source = "hotkey"
+            app._recording_mode = "fullscreen"
+            app._library_service = main.RecordingLibraryService(
+                Path(temp_dir) / "recordings.json"
+            )
+            app._pending_service = PendingRecordingService(
+                Path(temp_dir) / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+
+        self.assertEqual(app._toolbar.result[0], str(video))
+        self.assertEqual(app._workbench.opened_pages, [])
 
     def test_region_and_window_start_use_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

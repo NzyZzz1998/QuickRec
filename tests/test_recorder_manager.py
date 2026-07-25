@@ -18,14 +18,16 @@ from config import ConfigManager
 from recorder.events import RecordingEventType
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.state_machine import RecordingStateMachine
+from recorder.video_encoder import EncoderPerformance
 from recorder.window_diagnostics import WindowFailureReason
 
 
 class FakeScreenCapturer:
     instances = []
 
-    def __init__(self, region=None):
+    def __init__(self, region=None, target_fps=60):
         self.region = region
+        self.target_fps = target_fps
         self._started = False
         self.update_calls = []
         FakeScreenCapturer.instances.append(self)
@@ -56,12 +58,14 @@ class FailingStartScreenCapturer(FakeScreenCapturer):
 
 
 class FakeVideoEncoder:
-    def __init__(self, output_path, fps, frame_size, ffmpeg_path):
+    def __init__(self, output_path, fps, frame_size, ffmpeg_path, high_frame_rate=False):
         self.output_path = output_path
+        self.fps = fps
+        self.high_frame_rate = high_frame_rate
         self.frame_count = 0
         self.open = True
 
-    def write_frame(self, frame):
+    def write_frame(self, frame, **_kwargs):
         if not self.open:
             return False
         self.frame_count += 1
@@ -76,12 +80,12 @@ class FakeVideoEncoder:
 
 
 class FailingVideoEncoder:
-    def __init__(self, output_path, fps, frame_size, ffmpeg_path):
+    def __init__(self, output_path, fps, frame_size, ffmpeg_path, high_frame_rate=False):
         raise FileNotFoundError(ffmpeg_path)
 
 
 class FailingWriteVideoEncoder(FakeVideoEncoder):
-    def write_frame(self, frame):
+    def write_frame(self, frame, **_kwargs):
         self.open = False
         return False
 
@@ -192,6 +196,58 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(context["recorder"]["output_path"], manager._output_path)
         self.assertEqual(context["recorder"]["session_dir"], manager._session_dir)
         self.assertEqual(context["recorder"]["last_result"], manager._output_path)
+
+    def test_120_fps_performance_is_exposed_in_metadata_and_diagnostics(self):
+        manager = RecorderManager(self.config)
+        manager._fps = 120
+        manager._last_duration_sec = 1.0
+
+        class Encoder:
+            @staticmethod
+            def get_performance_snapshot():
+                return EncoderPerformance(
+                    completed_frames=120,
+                    completion_times=tuple(index / 120 for index in range(1, 121)),
+                    backlog_samples=((0.5, 8.0), (1.0, 10.0)),
+                )
+
+        manager._capture_last_performance(
+            Encoder(),
+            captured_frames=122,
+            submitted_frames=120,
+        )
+
+        metadata = manager.get_last_recording_metadata()
+        context = manager.get_diagnostic_context()
+        self.assertTrue(metadata["stable"])
+        self.assertEqual(metadata["average_fps"], 120.0)
+        self.assertEqual(metadata["minimum_one_second_fps"], 119)
+        self.assertEqual(metadata["captured_frames"], 122)
+        self.assertEqual(context["recorder"]["performance"]["target_fps"], 120)
+
+    def test_unstable_120_fps_performance_does_not_mark_recording_failed(self):
+        manager = RecorderManager(self.config)
+        manager._fps = 120
+        manager._last_duration_sec = 1.0
+
+        class Encoder:
+            @staticmethod
+            def get_performance_snapshot():
+                return EncoderPerformance(
+                    completed_frames=100,
+                    completion_times=tuple(index / 100 for index in range(1, 101)),
+                    backlog_samples=((0.5, 20.0), (1.0, 25.0)),
+                )
+
+        manager._capture_last_performance(
+            Encoder(),
+            captured_frames=105,
+            submitted_frames=120,
+        )
+
+        metadata = manager.get_last_recording_metadata()
+        self.assertFalse(metadata["stable"])
+        self.assertEqual(manager._recording_failed_reason, "")
 
     def test_diagnostic_context_contains_ffmpeg_audio_and_window_context(self):
         manager = RecorderManager(self.config)
@@ -513,6 +569,58 @@ class TestRecorderManager(unittest.TestCase):
         self.config._config["quality"] = "native"
 
         self.assertIsNone(manager._get_target_size())
+
+    def test_effective_profile_uses_120_only_for_fullscreen(self):
+        manager = RecorderManager(self.config)
+        self.config._config.update({"fps": 120, "quality": "native"})
+
+        manager._mode = RecordMode.FULLSCREEN
+        fullscreen = manager._resolve_effective_profile((2560, 1440))
+        manager._mode = RecordMode.REGION
+        region = manager._resolve_effective_profile((1600, 900))
+
+        self.assertEqual(fullscreen.effective_fps, 120)
+        self.assertEqual(fullscreen.output_size, (1920, 1080))
+        self.assertEqual(region.effective_fps, 60)
+        self.assertEqual(region.output_size, (1600, 900))
+
+    def test_fullscreen_120_passes_effective_rate_to_capture_and_encoder(self):
+        self.config._config.update({"fps": 120, "quality": "low"})
+        with self._patch_runtime(), patch.object(
+            RecorderManager,
+            "_get_ffmpeg_path",
+            return_value="ffmpeg.exe",
+        ):
+            manager = RecorderManager(self.config)
+            self.assertTrue(manager.start_fullscreen())
+            try:
+                self.assertEqual(manager._fps, 120)
+                self.assertEqual(manager._capturer.target_fps, 120)
+            finally:
+                manager.stop()
+                manager.wait_until_idle(timeout=2)
+
+        self.assertEqual(manager._encode_size, (854, 480))
+
+    def test_one_shot_fps_override_does_not_modify_persisted_config(self):
+        self.config._config.update({"fps": 120, "quality": "low"})
+        with self._patch_runtime(), patch.object(
+            RecorderManager,
+            "_get_ffmpeg_path",
+            return_value="ffmpeg.exe",
+        ):
+            manager = RecorderManager(self.config)
+            manager.set_next_fps_override(60)
+            self.assertTrue(manager.start_fullscreen())
+            try:
+                self.assertEqual(manager._fps, 60)
+                self.assertEqual(manager._capturer.target_fps, 60)
+                self.assertEqual(self.config.get("fps"), 120)
+            finally:
+                manager.stop()
+                manager.wait_until_idle(timeout=2)
+
+        self.assertIsNone(manager._next_fps_override)
 
     def test_window_mode_uses_window_region_capture_and_window_frame_size(self):
         with self._patch_runtime(), \

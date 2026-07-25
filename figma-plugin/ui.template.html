@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR Full v1.7 Design Builder</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, "Microsoft YaHei UI", sans-serif; }
+    body { margin: 0; padding: 20px; background: var(--figma-color-bg); color: var(--figma-color-text); }
+    h1 { margin: 0 0 8px; font-size: 18px; }
+    p { margin: 0 0 16px; color: var(--figma-color-text-secondary); font-size: 12px; line-height: 1.6; }
+    .pages { margin: 0 0 16px; padding: 12px; border: 1px solid var(--figma-color-border); border-radius: 6px; font-size: 12px; line-height: 1.8; }
+    button { width: 100%; height: 36px; border: 0; border-radius: 6px; background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: default; }
+    #status { min-height: 40px; margin-top: 14px; padding: 10px; border-radius: 6px; background: var(--figma-color-bg-secondary); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>QR Full v1.7 Design Builder</h1>
+  <p>生成 QuickRec Full 单页全产品可编辑设计：全部当前窗口、托盘、录制浮层、设置诊断、素材库状态、按钮契约和确认反馈集中在 QR 01 大画布。原型已按实际 PyQt 界面校准，画布不嵌入运行截图。</p>
+  <div class="pages">
+    QR 01 Full Product Flow<br>
+    <small>运行时会移除旧的 QR 00 与 QR 02；其他非 QR 页面保持不变。</small>
+  </div>
+  <button id="build">生成 / 更新 QR 设计</button>
+  <div id="status">准备就绪</div>
+  <script>
+    const qrMarkBase64 = "__QR_MARK_BASE64__";
+    const button = document.getElementById("build");
+    const status = document.getElementById("status");
+    button.onclick = () => {
+      button.disabled = true;
+      status.textContent = "正在生成 QR 设计...";
+      parent.postMessage({ pluginMessage: { type: "build", assets: { qrMarkBase64 } } }, "*");
+    };
+    onmessage = (event) => {
+      const message = event.data.pluginMessage;
+      if (!message) return;
+      status.textContent = message.message || message.text || "";
+      if (message.type === "complete" || message.type === "done" || message.type === "error") button.disabled = false;
+    };
+  </script>
+</body>
+</html>

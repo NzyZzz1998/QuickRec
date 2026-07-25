@@ -24,13 +24,16 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from config import ConfigManager
 from recorder.audio_capturer import AudioCapturer, AudioSource
 from recorder.audio_preflight import AudioPreflightResult, plan_audio_source
+from recorder.capture_metrics import evaluate_capture_gate, normalize_completion_times
 from recorder.events import RecordingEvent
 from recorder.frame_resize import resize_bgr_frame
+from recorder.frame_schedule import due_frame_count
 from recorder.screen_capturer import ScreenCapturer
 from recorder.state_machine import RecordingState, RecordingStateMachine
 from recorder.timer_resolution import TimerResolution
 from recorder.video_encoder import VideoEncoder
 from recorder.window_diagnostics import WindowFailureReason, WindowRecordingDiagnostic
+from services.recording_profile import EffectiveRecordingProfile, resolve_recording_profile
 from utils.disk_checker import DiskChecker
 from utils.file_namer import FileNamer
 from utils.temp_cleaner import TempCleaner
@@ -62,6 +65,7 @@ class RecorderManager:
         self._capturer: ScreenCapturer = None
         self._encoder: VideoEncoder = None
         self._record_thread: threading.Thread = None
+        self._recording_ready = threading.Event()
         self._finalize_thread: threading.Thread = None
         self._stop_thread: threading.Thread = None
         self._stop_event = threading.Event()
@@ -74,6 +78,8 @@ class RecorderManager:
         self._lock = threading.Lock()
         self._cancelled = False
         self._fps: int = 30
+        self._next_fps_override: int | None = None
+        self._profile_notice: str = ""
         self._frame_size: tuple = (0, 0)
         self._encode_size: tuple = (0, 0)
         self._ffmpeg_path: str = ""
@@ -112,6 +118,7 @@ class RecorderManager:
         self._last_failure_reason = ""
         self._disk_check_interval = 1.0
         self._last_disk_check = 0.0
+        self._last_performance: dict[str, float | int | bool | tuple[str, ...] | None] = {}
 
     # --- 公共接口 ---
 
@@ -127,7 +134,7 @@ class RecorderManager:
         self._last_disk_check = now
         save_path = self._config.get("save_path")
         quality = self._config.get("quality", "high")
-        return not DiskChecker.is_low_space(save_path, quality)
+        return not DiskChecker.is_low_space(save_path, quality, fps=self._fps)
 
     def _finish_failed_recording(self, reason: str) -> None:
         self._last_result_path = ""
@@ -156,6 +163,9 @@ class RecorderManager:
     def start_fullscreen(self) -> bool:
         self._mode = RecordMode.FULLSCREEN
         return self._start(region=None)
+
+    def set_next_fps_override(self, fps: int | None) -> None:
+        self._next_fps_override = int(fps) if fps is not None else None
 
     def start_region(self, region: tuple) -> bool:
         self._mode = RecordMode.REGION
@@ -267,10 +277,12 @@ class RecorderManager:
     def get_mode(self) -> RecordMode:
         return self._mode
 
-    def get_last_recording_metadata(self) -> dict[str, float | int | str | None]:
+    def get_last_recording_metadata(
+        self,
+    ) -> dict[str, float | int | str | bool | tuple[str, ...] | None]:
         """返回最终化回调可直接入库的会话已知元数据。"""
         width, height = self._encode_size if self._encode_size else (0, 0)
-        return {
+        metadata: dict[str, float | int | str | bool | tuple[str, ...] | None] = {
             "duration_sec": self._last_duration_sec or None,
             "width": width or None,
             "height": height or None,
@@ -278,6 +290,8 @@ class RecorderManager:
             "mode": self._mode.value,
             "audio_source": self._audio_source,
         }
+        metadata.update(self._last_performance)
+        return metadata
 
     def get_window_hwnd(self) -> int:
         return self._window_hwnd
@@ -307,6 +321,7 @@ class RecorderManager:
                 "session_dir": self._session_dir,
                 "last_result": self._last_result_path,
                 "last_failure_reason": self._last_failure_reason or self._recording_failed_reason,
+                "performance": dict(self._last_performance),
             },
             "ffmpeg": {
                 "path": ffmpeg_path,
@@ -362,7 +377,17 @@ class RecorderManager:
 
             save_path = self._config.get("save_path")
             quality = self._config.get("quality", "high")
-            if DiskChecker.is_low_space(save_path, quality):
+            configured_fps = (
+                self._next_fps_override
+                if self._next_fps_override is not None
+                else int(self._config.get("fps", 30))
+            )
+            capture_fps = (
+                60
+                if configured_fps == 120 and self._mode != RecordMode.FULLSCREEN
+                else configured_fps
+            )
+            if DiskChecker.is_low_space(save_path, quality, fps=capture_fps):
                 return False
             if region is not None:
                 normalized_region = normalize_capture_region(region)
@@ -376,13 +401,21 @@ class RecorderManager:
                 self._pending_window_region = None
                 self._last_window_frame = None
 
-            self._capturer = ScreenCapturer(region=region)
+            self._next_fps_override = None
+            self._capturer = ScreenCapturer(region=region, target_fps=capture_fps)
             if self._mode == RecordMode.WINDOW and region is not None:
                 self._frame_size = (region[2], region[3])
             else:
                 self._frame_size = self._capturer.get_monitor_size()
-            self._encode_size = self._get_target_size() or self._frame_size
-            self._fps = self._config.get("fps", 30)
+            profile = self._resolve_effective_profile(
+                self._frame_size,
+                configured_fps=configured_fps,
+            )
+            self._encode_size = profile.output_size
+            self._fps = profile.effective_fps
+            self._profile_notice = profile.notice
+            if self._profile_notice:
+                logger.info(self._profile_notice)
             self._output_path = FileNamer.generate(save_path)
             self._ffmpeg_path = self._get_ffmpeg_path()
             if not self._ffmpeg_path:
@@ -430,10 +463,12 @@ class RecorderManager:
                     self._audio_capturer = None
 
             self._stop_event.clear()
+            self._recording_ready.clear()
             self._resume_event.set()
             self._pause_duration = 0
             self._cancelled = False
             self._recording_failed_reason = ""
+            self._last_performance = {}
             self._last_disk_check = 0.0
             self._start_time = time.time()
             self._state_machine.transition_to(RecorderState.RECORDING)
@@ -441,6 +476,10 @@ class RecorderManager:
 
             self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
             self._record_thread.start()
+        if not self._recording_ready.wait(timeout=10):
+            logger.error("recording backend did not become ready in time")
+            self._stop_event.set()
+            return False
         return True
 
     def _record_loop(self):
@@ -463,8 +502,10 @@ class RecorderManager:
                     f"title={diagnostic.title!r}, mode={diagnostic.mode}, stage={diagnostic.stage}, "
                     f"rect={diagnostic.rect}"
                 )
+            self._recording_failed_reason = f"screen capture start failed: {e}"
             self._stop_event.set()
-            self._finish_failed_recording(f"screen capture start failed: {e}")
+            self._recording_ready.set()
+            self._finish_failed_recording(self._recording_failed_reason)
             return
 
         try:
@@ -473,6 +514,7 @@ class RecorderManager:
                 fps=self._fps,
                 frame_size=self._encode_size,
                 ffmpeg_path=self._ffmpeg_path,
+                high_frame_rate=self._fps >= 120,
             )
         except Exception as e:
             logger.error(f"FFmpeg encoder start failed: {e}")
@@ -482,12 +524,17 @@ class RecorderManager:
                 except Exception:
                     pass
                 self._capturer = None
-            self._finish_failed_recording(f"ffmpeg start failed: {e}")
+            self._recording_failed_reason = f"ffmpeg start failed: {e}"
+            self._recording_ready.set()
+            self._finish_failed_recording(self._recording_failed_reason)
             return
 
         fps = self._fps
         frame_interval = 1.0 / fps
         rec_start = time.time()
+        self._start_time = rec_start
+        self._recording_ready.set()
+        captured_frames = 0
         frames_written = 0
         was_paused = False
         last_window_update = 0
@@ -561,14 +608,25 @@ class RecorderManager:
                     if not self._capturer._started:
                         break
                     continue
+                captured_frames += 1
                 if self._mode == RecordMode.WINDOW:
                     self._last_window_frame = frame.copy()
 
             frame = self._prepare_frame_for_encoding(frame)
 
-            target_frame = int((time.time() - rec_start) / frame_interval)
-            while frames_written < target_frame:
-                if not self._encoder.write_frame(frame):
+            due_frames = due_frame_count(
+                elapsed_seconds=time.time() - rec_start,
+                target_fps=fps,
+                submitted_frames=frames_written,
+            )
+            for _ in range(due_frames):
+                if not self._encoder.write_frame(
+                    frame,
+                    cancel_event=self._stop_event,
+                    timeout_seconds=1.0 if fps >= 120 else None,
+                ):
+                    if self._stop_event.is_set():
+                        break
                     self._recording_failed_reason = "video frame write failed"
                     self._stop_event.set()
                     break
@@ -577,11 +635,6 @@ class RecorderManager:
             if self._stop_event.is_set():
                 break
 
-            if not self._encoder.write_frame(frame):
-                self._recording_failed_reason = "video frame write failed"
-                break
-            frames_written += 1
-
             next_time = rec_start + frames_written * frame_interval
             wait = next_time - time.time()
             if wait > 0.002:
@@ -589,7 +642,14 @@ class RecorderManager:
 
         # 关闭编码器（FFmpeg flush）
         if self._encoder:
-            self._encoder.close()
+            encoder_ok = self._encoder.close()
+            self._capture_last_performance(
+                self._encoder,
+                captured_frames=captured_frames,
+                submitted_frames=frames_written,
+            )
+            if not encoder_ok and not self._recording_failed_reason:
+                self._recording_failed_reason = "video encoder did not complete successfully"
             self._encoder = None
 
         if self._capturer:
@@ -606,6 +666,74 @@ class RecorderManager:
             return
 
         self._timer_resolution.end()
+
+    def _capture_last_performance(
+        self,
+        encoder,
+        *,
+        captured_frames: int | None = None,
+        submitted_frames: int,
+    ) -> None:
+        if self._fps < 120 or not hasattr(encoder, "get_performance_snapshot"):
+            self._last_performance = {
+                "target_fps": self._fps,
+                "captured_frames": captured_frames,
+                "submitted_frames": submitted_frames,
+            }
+            return
+
+        performance = encoder.get_performance_snapshot()
+        completion_times = normalize_completion_times(
+            performance.completion_times,
+            target_fps=self._fps,
+        )
+        measured_duration = max(
+            self._last_duration_sec,
+            completion_times[-1] if completion_times else 0.0,
+            submitted_frames / self._fps if submitted_frames else 0.0,
+        )
+        if measured_duration <= 0:
+            self._last_performance = {
+                "target_fps": self._fps,
+                "captured_frames": captured_frames,
+                "submitted_frames": submitted_frames,
+                "completed_frames": performance.completed_frames,
+                "stable": False,
+                "performance_reasons": ("no_completed_frames",),
+            }
+            return
+
+        gate = evaluate_capture_gate(
+            frame_times=completion_times,
+            backlog_samples=performance.backlog_samples,
+            duration_seconds=measured_duration,
+        )
+        self._last_performance = {
+            "target_fps": self._fps,
+            "captured_frames": captured_frames,
+            "submitted_frames": submitted_frames,
+            "completed_frames": gate.encoded_frames,
+            "average_fps": gate.average_fps,
+            "minimum_one_second_fps": gate.minimum_one_second_fps,
+            "maximum_backlog_ms": gate.maximum_backlog_ms,
+            "dropped_frames": gate.dropped_frames,
+            "stable": gate.passed,
+            "performance_reasons": gate.reasons,
+        }
+        log = logger.info if gate.passed else logger.warning
+        log(
+            "120 FPS recording performance: stable=%s average_fps=%.3f "
+            "minimum_one_second_fps=%d maximum_backlog_ms=%.3f "
+            "submitted_frames=%d completed_frames=%d dropped_frames=%d reasons=%s",
+            gate.passed,
+            gate.average_fps,
+            gate.minimum_one_second_fps,
+            gate.maximum_backlog_ms,
+            submitted_frames,
+            gate.encoded_frames,
+            gate.dropped_frames,
+            ",".join(gate.reasons) or "none",
+        )
 
     def _prepare_frame_for_encoding(self, frame):
         if self._mode == RecordMode.WINDOW and (frame.shape[1], frame.shape[0]) != self._frame_size:
@@ -757,6 +885,23 @@ class RecorderManager:
             return self._fit_size_with_aspect_ratio(self._frame_size, target)
         return target
 
+    def _resolve_effective_profile(
+        self,
+        source_size: tuple[int, int],
+        *,
+        configured_fps: int | None = None,
+    ) -> EffectiveRecordingProfile:
+        return resolve_recording_profile(
+            configured_fps=(
+                int(self._config.get("fps", 30))
+                if configured_fps is None
+                else configured_fps
+            ),
+            mode=self._mode.value,
+            source_size=source_size,
+            quality=self._config.get("quality", "native"),
+        )
+
     @staticmethod
     def _fit_size_with_aspect_ratio(source: tuple[int, int], target: tuple[int, int]) -> tuple[int, int]:
         fw, fh = source
@@ -793,20 +938,29 @@ class RecorderManager:
 
     @staticmethod
     def _get_ffmpeg_path() -> str:
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             candidates = []
-            meipass = getattr(sys, '_MEIPASS', None)
+            meipass = getattr(sys, "_MEIPASS", None)
             if meipass:
                 candidates.append(os.path.join(meipass, "ffmpeg", "ffmpeg.exe"))
-            candidates.append(os.path.join(os.path.dirname(sys.executable), "ffmpeg", "ffmpeg.exe"))
-            for p in candidates:
-                if os.path.isfile(p):
-                    return p
-        dev_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            candidates.append(
+                os.path.join(
+                    os.path.dirname(sys.executable),
+                    "ffmpeg",
+                    "ffmpeg.exe",
+                )
+            )
+            for path in candidates:
+                if os.path.isfile(path):
+                    return path
+        dev_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         local = os.path.join(dev_dir, "ffmpeg", "ffmpeg.exe")
         if os.path.isfile(local):
             return local
         import shutil as _sh
+
         return _sh.which("ffmpeg") or ""
 
     @staticmethod

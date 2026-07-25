@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR Full v1.7 Design Builder</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, "Microsoft YaHei UI", sans-serif; }
+    body { margin: 0; padding: 20px; background: var(--figma-color-bg); color: var(--figma-color-text); }
+    h1 { margin: 0 0 8px; font-size: 18px; }
+    p { margin: 0 0 16px; color: var(--figma-color-text-secondary); font-size: 12px; line-height: 1.6; }
+    .pages { margin: 0 0 16px; padding: 12px; border: 1px solid var(--figma-color-border); border-radius: 6px; font-size: 12px; line-height: 1.8; }
+    button { width: 100%; height: 36px; border: 0; border-radius: 6px; background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand); font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: default; }
+    #status { min-height: 40px; margin-top: 14px; padding: 10px; border-radius: 6px; background: var(--figma-color-bg-secondary); font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>QR Full v1.7 Design Builder</h1>
+  <p>生成 QuickRec Full 单页全产品可编辑设计：全部当前窗口、托盘、录制浮层、设置诊断、素材库状态、按钮契约和确认反馈集中在 QR 01 大画布。原型已按实际 PyQt 界面校准，画布不嵌入运行截图。</p>
+  <div class="pages">
+    QR 01 Full Product Flow<br>
+    <small>运行时会移除旧的 QR 00 与 QR 02；其他非 QR 页面保持不变。</small>
+  </div>
+  <button id="build">生成 / 更新 QR 设计</button>
+  <div id="status">准备就绪</div>
+  <script>
+    const qrMarkBase64 = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAfASURBVHhe7Z1LjBRFGMc5egQFBWTZZXcGEAU2iDwkoIYoiEAgwQ0qutszIyAvQcEFJQajyV6IGEnYxIOPRKORxEci2agx44GEgweNBzUxES8y9PYmc9xjm39PN0y+b7a7q6qrpnu2/8nvALtbU/3venz1nBkzcuXKlStXrly5cqVc3YPX7+grO49G0T1Yn0n/NpegugftucXS+N5iZWKkaNnVYtmpFcuOGx+77v/dhWLJHloyWOuhn5GLaHHp5q5ieWK0r2T/yQ1Vp6/sXO8rOx/hxaI20c+fllo86Cz1SqlwCVfFruNlFyo319E8TQvB+EJ54mtuTBuw7Oq0eRFe216eGGUmpAAUiI7tKxCZFMvOuWLZmaQPnkIuoKDQZ8isCtb4cfNtvCroI5xzme6svVJvOWP84bJDX8n5NZO1AW2prnCyDdQy1UljNOpXYfogWWYS4wf6rKlToXTzYEY6Wlku0GdOjdIaXiaO5Yylbr5p2pgfYNnV1ERIfpjJM9nxTIxSL4yr0eF2dJsfCvo86okxIdTswGhHlEkUQuqNdqET6qA4XxG7bnwOKesj3KRpjJgNdcrTt9ONRP8YoTGdnLWJNWNMYp2Depao/NUr+sEdRc9LP7vFyg32/3HAmgL1LDH5pb+jQ86eQz+6s954wr3n5DD7WWwqdj/1LhF5C9r0wzqIwPyZZx/zWHDsA/Y7sbDsKvVOWXir7IM6CGp+wMLDV9jvxgE7PKiHSkrNAroGpjIfzHp9u9u7/zf2N1EgLKUeSquTS3+Y+QGzT1vs7+KQWC3o1JnOOOYHSDVFljNGvRQWRndpnO/ZvPequ+PpsVvg3/R3whAxH3i1QCI0VV5P9vZntkjYNMus/1xr54fuu5vKbnV5r3v1/gUtubjxeXf/9kvuyqF/WBoBouYHLDj2MUsrioJln6aeCqlQdj6niZoGhl7pX8nMDuOHFfe5h596z3txzWnJmg/uPLNbvBaohqTY0MoSNQRK8SfrtjFzRbi8eqO7ft/vXnoq5gd0Hf2M5TOCSelJusZ8P0vQCDDt21VrmKEyoDY8+exFZfPB3adOsLxGIb1egH31NDEToOQnZX7A9/0L3QeOb2CGioKXKNwMlZ1z1NtYakf4iTZbtdmZiq/WLHLvHX6EmSoKmjKa71Bkw9GiNX6NJaYZdJzUuCQ5tXM5M1SUea+MsHxHUKPexpLp+B+lXzTaEaW6osvtObmJmSrCXWcGWN6jEN5H5E89s4R0gnCTGqaD47tXMFNFKbz4L8t/GMJ7S/3tJiwhnYxuGGBm6eCLtb3MUFGEJ+hK9hD1OFR9ZXsrS0QjiHzCRrhJoxoReatmLZ5jKoT3D5kOQbcO/MRM0snW0hpmqggLj3zDniECsVDU9AsY2P0lM0kng8/0M1NFkJgXEnsB/jZzmog2THXAAYf2qHXE81++xJ4hArEXYLoGPLfrU2aSTioDK5mpInTcC8CcPjVJJzuGHmKmitB19DJ7hgjEXkDj2gCWiDZWv/AXM0knaw+tZ6aKIDodgd2E1ONQtWMcoGsOiPLdg93MUFEWHfiF5T8U0XGAf4cDT0gjJ7e8zczSwVvbljFDRSns/5vlPwyMq6jHkTK9Cw7NkInB2KqjDzNDRcBWFZr3KKTWhrG3hSakmzc3DzPDkuT840uYoaLMffUsy3c4dp16G0vtWA9GLdA1I4qZUNUpCCAcAVnj16i3seRfrsET1AymJXQ0RaqhZ4Bo+y99bqAdkVDA3j3veCWWmiiL6sg3YM7wAZbXKKR3yDU2ZZntiEGwe2HjwXXeWi41UwS8xKRKPpAYAYsvxjTLv/iOJaoLunUEq1cjW5YyY+OADjeJNj8A+RJtfpQ36Zo8D0bNbwahI+J3DKKo0c2gxuCFofbQNFSZd+I8y3MklYkR6qmQTJ2KCTOfgmkETCejXQ/Av3WYHiBT+j2SOC2j+2yAiPntYv6J91m+o1BufgLpnJjLgvlSe0JlJuDCpGNUnAXzgfDAq0FNek9oKyVdC7JivlTHm3TpD5TUTrmsmD/ntSMs73HAjvJES3+gJM6KZcV87H4T3XwVID3yjSOViCgr5suejASJRT5Tya8FUuMCxNGYS6EPnCZQ8oVXu5qQWngRldJ9EZUb3u5i+uBpAG2+bLMDtN4T0SzvsibFo0s46pOm5kg22rmN4Uub/DVjqaYoAPsrMcihZpgE7b3EuS+GkaaHKpGxQeWGt83P9ItA7cP0gkqTE6Al5o8rnIOlGZIBRmCuHSWSmpU0aG6kJtZagGVb6olxJbl2jBeBGoGT6dQ4FWaf2ecZ33vgD/aZ0ljj17QMuETlfb2UhrkilFLMw2AXgkzNwKVLaN8TNf02NaOdbpRMXFcPI9FxA1ymhCarGQz08DPZQVR87Hoi8/xJC+Gpykg5C6Cmp6rkt5L35WstMp910Nelos2PI/+WFaVxQppoa6gpK7STqiPm9mPX2zLISkpY1M9sv2DZVe0XsZoSDiqb3mMkCzraTJf6MGH6Qne4qkBN+CBFVuWfwkzJHdR2HVMqmYlwkhIeGC9Cxyg6DqiJDeMV9m52ioKvtdXdPDWismn8NbZxdOvbtHFhlOJOjEaHii9xzr9VW0moIf4FIjg0Eoq3TpHGuZpcuXLlypUrV3r0P2oMzlAFE/7IAAAAAElFTkSuQmCC";
+    const button = document.getElementById("build");
+    const status = document.getElementById("status");
+    button.onclick = () => {
+      button.disabled = true;
+      status.textContent = "正在生成 QR 设计...";
+      parent.postMessage({ pluginMessage: { type: "build", assets: { qrMarkBase64 } } }, "*");
+    };
+    onmessage = (event) => {
+      const message = event.data.pluginMessage;
+      if (!message) return;
+      status.textContent = message.message || message.text || "";
+      if (message.type === "complete" || message.type === "done" || message.type === "error") button.disabled = false;
+    };
+  </script>
+</body>
+</html>

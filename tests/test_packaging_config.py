@@ -21,7 +21,6 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "recorder.recorder_manager",
         "recorder.video_encoder",
         "recorder.audio_capturer",
-        "recorder.cursor_overlay",
         "recorder.events",
         "recorder.frame_resize",
         "recorder.state_machine",
@@ -29,6 +28,11 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "recorder.workflow",
         "ui.tray_icon",
         "ui.toolbar",
+        "ui.design_system",
+        "ui.material_library_dialog",
+        "ui.qt_localization",
+        "ui.workbench_pages",
+        "ui.workbench_window",
         "hotkey.hotkey_manager",
         "pynput.keyboard._win32",
         "pynput.mouse._win32",
@@ -50,6 +54,17 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
 
     for module_name in required_hiddenimports:
         assert f"'{module_name}'" in SPEC_TEXT
+
+
+def test_pyinstaller_spec_does_not_include_removed_runtime_modules():
+    removed_modules = [
+        "recorder.cursor_overlay",
+        "ui.recent_recordings_dialog",
+        "utils.recording_history",
+    ]
+
+    for module_name in removed_modules:
+        assert f"'{module_name}'" not in SPEC_TEXT
 
 
 def test_pyinstaller_spec_keeps_size_exclusion_filters():

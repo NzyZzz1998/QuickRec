@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,6 +31,7 @@ from services.material_query import MaterialQueryResult
 from services.material_query_session import MaterialQuerySession
 from services.pending_recordings import PendingRecordingService
 from services.recording_library import DirectoryScanResult, MigrationResult, RecordingLibraryService
+from ui.design_system import COLORS, quickrec_icon, refresh_style, set_button_icon
 from utils.pending_recording_store import PendingRecordingItem
 from utils.recording_library_store import STATUS_AVAILABLE, STATUS_METADATA_INCOMPLETE, MaterialItem
 
@@ -76,8 +79,13 @@ class MaterialLibraryDialog(QDialog):
         ingestion_coordinator: Any = None,
         current_save_dir: str | Path | None = None,
         query_session: MaterialQuerySession | None = None,
+        embedded: bool = False,
     ):
         super().__init__(parent)
+        self._embedded = embedded
+        if embedded:
+            self.setWindowFlags(Qt.Widget)
+        self.setObjectName("materialLibraryPage")
         self._service = service
         self._pending_service = pending_service
         self._ingestion_coordinator = ingestion_coordinator
@@ -100,20 +108,34 @@ class MaterialLibraryDialog(QDialog):
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(*(32, 28, 32, 28) if self._embedded else (14, 14, 14, 14))
+        root.setSpacing(12)
+
+        if self._embedded:
+            title = QLabel("素材库")
+            title.setObjectName("pageTitle")
+            root.addWidget(title)
+            subtitle = QLabel("跨保存路径查找、筛选并整理本地录制素材。")
+            subtitle.setObjectName("pageSubtitle")
+            root.addWidget(subtitle)
 
         query_row = QHBoxLayout()
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("搜索文件名或完整路径")
         self._search_input.setClearButtonEnabled(True)
         self._search_input.setAccessibleName("搜索素材文件名或完整路径")
+        self._search_input.addAction(
+            quickrec_icon("search", COLORS["secondary"]),
+            QLineEdit.LeadingPosition,
+        )
         query_row.addWidget(self._search_input, 1)
         self._query_count_label = QLabel("匹配 0 / 共 0 条")
         self._query_count_label.setMinimumWidth(130)
         query_row.addWidget(self._query_count_label)
         self._btn_reset_query = QPushButton("重置条件")
         self._btn_reset_query.setToolTip("清除搜索、筛选和排序条件")
+        self._btn_reset_query.setAccessibleName("重置素材查询条件")
+        set_button_icon(self._btn_reset_query, "refresh")
         query_row.addWidget(self._btn_reset_query)
         root.addLayout(query_row)
 
@@ -167,9 +189,13 @@ class MaterialLibraryDialog(QDialog):
         toolbar.addWidget(self._status_label, 1)
         self._btn_import = QPushButton("导入旧目录")
         self._btn_import.clicked.connect(self._on_import)
+        self._btn_import.setToolTip("读取并导入旧版 QuickRec 录制索引")
+        set_button_icon(self._btn_import, "folder")
         toolbar.addWidget(self._btn_import)
         self._btn_rebuild = QPushButton("重建目录")
         self._btn_rebuild.clicked.connect(self._on_rebuild)
+        self._btn_rebuild.setToolTip("扫描指定目录并为有效视频重建素材索引")
+        set_button_icon(self._btn_rebuild, "refresh")
         toolbar.addWidget(self._btn_rebuild)
         root.addLayout(toolbar)
 
@@ -179,6 +205,8 @@ class MaterialLibraryDialog(QDialog):
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setSelectionMode(QTableWidget.SingleSelection)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setAccessibleName("素材列表")
         vertical_header = self._table.verticalHeader()
         horizontal_header = self._table.horizontalHeader()
         assert vertical_header is not None
@@ -194,11 +222,14 @@ class MaterialLibraryDialog(QDialog):
         footer = QHBoxLayout()
         self._btn_load_more = QPushButton("加载更多 50 条")
         self._btn_load_more.clicked.connect(self._load_more)
+        self._btn_load_more.setToolTip("在当前查询条件下继续加载下一批素材")
         footer.addWidget(self._btn_load_more)
         footer.addStretch()
-        close_button = QPushButton("关闭")
-        close_button.clicked.connect(self._close_dialog)
-        footer.addWidget(close_button)
+        self._close_button = QPushButton("关闭")
+        self._close_button.clicked.connect(self._close_dialog)
+        set_button_icon(self._close_button, "close")
+        self._close_button.setVisible(not self._embedded)
+        footer.addWidget(self._close_button)
         root.addLayout(footer)
 
     @staticmethod
@@ -210,8 +241,11 @@ class MaterialLibraryDialog(QDialog):
         return combo
 
     def _create_detail_panel(self) -> QWidget:
-        panel = QWidget()
+        panel = QFrame()
+        panel.setProperty("role", "panel")
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
         self._detail_name = QLabel("未选择素材")
         self._detail_name.setWordWrap(True)
         self._detail_name.setStyleSheet("font-size: 16px; font-weight: 600;")
@@ -219,6 +253,8 @@ class MaterialLibraryDialog(QDialog):
 
         form = QFormLayout()
         self._detail_time = QLabel("-")
+        self._detail_status = QLabel("-")
+        self._detail_status.setProperty("role", "status")
         self._detail_duration = QLabel("-")
         self._detail_video = QLabel("-")
         self._detail_mode = QLabel("-")
@@ -232,6 +268,7 @@ class MaterialLibraryDialog(QDialog):
         self._detail_failure = QLabel("-")
         self._detail_failure.setWordWrap(True)
         for label, widget in (
+            ("状态", self._detail_status),
             ("录制时间", self._detail_time),
             ("时长", self._detail_duration),
             ("画面", self._detail_video),
@@ -249,36 +286,57 @@ class MaterialLibraryDialog(QDialog):
         actions = QHBoxLayout()
         self._btn_open = QPushButton("打开")
         self._btn_open.clicked.connect(self._on_open)
+        self._btn_open.setToolTip("使用系统默认播放器打开所选素材")
+        set_button_icon(self._btn_open, "play")
         actions.addWidget(self._btn_open)
         self._btn_open_dir = QPushButton("打开目录")
         self._btn_open_dir.clicked.connect(self._on_open_dir)
+        self._btn_open_dir.setToolTip("在资源管理器中定位所选素材")
+        set_button_icon(self._btn_open_dir, "folder")
         actions.addWidget(self._btn_open_dir)
         self._btn_copy = QPushButton("复制路径")
         self._btn_copy.clicked.connect(self._on_copy)
+        self._btn_copy.setToolTip("复制所选素材的完整本地路径")
+        set_button_icon(self._btn_copy, "copy")
         actions.addWidget(self._btn_copy)
         layout.addLayout(actions)
 
-        manage = QHBoxLayout()
+        manage = QGridLayout()
+        manage.setHorizontalSpacing(8)
+        manage.setVerticalSpacing(8)
         self._btn_relink = QPushButton("重新定位")
         self._btn_relink.clicked.connect(self._on_relink)
-        manage.addWidget(self._btn_relink)
+        self._btn_relink.setToolTip("为文件缺失的记录选择新的有效视频路径")
+        set_button_icon(self._btn_relink, "link")
+        manage.addWidget(self._btn_relink, 0, 0)
         self._btn_retry_pending = QPushButton("重试入库")
         self._btn_retry_pending.clicked.connect(self._on_retry_pending)
-        manage.addWidget(self._btn_retry_pending)
+        self._btn_retry_pending.setToolTip("重新解析视频并写入中央素材索引")
+        set_button_icon(self._btn_retry_pending, "refresh")
+        manage.addWidget(self._btn_retry_pending, 0, 1)
         self._btn_remove_pending = QPushButton("移除待处理记录")
         self._btn_remove_pending.clicked.connect(self._on_remove_pending)
-        manage.addWidget(self._btn_remove_pending)
+        self._btn_remove_pending.setToolTip("只移除待处理索引，不删除视频文件")
+        set_button_icon(self._btn_remove_pending, "close")
+        manage.addWidget(self._btn_remove_pending, 1, 0)
         self._btn_remove = QPushButton("从素材库移除")
         self._btn_remove.clicked.connect(self._on_remove)
-        manage.addWidget(self._btn_remove)
-        self._btn_delete = QPushButton("删除视频文件")
+        self._btn_remove.setToolTip("只移除素材索引，保留原视频文件")
+        set_button_icon(self._btn_remove, "close")
+        manage.addWidget(self._btn_remove, 1, 0)
+        self._btn_delete = QPushButton("移入回收站")
         self._btn_delete.clicked.connect(self._on_delete)
-        self._btn_delete.setStyleSheet("color: #c42b1c;")
-        manage.addWidget(self._btn_delete)
+        self._btn_delete.setProperty("role", "danger")
+        self._btn_delete.setToolTip("确认后将实际视频文件移入 Windows 回收站")
+        set_button_icon(self._btn_delete, "trash", color=COLORS["red"])
+        manage.addWidget(self._btn_delete, 1, 1)
         layout.addLayout(manage)
         layout.addStretch()
         self._set_actions_enabled(False)
         return panel
+
+    def set_current_save_dir(self, path: str | Path) -> None:
+        self._current_save_dir = Path(path) if path else None
 
     def reload(self) -> None:
         selected = self._selected_entry()
@@ -496,6 +554,7 @@ class MaterialLibraryDialog(QDialog):
             self._detail_name.setText("未选择素材")
             for label in (
                 self._detail_time,
+                self._detail_status,
                 self._detail_duration,
                 self._detail_video,
                 self._detail_mode,
@@ -507,7 +566,10 @@ class MaterialLibraryDialog(QDialog):
                 self._detail_failure,
             ):
                 label.setText("-")
+            self._detail_status.setProperty("state", "")
+            refresh_style(self._detail_status)
             self._set_pending_actions_visible(False)
+            self._btn_relink.hide()
             return
         kind, item = entry
         is_pending = kind == "pending"
@@ -515,6 +577,10 @@ class MaterialLibraryDialog(QDialog):
         self._detail_name.setText(item.file_name)
         self._detail_time.setText(item.created_at or "-")
         if isinstance(item, PendingRecordingItem):
+            self._detail_status.setText(self._format_pending_status(item.status))
+            self._detail_status.setProperty(
+                "state", "missing" if item.status == "missing" else "pending"
+            )
             self._detail_duration.setText(self._format_duration(item.duration_seconds))
             self._detail_video.setText(
                 f"{self._format_dimensions(item.width, item.height)} · {self._format_fps(item.fps)}"
@@ -531,7 +597,17 @@ class MaterialLibraryDialog(QDialog):
             )
             self._btn_retry_pending.setEnabled(item.status != "missing")
             self._btn_relink.setEnabled(item.status == "missing")
+            self._btn_relink.setVisible(item.status == "missing")
         else:
+            self._detail_status.setText(self._format_status(item.status))
+            self._detail_status.setProperty(
+                "state",
+                "available"
+                if item.status == STATUS_AVAILABLE
+                else "missing"
+                if item.status == "missing"
+                else "pending",
+            )
             self._detail_duration.setText(self._format_duration(item.duration_sec))
             self._detail_video.setText(
                 f"{self._format_resolution(item)} · {self._format_fps(item.fps)}"
@@ -541,6 +617,10 @@ class MaterialLibraryDialog(QDialog):
             self._detail_failure.setText("-")
             self._btn_delete.setEnabled(item.status != "missing")
             self._btn_relink.setEnabled(item.status in {"missing", STATUS_METADATA_INCOMPLETE})
+            self._btn_relink.setVisible(
+                item.status in {"missing", STATUS_METADATA_INCOMPLETE}
+            )
+        refresh_style(self._detail_status)
         self._detail_audio.setText(AUDIO_LABELS.get(item.audio_source, item.audio_source or "未知"))
         self._detail_size.setText(self._format_size(item.file_size_bytes))
         self._detail_path.setText(item.file_path)
@@ -690,7 +770,7 @@ class MaterialLibraryDialog(QDialog):
             return
         answer = QMessageBox.question(
             self,
-            "删除视频文件",
+            "移入回收站",
             "将此视频移入 Windows 回收站？\n不会删除诊断日志或其他文件。",
         )
         if answer != QMessageBox.Yes:

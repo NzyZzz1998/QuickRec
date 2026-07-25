@@ -13,12 +13,16 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMessageBox, QWidget
 
 from services.material_query import MaterialQueryEngine
 from services.material_query_session import MaterialQuerySession
 from services.pending_recordings import PendingRecordingService
-from services.recording_library import DirectoryScanResult, RecordingLibraryService
+from services.recording_library import (
+    DirectoryScanResult,
+    MigrationResult,
+    RecordingLibraryService,
+)
 from ui.material_library_dialog import MaterialLibraryDialog
 from utils.media_metadata import MediaMetadataResult
 from utils.pending_recording_store import PendingRecordingItem
@@ -45,6 +49,14 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         self.assertEqual(dialog.windowTitle(), "素材库")
         self.assertEqual(dialog._table.rowCount(), 0)
         self.assertEqual(dialog._status_label.text(), "暂无素材")
+
+    def test_embedded_mode_uses_widget_surface_and_hides_close_action(self):
+        parent = QWidget()
+        dialog = MaterialLibraryDialog(self.service, parent=parent, embedded=True)
+
+        self.assertEqual(dialog.windowFlags() & Qt.WindowType_Mask, Qt.Widget)
+        self.assertTrue(dialog._close_button.isHidden())
+        self.assertEqual(dialog._query_session.visible_count, dialog.PAGE_SIZE)
 
     def test_initial_page_shows_50_and_load_more_adds_50(self):
         self.assertTrue(self.service.replace([self._item(index) for index in range(120)]).ok)
@@ -185,8 +197,62 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         dialog._table.selectRow(0)
 
         self.assertEqual(dialog._detail_name.text(), "QuickRec_001.mp4")
+        self.assertEqual(dialog._detail_status.text(), "文件已移动或删除")
+        self.assertEqual(dialog._detail_status.property("state"), "missing")
         self.assertIn("1920 × 1080", dialog._detail_video.text())
         self.assertEqual(dialog._detail_mode.text(), "全屏录制")
+
+    def test_migration_and_legacy_source_feedback_are_explicit(self):
+        dialog = MaterialLibraryDialog(self.service)
+        source = self.base_path / "legacy" / "recordings.json"
+
+        with patch.object(dialog, "reload") as reload_dialog:
+            dialog.show_migration_result(
+                MigrationResult(
+                    True,
+                    source,
+                    added_count=2,
+                    duplicate_count=1,
+                    skipped_count=3,
+                )
+            )
+
+        reload_dialog.assert_called_once_with()
+        self.assertIn("新增 2 条", dialog._status_label.text())
+        self.assertIn("跳过 3 条", dialog._status_label.text())
+
+        dialog.show_migration_result(
+            MigrationResult(False, source, error="旧索引损坏")
+        )
+        self.assertIn("首次迁移失败：旧索引损坏", dialog._status_label.text())
+
+        dialog.show_legacy_source_prompt(source)
+        self.assertIn(str(source), dialog._status_label.text())
+        self.assertIn("导入旧目录", dialog._status_label.text())
+
+    def test_open_file_and_directory_failures_show_actionable_feedback(self):
+        video = self.base_path / "中文 空格" / "QuickRec.mp4"
+        video.parent.mkdir()
+        video.write_bytes(b"video")
+        item = self._item(1)
+        item.file_path = str(video)
+        item.file_name = video.name
+        item.directory = str(video.parent)
+        self.assertTrue(self.service.replace([item]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+        dialog._table.selectRow(0)
+
+        with patch(
+            "ui.material_library_dialog.os.startfile",
+            side_effect=OSError("系统关联不可用"),
+        ):
+            dialog._on_open()
+            self.assertIn("无法打开素材", dialog._status_label.text())
+            self.assertIn("系统关联不可用", dialog._status_label.text())
+
+            dialog._on_open_dir()
+            self.assertIn("无法打开目录", dialog._status_label.text())
+            self.assertIn("系统关联不可用", dialog._status_label.text())
 
     def test_reload_keeps_current_selection_when_new_record_arrives(self):
         older = self._item(1)

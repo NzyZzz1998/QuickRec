@@ -9,15 +9,14 @@
 v1.1 新增：动态菜单切换 + Toast 通知增强。
 """
 
+import logging
 import os
 import subprocess
-import logging
-
-from PyQt5.QtCore import QObject, pyqtSignal, QTimer
-from PyQt5.QtWidgets import QApplication
 
 import pystray
 from PIL import Image, ImageDraw
+from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtWidgets import QApplication
 
 logger = logging.getLogger("QuickRec")
 
@@ -25,6 +24,7 @@ logger = logging.getLogger("QuickRec")
 class _SignalBridge(QObject):
     """将 pystray 线程的回调转发到 Qt 主线程"""
 
+    open_workbench_requested = pyqtSignal()
     start_fullscreen_requested = pyqtSignal()
     start_region_requested = pyqtSignal()
     start_window_requested = pyqtSignal()    # v1.2 新增（延期：窗口录制）
@@ -32,6 +32,7 @@ class _SignalBridge(QObject):
     stop_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     material_library_requested = pyqtSignal()
+    diagnostics_requested = pyqtSignal()
     copy_diagnostic_requested = pyqtSignal()
     open_diagnostic_dir_requested = pyqtSignal()
     export_diagnostic_requested = pyqtSignal()
@@ -69,6 +70,7 @@ class TrayIcon:
 
         # 信号桥：将 pystray 线程回调转发到 Qt 主线程
         self._bridge = _SignalBridge()
+        self._bridge.open_workbench_requested.connect(self._handle_open_workbench)
         self._bridge.start_fullscreen_requested.connect(self._handle_start_fullscreen)
         self._bridge.start_region_requested.connect(self._handle_start_region)
         self._bridge.start_window_requested.connect(self._handle_start_window)  # 延期：窗口录制
@@ -76,6 +78,7 @@ class TrayIcon:
         self._bridge.stop_requested.connect(self._handle_stop)
         self._bridge.settings_requested.connect(self._handle_settings)
         self._bridge.material_library_requested.connect(self._handle_material_library)
+        self._bridge.diagnostics_requested.connect(self._handle_diagnostics)
         self._bridge.copy_diagnostic_requested.connect(self._handle_copy_diagnostic)
         self._bridge.open_diagnostic_dir_requested.connect(self._handle_open_diagnostic_dir)
         self._bridge.export_diagnostic_requested.connect(self._handle_export_diagnostic)
@@ -86,43 +89,49 @@ class TrayIcon:
         size = 64
         img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         dc = ImageDraw.Draw(img)
-        dc.ellipse([8, 8, 56, 56], fill="#e74c3c", outline="#c0392b", width=2)
-        dc.ellipse([20, 20, 44, 44], fill="#c0392b")
+        dc.ellipse([8, 8, 56, 56], fill="#2563EB", outline="#1D4ED8", width=2)
+        dc.ellipse([20, 20, 44, 44], fill="#E8F0FF")
         return img
 
     def _build_idle_menu(self):
         """构建空闲状态菜单"""
         return pystray.Menu(
-            pystray.MenuItem("▶ 全屏录制", self._on_start_fullscreen),
-            pystray.MenuItem("▢ 区域录制", self._on_start_region),
-            pystray.MenuItem("🖥 窗口录制", self._on_start_window),
-            pystray.MenuItem("⚙ 设置", self._on_settings),
+            pystray.MenuItem("打开工作台", self._on_open_workbench, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("全屏录制", self._on_start_fullscreen),
+            pystray.MenuItem("区域录制", self._on_start_region),
+            pystray.MenuItem("窗口录制", self._on_start_window),
+            pystray.MenuItem("设置", self._on_settings),
             pystray.MenuItem("素材库", self._on_material_library),
-            pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
+            pystray.MenuItem("诊断", self._on_diagnostics),
+            pystray.MenuItem("打开保存文件夹", self._on_open_folder),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("复制诊断信息", self._on_copy_diagnostic),
             pystray.MenuItem("打开日志目录", self._on_open_diagnostic_dir),
             pystray.MenuItem("导出诊断文件", self._on_export_diagnostic),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("✕ 退出", self._on_exit),
+            pystray.MenuItem("退出 QuickRec", self._on_exit),
         )
 
     def _build_recording_menu(self):
         """构建录制中菜单"""
         # 暂停/继续按钮：根据暂停状态切换文字
-        pause_text = "▶ 继续录制" if self._is_paused else "⏸ 暂停录制"
+        pause_text = "继续录制" if self._is_paused else "暂停录制"
         return pystray.Menu(
+            pystray.MenuItem("打开工作台", self._on_open_workbench, default=True),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem(pause_text, self._on_pause_resume),
-            pystray.MenuItem("⏹ 停止录制", self._on_stop),
-            pystray.MenuItem("⚙ 设置", self._on_settings),
+            pystray.MenuItem("停止录制", self._on_stop),
+            pystray.MenuItem("设置", self._on_settings),
             pystray.MenuItem("素材库", self._on_material_library),
-            pystray.MenuItem("📁 打开保存文件夹", self._on_open_folder),
+            pystray.MenuItem("诊断", self._on_diagnostics),
+            pystray.MenuItem("打开保存文件夹", self._on_open_folder),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("复制诊断信息", self._on_copy_diagnostic),
             pystray.MenuItem("打开日志目录", self._on_open_diagnostic_dir),
             pystray.MenuItem("导出诊断文件", self._on_export_diagnostic),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("✕ 退出", self._on_exit),
+            pystray.MenuItem("退出 QuickRec", self._on_exit),
         )
 
     def set_recording_state(self, recording: bool, paused: bool = False):
@@ -147,6 +156,9 @@ class TrayIcon:
 
     # --- pystray 线程回调（只发信号，不操作 Qt） ---
 
+    def _on_open_workbench(self, icon, item):
+        self._bridge.open_workbench_requested.emit()
+
     def _on_start_fullscreen(self, icon, item):
         self._bridge.start_fullscreen_requested.emit()
 
@@ -168,6 +180,9 @@ class TrayIcon:
     def _on_material_library(self, icon, item):
         self._bridge.material_library_requested.emit()
 
+    def _on_diagnostics(self, icon, item):
+        self._bridge.diagnostics_requested.emit()
+
     def _on_copy_diagnostic(self, icon, item):
         self._bridge.copy_diagnostic_requested.emit()
 
@@ -181,6 +196,10 @@ class TrayIcon:
         self._bridge.exit_requested.emit()
 
     # --- Qt 主线程处理 ---
+
+    def _handle_open_workbench(self):
+        if "open_workbench" in self._callbacks:
+            self._callbacks["open_workbench"]()
 
     def _handle_start_fullscreen(self):
         if "start_fullscreen" in self._callbacks:
@@ -209,6 +228,10 @@ class TrayIcon:
     def _handle_material_library(self):
         if "material_library" in self._callbacks:
             self._callbacks["material_library"]()
+
+    def _handle_diagnostics(self):
+        if "diagnostics" in self._callbacks:
+            self._callbacks["diagnostics"]()
 
     def _handle_copy_diagnostic(self):
         if "copy_diagnostic" in self._callbacks:
