@@ -235,3 +235,20 @@ E:\QRtest\QuickRec-v1.8-candidate-20260725-r7\QuickRec
 - 全量测试：`519 passed, 25 deselected, 48 subtests passed`。
 - Packaging：`13 passed, 531 deselected`。
 - Ruff、mypy、compileall 和 `git diff --check`：通过。
+
+## 15. r11 最终音频与同步测量
+
+- 隔离目录：`E:\QRtest\QuickRec-v1.8-final-manual-20260726`。
+- 麦克风 30 秒、双音频 30 秒和双音频 10 分钟均生成
+  1920×1080@120 FPS、AAC 48kHz 双声道文件，并进入隔离中央索引。
+- 三段音频平均/峰值分别为 `-42.7/-3.7 dB`、`-25.0/-9.6 dB`、
+  `-27.6/-8.6 dB`，不存在静音轨。
+- FFmpeg 生成的时间戳同步源包含四次同时闪屏与提示音；源文件测量偏移均为 0 ms。
+- `r11` 录制结果四次音频相对视频偏移为 `113.333`、`88.333`、
+  `88.333`、`130 ms`，平均约 `105 ms`，超过 40 ms 发布阈值。
+- 短测首尾偏移变化为 `16.667 ms`；10 分钟文件首端差为 0 ms、末端差为
+  `-8.333 ms`，漂移增量符合 20 ms 要求。
+- 结论：D11.19～D11.21 通过；D11.22 因绝对偏移未通过。
+- 证据：
+  `E:\QRtest\QuickRec-v1.8-final-manual-20260726\sync-analysis\recorded-sync-analysis-report.json`
+  和 `source-sync-analysis-report.json`。
