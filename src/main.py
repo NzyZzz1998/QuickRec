@@ -31,12 +31,13 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QLineEdit
+from PyQt5.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.workflow import RecordingWorkflow
+from services.capture_capability_runtime import CaptureCapabilityRuntime
 from services.material_ingestion import (
     IngestionResult,
     MaterialIngestionCoordinator,
@@ -45,13 +46,17 @@ from services.material_ingestion import (
 from services.pending_recordings import PendingRecordingService
 from services.recording_library import MigrationResult, RecordingLibraryService
 from ui.area_selector import AreaSelector
+from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
 from ui.material_library_dialog import MaterialLibraryDialog
+from ui.qt_localization import install_qt_zh_cn
 from ui.settings_dialog import SettingsDialog
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
 from ui.window_selector import WindowSelector
+from ui.workbench_pages import DiagnosticPage, RecordingPage
+from ui.workbench_window import WorkbenchCoordinator, WorkbenchPage, WorkbenchWindow
 from utils.diagnostics import (
     DiagnosticSnapshot,
     export_diagnostic_file,
@@ -62,6 +67,7 @@ from utils.diagnostics import (
     resolve_diagnostic_dir,
 )
 from utils.disk_checker import DiskChecker, show_disk_warning
+from utils.media_metadata import resolve_ffmpeg_path
 from utils.pending_recording_store import resolve_pending_file
 from utils.recording_library_store import resolve_library_file
 from version import APP_VERSION
@@ -131,6 +137,7 @@ class QuickRecApp:
         self._app = QApplication(sys.argv)
         self._app.setQuitOnLastWindowClosed(False)
         self._app.setStyle("Fusion")
+        self._qt_translator = install_qt_zh_cn(self._app)
 
         # 初始化模块
         self._config = ConfigManager()
@@ -138,6 +145,10 @@ class QuickRecApp:
         if not log_result.ok:
             logger.warning(f"diagnostic file logging unavailable: {log_result.error}")
         self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
+        self._capture_capability = CaptureCapabilityRuntime(
+            save_path=lambda: str(self._config.get("save_path", "")),
+            ffmpeg_path=resolve_ffmpeg_path(),
+        )
         self._workflow = RecordingWorkflow(self._recorder)
         self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
@@ -150,6 +161,13 @@ class QuickRecApp:
         )
         self._pending_ids_by_output: dict[str, str] = {}
         self._material_library_dialog = None
+        self._recording_page = None
+        self._settings_page = None
+        self._diagnostic_page = None
+        self._recording_source: str | None = None
+        self._recording_mode = ""
+        self._last_save_path = str(self._config.get("save_path", ""))
+        self._workbench = WorkbenchCoordinator(self._create_workbench_window)
         self._initial_migration_result: MigrationResult | None = None
         self._migration_thread: threading.Thread | None = None
         self._pending_retry_thread: threading.Thread | None = None
@@ -173,7 +191,9 @@ class QuickRecApp:
         # 快捷键信号桥
         self._hotkey_bridge = _HotkeyBridge()
         self._hotkey_bridge.start_requested.connect(
-            lambda: self._run_hotkey_action(self._on_start_fullscreen)
+            lambda: self._run_hotkey_action(
+                lambda: self._on_start_fullscreen(source="hotkey")
+            )
         )
         self._hotkey_bridge.stop_requested.connect(
             lambda: self._run_hotkey_action(self._on_stop_recording)
@@ -182,10 +202,14 @@ class QuickRecApp:
             lambda: self._run_hotkey_action(self._on_pause_resume)
         )
         self._hotkey_bridge.area_requested.connect(
-            lambda: self._run_hotkey_action(self._on_start_region)
+            lambda: self._run_hotkey_action(
+                lambda: self._on_start_region(source="hotkey")
+            )
         )
         self._hotkey_bridge.window_requested.connect(
-            lambda: self._run_hotkey_action(self._on_start_window)
+            lambda: self._run_hotkey_action(
+                lambda: self._on_start_window(source="hotkey")
+            )
         )
 
         # 区域选择器信号桥
@@ -207,13 +231,15 @@ class QuickRecApp:
         self._tray = TrayIcon(
             config=self._config,
             callbacks={
-                "start_fullscreen": self._on_start_fullscreen,
-                "start_region": self._on_start_region,
-                "start_window": self._on_start_window,   # 延期：窗口录制
+                "open_workbench": lambda: self._show_workbench(),
+                "start_fullscreen": lambda: self._on_start_fullscreen(source="tray"),
+                "start_region": lambda: self._on_start_region(source="tray"),
+                "start_window": lambda: self._on_start_window(source="tray"),
                 "pause_resume": self._on_pause_resume,
                 "stop": self._on_stop_recording,
-                "settings": self._show_settings,
-                "material_library": self._show_material_library,
+                "settings": lambda: self._show_workbench(WorkbenchPage.SETTINGS),
+                "material_library": lambda: self._show_workbench(WorkbenchPage.MATERIALS),
+                "diagnostics": lambda: self._show_workbench(WorkbenchPage.DIAGNOSTICS),
                 "copy_diagnostic": self._on_copy_diagnostic_info,
                 "open_diagnostic_dir": self._on_open_diagnostic_dir,
                 "export_diagnostic": self._on_export_diagnostic_file,
@@ -224,6 +250,201 @@ class QuickRecApp:
         # 绑定快捷键
         self._setup_hotkeys()
         self._hotkey.start_listening()
+
+    def _create_workbench_window(self) -> WorkbenchWindow:
+        self._recording_page = RecordingPage(self._config)
+        self._material_library_dialog = MaterialLibraryDialog(
+            self._library_service,
+            pending_service=self._pending_service,
+            ingestion_coordinator=self._ingestion_coordinator,
+            current_save_dir=self._config.get("save_path", ""),
+            embedded=True,
+        )
+        self._settings_page = SettingsDialog(
+            self._config,
+            embedded=True,
+            capture_capability=getattr(self, "_capture_capability", None),
+        )
+        self._diagnostic_page = DiagnosticPage(self._config)
+        capability_runtime = getattr(self, "_capture_capability", None)
+        if capability_runtime is not None:
+            capability_context = capability_runtime.diagnostic_context()
+            if capability_context["ready"]:
+                capability_text = (
+                    f"已通过 · 平均 {capability_context['average_fps']} FPS · "
+                    f"最低每秒 {capability_context['minimum_one_second_fps']} FPS · "
+                    f"{capability_context['checked_at']}"
+                )
+            else:
+                capability_text = f"未就绪 · {capability_context['reason']}"
+            self._diagnostic_page.set_capture_capability_status(capability_text)
+
+        self._recording_page.start_fullscreen_requested.connect(
+            lambda: self._on_start_fullscreen(source="workbench")
+        )
+        self._recording_page.start_region_requested.connect(
+            lambda: self._on_start_region(source="workbench")
+        )
+        self._recording_page.start_window_requested.connect(
+            lambda: self._on_start_window(source="workbench")
+        )
+        self._recording_page.open_settings_requested.connect(
+            lambda: self._show_workbench(WorkbenchPage.SETTINGS)
+        )
+        self._recording_page.open_material_requested.connect(
+            lambda: self._show_workbench(WorkbenchPage.MATERIALS)
+        )
+        self._recording_page.open_file_requested.connect(self._on_open_file)
+        self._recording_page.open_folder_requested.connect(self._on_open_folder)
+        self._recording_page.retry_material_requested.connect(self._retry_material_item)
+
+        self._settings_page.config_saved.connect(self._on_workbench_config_saved)
+        self._settings_page.open_capture_diagnostics_requested.connect(
+            lambda: self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+        )
+        self._diagnostic_page.config_saved.connect(self._on_workbench_config_saved)
+        self._diagnostic_page.copy_diagnostic_requested.connect(
+            lambda path: self._on_copy_diagnostic_info(path, self._diagnostic_page)
+        )
+        self._diagnostic_page.open_diagnostic_dir_requested.connect(
+            lambda path: self._on_open_diagnostic_dir(path, self._diagnostic_page)
+        )
+        self._diagnostic_page.export_diagnostic_requested.connect(
+            lambda path: self._on_export_diagnostic_file(path, self._diagnostic_page)
+        )
+
+        window = WorkbenchWindow(
+            pages={
+                WorkbenchPage.RECORDING: self._recording_page,
+                WorkbenchPage.MATERIALS: self._material_library_dialog,
+                WorkbenchPage.SETTINGS: self._settings_page,
+                WorkbenchPage.DIAGNOSTICS: self._diagnostic_page,
+            },
+            saved_geometry=self._config.get("workbench_geometry", {}),
+        )
+        window.geometry_changed.connect(self._save_workbench_geometry)
+        window.page_changed.connect(self._on_workbench_page_changed)
+        if self._initial_migration_result is not None:
+            self._material_library_dialog.show_migration_result(
+                self._initial_migration_result
+            )
+        self._sync_workbench_recording_state()
+        return window
+
+    def _save_workbench_geometry(self, geometry: dict[str, object]) -> None:
+        candidate = self._config.snapshot()
+        candidate["workbench_geometry"] = dict(geometry)
+        result = self._config.save_candidate(candidate)
+        if not result.ok:
+            logger.warning(
+                "workbench geometry save failed: stage=%s error=%s",
+                result.stage,
+                result.message,
+            )
+
+    def _show_workbench(self, page: WorkbenchPage | None = None) -> WorkbenchWindow:
+        window = self._workbench.open(page)
+        self._sync_workbench_recording_state()
+        material_page = getattr(self, "_material_library_dialog", None)
+        material_reload = getattr(material_page, "reload", None)
+        if page == WorkbenchPage.MATERIALS and callable(material_reload):
+            material_reload()
+        recording_page = getattr(self, "_recording_page", None)
+        refresh_summary = getattr(recording_page, "refresh_summary", None)
+        if callable(refresh_summary):
+            refresh_summary()
+        return window
+
+    def _on_workbench_page_changed(self, page: WorkbenchPage) -> None:
+        if page == WorkbenchPage.MATERIALS and self._material_library_dialog is not None:
+            self._material_library_dialog.reload()
+        elif page == WorkbenchPage.RECORDING and self._recording_page is not None:
+            self._recording_page.refresh_summary()
+        elif page == WorkbenchPage.SETTINGS and self._settings_page is not None:
+            self._settings_page.set_recording_active(
+                self._workflow.get_state() != RecorderState.IDLE
+            )
+
+    def _on_workbench_config_saved(self) -> None:
+        current_save_path = str(self._config.get("save_path", ""))
+        self._hotkey.stop_listening()
+        self._hotkey.unregister_all()
+        self._setup_hotkeys()
+        self._hotkey.start_listening()
+        if self._recording_page is not None:
+            self._recording_page.refresh_summary()
+        if self._material_library_dialog is not None:
+            self._material_library_dialog.set_current_save_dir(current_save_path)
+        if current_save_path and current_save_path != self._last_save_path:
+            self._handle_save_path_changed(current_save_path)
+        self._last_save_path = current_save_path
+
+    def _sync_workbench_recording_state(self) -> None:
+        page = getattr(self, "_recording_page", None)
+        if page is None:
+            return
+        workflow = getattr(self, "_workflow", None)
+        state = (
+            workflow.get_state()
+            if workflow is not None
+            else RecorderState.IDLE
+        )
+        state_name = {
+            RecorderState.IDLE: "idle",
+            RecorderState.RECORDING: "recording",
+            RecorderState.PAUSED: "paused",
+            RecorderState.SAVING: "saving",
+        }.get(state, "idle")
+        mode = getattr(getattr(self, "_recorder", None), "get_mode", lambda: "")()
+        page.set_recording_state(
+            state_name,
+            mode=(
+                ""
+                if state == RecorderState.IDLE
+                else getattr(mode, "value", str(mode or ""))
+            ),
+        )
+        workbench = getattr(self, "_workbench", None)
+        window = getattr(workbench, "window", None)
+        if window is not None:
+            window.set_runtime_status(state_name)
+        settings = getattr(self, "_settings_page", None)
+        if settings is not None:
+            settings.set_recording_active(state != RecorderState.IDLE)
+
+    def _begin_recording_request(self, source: str, mode: str) -> None:
+        self._recording_source = source
+        self._recording_mode = mode
+        page = getattr(self, "_recording_page", None)
+        if page is not None:
+            page.clear_result()
+            page.set_recording_state(
+                "selecting" if mode in {"region", "window"} else "starting",
+                mode=mode,
+            )
+        if source == "workbench":
+            self._workbench.hide()
+
+    def _set_recording_request_state(self, state: str) -> None:
+        page = getattr(self, "_recording_page", None)
+        if page is not None:
+            page.set_recording_state(state, mode=getattr(self, "_recording_mode", ""))
+        workbench = getattr(self, "_workbench", None)
+        window = getattr(workbench, "window", None)
+        if window is not None:
+            window.set_runtime_status(state)
+        settings = getattr(self, "_settings_page", None)
+        if settings is not None:
+            settings.set_recording_active(state != "idle")
+
+    def _finish_recording_request(self, *, restore_workbench: bool) -> None:
+        source = getattr(self, "_recording_source", None)
+        self._recording_source = None
+        self._recording_mode = ""
+        if restore_workbench and source == "workbench":
+            self._show_workbench(WorkbenchPage.RECORDING)
+        else:
+            self._set_recording_request_state("idle")
 
     def run(self):
         """启动应用"""
@@ -363,18 +584,22 @@ class QuickRecApp:
             return show_disk_warning(free_mb, block=False)
         return True
 
-    def _on_start_fullscreen(self):
+    def _on_start_fullscreen(self, *, source: str = "tray"):
         """开始全屏录制"""
         if self._workflow.get_state() != RecorderState.IDLE:
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
             return
+        if not self._check_120_capture_readiness():
+            return
         if not self._check_disk_space():
             return
+        self._begin_recording_request(source, "fullscreen")
 
         # v1.2: 检查倒计时配置
         if self._config.get("show_countdown", False):
+            self._set_recording_request_state("countdown")
             self._show_toolbar()
             self._toolbar.start_countdown(
                 self._config.get("countdown_seconds", 3)
@@ -386,6 +611,33 @@ class QuickRecApp:
             self._show_toolbar()
             self._do_start_fullscreen()
 
+    def _check_120_capture_readiness(self) -> bool:
+        if int(self._config.get("fps", 30)) != 120:
+            return True
+        inspection = self._capture_capability.inspect()
+        if inspection.readiness.ready:
+            return True
+
+        box = QMessageBox()
+        box.setWindowTitle("需要重新检测 120 FPS")
+        box.setText(inspection.readiness.reason)
+        box.setInformativeText(
+            "可以重新运行约 5 秒能力检测，或仅将本次全屏录制改用 60 FPS。"
+        )
+        retry = box.addButton("重新检测", QMessageBox.AcceptRole)
+        use_60 = box.addButton("本次改用 60 FPS", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is retry:
+            result = CaptureSelfTestDialog.execute(self._capture_capability)
+            return bool(result and result.passed)
+        if clicked is use_60:
+            self._recorder.set_next_fps_override(60)
+            self._tray.show_notification("本次全屏录制将使用 60 FPS")
+            return True
+        return False
+
     def _do_start_fullscreen(self):
         """倒计时结束后的实际全屏录制启动"""
         self._hotkey.set_esc_callback(None)  # 清除 ESC 回调
@@ -393,15 +645,17 @@ class QuickRecApp:
             logger.error("全屏录制启动失败")
             self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
             self._hide_toolbar()
+            self._finish_recording_request(restore_workbench=True)
             return
         if self._toolbar:
             self._toolbar.start_recording_timer()
         self._tray.set_recording_state(True)
+        self._set_recording_request_state("recording")
         self._update_highlight_state()
 
     # --- 区域录制 ---
 
-    def _on_start_region(self):
+    def _on_start_region(self, *, source: str = "tray"):
         """区域录制：显示区域选择器"""
         if self._workflow.get_state() != RecorderState.IDLE:
             return
@@ -410,6 +664,7 @@ class QuickRecApp:
             return
         if not self._check_disk_space():
             return
+        self._begin_recording_request(source, "region")
 
         self._area_selector = AreaSelector()
         self._area_selector.region_selected.connect(
@@ -422,6 +677,7 @@ class QuickRecApp:
         """区域选择完成：开始录制"""
         self._area_selector = None
         if self._config.get("show_countdown", False):
+            self._set_recording_request_state("countdown")
             self._show_toolbar()
             self._toolbar.start_countdown(
                 self._config.get("countdown_seconds", 3)
@@ -441,15 +697,18 @@ class QuickRecApp:
             logger.error("区域录制启动失败")
             self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
             self._hide_toolbar()
+            self._finish_recording_request(restore_workbench=True)
             return
         if self._toolbar:
             self._toolbar.start_recording_timer()
         self._tray.set_recording_state(True)
+        self._set_recording_request_state("recording")
         self._update_highlight_state()
 
     def _on_selection_cancelled(self):
         """区域选择取消"""
         self._area_selector = None
+        self._finish_recording_request(restore_workbench=True)
 
     def _on_countdown_esc(self):
         """全局 ESC 回调：倒计时期间取消倒计时"""
@@ -461,10 +720,11 @@ class QuickRecApp:
             if self._window_highlighter:
                 self._window_highlighter.hide_highlight()
                 self._window_highlighter = None
+            self._finish_recording_request(restore_workbench=True)
 
     # --- 窗口录制 ---
 
-    def _on_start_window(self):
+    def _on_start_window(self, *, source: str = "tray"):
         """窗口录制：显示窗口选择器"""
         if self._workflow.get_state() != RecorderState.IDLE:
             return
@@ -473,6 +733,7 @@ class QuickRecApp:
             return
         if not self._check_disk_space():
             return
+        self._begin_recording_request(source, "window")
         self._window_selector = WindowSelector()
         self._window_selector.window_selected.connect(
             lambda hwnd, title: self._window_bridge.window_selected.emit(hwnd, title)
@@ -502,10 +763,12 @@ class QuickRecApp:
         if not user32.IsWindow(hwnd):
             logger.warning("目标窗口已不存在，取消窗口录制")
             self._tray.show_notification("目标窗口已关闭")
+            self._finish_recording_request(restore_workbench=True)
             return
         self._window_highlighter = WindowHighlighter(hwnd)
         self._window_highlighter.show_highlight()
         if self._config.get("show_countdown", False):
+            self._set_recording_request_state("countdown")
             self._show_toolbar()
             self._toolbar.start_countdown(self._config.get("countdown_seconds", 3))
             self._toolbar.countdown_finished.connect(lambda: self._do_start_window(hwnd))
@@ -525,6 +788,7 @@ class QuickRecApp:
                 self._window_highlighter = None
             # 告知用户失败原因（特殊窗口/最小化恢复未完成）
             self._tray.show_notification("窗口录制启动失败：无法获取窗口区域")
+            self._finish_recording_request(restore_workbench=True)
             return
         if self._window_highlighter:
             self._window_highlighter.hide_highlight()
@@ -532,10 +796,12 @@ class QuickRecApp:
         if self._toolbar:
             self._toolbar.start_recording_timer()
         self._tray.set_recording_state(True)
+        self._set_recording_request_state("recording")
         self._update_highlight_state()
 
     def _on_window_cancelled(self):
         self._window_selector = None
+        self._finish_recording_request(restore_workbench=True)
 
     def _on_window_lost(self, reason: str):
         """窗口丢失：简化处理（无 QMessageBox）"""
@@ -561,6 +827,7 @@ class QuickRecApp:
             return
 
         self._workflow.stop()
+        self._set_recording_request_state("saving")
         if self._toolbar:
             self._toolbar.show_saving()
 
@@ -575,11 +842,13 @@ class QuickRecApp:
             if self._toolbar:
                 self._toolbar.set_paused(True)
             self._tray.set_recording_state(True, paused=True)
+            self._set_recording_request_state("paused")
         elif state == RecorderState.PAUSED:
             self._workflow.resume()
             if self._toolbar:
                 self._toolbar.set_paused(False)
             self._tray.set_recording_state(True, paused=False)
+            self._set_recording_request_state("recording")
 
     # --- 工具栏 ---
 
@@ -618,6 +887,7 @@ class QuickRecApp:
             self._window_highlighter = None
         self._click_highlighter.stop()
         self._hide_toolbar()
+        self._finish_recording_request(restore_workbench=True)
 
     # --- 鼠标高亮控制（v1.2 新增） ---
 
@@ -636,11 +906,18 @@ class QuickRecApp:
 
     # --- 结果条回调 ---
 
-    def _on_open_folder(self):
+    def _on_open_folder(self, output_path: str = ""):
         """结果条：打开文件夹并选中文件"""
         import subprocess
-        if self._toolbar and hasattr(self._toolbar, '_output_path') and self._toolbar._output_path:
-            path = os.path.normpath(self._toolbar._output_path)
+        toolbar_path = (
+            self._toolbar._output_path
+            if self._toolbar
+            and hasattr(self._toolbar, "_output_path")
+            and self._toolbar._output_path
+            else ""
+        )
+        if output_path or toolbar_path:
+            path = os.path.normpath(output_path or toolbar_path)
             try:
                 if os.path.exists(path):
                     subprocess.run(["explorer.exe", f"/select,{path}"])
@@ -649,10 +926,17 @@ class QuickRecApp:
             except Exception:
                 pass
 
-    def _on_open_file(self):
+    def _on_open_file(self, output_path: str = ""):
         """结果条：用默认播放器打开视频文件"""
-        if self._toolbar and hasattr(self._toolbar, '_output_path') and self._toolbar._output_path:
-            path = self._toolbar._output_path
+        toolbar_path = (
+            self._toolbar._output_path
+            if self._toolbar
+            and hasattr(self._toolbar, "_output_path")
+            and self._toolbar._output_path
+            else ""
+        )
+        if output_path or toolbar_path:
+            path = output_path or toolbar_path
             try:
                 os.startfile(path)
             except Exception:
@@ -668,10 +952,34 @@ class QuickRecApp:
     def _handle_saved(self, output_path: str):
         """主线程中处理编码完成"""
         logger.info(f"主线程处理编码完成: {output_path}")
+        source = getattr(self, "_recording_source", None)
         if output_path:
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
             size_str = f"{file_size_mb:.1f}MB"
             logger.info(f"录制已保存: {output_path}")
+            metadata = (
+                self._recorder.get_last_recording_metadata()
+                if self._recorder and hasattr(self._recorder, "get_last_recording_metadata")
+                else {}
+            )
+            performance_text = ""
+            performance_stable = True
+            if metadata.get("target_fps") == 120:
+                average = metadata.get("average_fps")
+                minimum = metadata.get("minimum_one_second_fps")
+                performance_stable = bool(metadata.get("stable", False))
+                if isinstance(average, (int, float)) and isinstance(minimum, (int, float)):
+                    performance_text = (
+                        f"目标 120 FPS · 平均 {float(average):.1f} FPS · "
+                        f"最低每秒 {int(minimum)} FPS"
+                    )
+                if not performance_stable:
+                    performance_text = (
+                        f"{performance_text} · " if performance_text else ""
+                    ) + "未稳定达到 120 FPS，视频已正常保存"
+                    self._tray.show_notification(
+                        "录制已保存，但本次未稳定达到 120 FPS"
+                    )
             ingestion = self._save_material_item(output_path)
             index_ok = ingestion.formal_indexed
             if ingestion.pending_id:
@@ -693,12 +1001,28 @@ class QuickRecApp:
             )
 
             # v1.1: 工具栏显示结果条
-            if self._toolbar:
+            if source == "workbench" and self._recording_page is not None:
+                self._recording_page.show_result(
+                    output_path,
+                    size_str,
+                    index_ok=index_ok,
+                    performance_text=performance_text,
+                    performance_stable=performance_stable,
+                )
+                self._hide_toolbar()
+                self._finish_recording_request(restore_workbench=True)
+            elif self._toolbar:
                 self._toolbar.show_result(output_path, size_str, index_ok=index_ok)
+                self._finish_recording_request(restore_workbench=False)
+            else:
+                self._finish_recording_request(restore_workbench=False)
         else:
             logger.error("编码保存失败")
             self._tray.show_notification("保存失败")
             self._hide_toolbar()
+            if source == "workbench" and self._recording_page is not None:
+                self._recording_page.show_failure("编码器未生成可用输出文件。")
+            self._finish_recording_request(restore_workbench=True)
 
         self._tray.set_recording_state(False)
         if self._window_highlighter:
@@ -769,20 +1093,7 @@ class QuickRecApp:
         return os.path.normcase(os.path.abspath(str(path)))
 
     def _show_material_library(self):
-        if self._material_library_dialog is None:
-            self._material_library_dialog = MaterialLibraryDialog(
-                self._library_service,
-                pending_service=self._pending_service,
-                ingestion_coordinator=self._ingestion_coordinator,
-                current_save_dir=self._config.get("save_path", ""),
-            )
-            if self._initial_migration_result is not None:
-                self._material_library_dialog.show_migration_result(self._initial_migration_result)
-        else:
-            self._material_library_dialog.reload()
-        self._material_library_dialog.show()
-        self._material_library_dialog.raise_()
-        self._material_library_dialog.activateWindow()
+        return self._show_workbench(WorkbenchPage.MATERIALS)
 
     # --- 设置 ---
 
@@ -792,8 +1103,14 @@ class QuickRecApp:
         self._hotkey.stop_listening()
         self._config_saved_pending = False
         save_path_before = self._config.get("save_path", "")
-        dialog = SettingsDialog(self._config)
+        dialog = SettingsDialog(
+            self._config,
+            capture_capability=self._capture_capability,
+        )
         dialog.config_saved.connect(self._on_config_saved_pend)
+        dialog.open_capture_diagnostics_requested.connect(
+            lambda: self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+        )
         dialog.copy_diagnostic_requested.connect(
             lambda path: self._on_copy_diagnostic_info(path, dialog)
         )
@@ -827,6 +1144,9 @@ class QuickRecApp:
         context = self._recorder.get_diagnostic_context() if self._recorder else {}
         config_context = dict(context.get("config", {}))
         config_context["diagnostic_dir"] = str(directory)
+        capability_runtime = getattr(self, "_capture_capability", None)
+        if capability_runtime is not None:
+            config_context["capture_120"] = capability_runtime.diagnostic_context()
         recorder_context = context.get("recorder", {})
         failure = recorder_context.get("last_failure_reason", "")
         snapshot = DiagnosticSnapshot(
@@ -911,6 +1231,8 @@ class QuickRecApp:
         self._click_highlighter.stop()
 
         self._hide_toolbar()
+        if hasattr(self, "_workbench"):
+            self._workbench.hide()
         self._hotkey.stop_listening()
         self._tray.hide()
         self._app.quit()

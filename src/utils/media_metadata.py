@@ -12,6 +12,20 @@ from typing import Any
 logger = logging.getLogger("QuickRec")
 
 
+def resolve_ffmpeg_path() -> str:
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "ffmpeg" / "ffmpeg.exe")
+        candidates.append(Path(sys.executable).parent / "ffmpeg" / "ffmpeg.exe")
+    candidates.append(Path(__file__).resolve().parents[2] / "ffmpeg" / "ffmpeg.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("ffmpeg") or ""
+
+
 @dataclass(frozen=True)
 class MediaMetadataResult:
     ok: bool

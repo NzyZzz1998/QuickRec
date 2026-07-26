@@ -9,10 +9,11 @@ import unittest
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt, QPoint, QRect
 
 # 确保 QApplication 实例存在
 app = QApplication.instance()
@@ -30,6 +31,7 @@ class TestAreaSelector(unittest.TestCase):
         selector = AreaSelector()
         self.assertFalse(selector._is_drawing)
         self.assertEqual(selector._selected_rect, QRect())
+        self.assertIn("Esc", selector._instruction_label.text())
 
     def test_min_size_constant(self):
         """测试最小选区尺寸常量"""

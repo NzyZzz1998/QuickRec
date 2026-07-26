@@ -4,12 +4,11 @@ TrayIcon 单元测试
 注：pystray 在无桌面环境时有限制，主要测试基础功能。
 """
 
-import os
+import sys
 import tempfile
 import unittest
-
-import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ui.tray_icon import TrayIcon
@@ -43,8 +42,10 @@ class TestTrayIcon(unittest.TestCase):
         menu = tray._build_idle_menu()
         labels = [item.text for item in menu.items if hasattr(item, "text")]
 
+        self.assertIn("打开工作台", labels)
         self.assertIn("素材库", labels)
         self.assertNotIn("最近录制", labels)
+        self.assertIn("诊断", labels)
         self.assertIn("复制诊断信息", labels)
         self.assertIn("打开日志目录", labels)
         self.assertIn("导出诊断文件", labels)
@@ -55,11 +56,25 @@ class TestTrayIcon(unittest.TestCase):
         menu = tray._build_recording_menu()
         labels = [item.text for item in menu.items if hasattr(item, "text")]
 
+        self.assertIn("打开工作台", labels)
         self.assertIn("素材库", labels)
         self.assertNotIn("最近录制", labels)
+        self.assertIn("诊断", labels)
         self.assertIn("复制诊断信息", labels)
         self.assertIn("打开日志目录", labels)
         self.assertIn("导出诊断文件", labels)
+
+    def test_menu_labels_do_not_mix_emoji_or_character_icons(self):
+        tray = TrayIcon()
+        labels = [
+            item.text
+            for menu in (tray._build_idle_menu(), tray._build_recording_menu())
+            for item in menu.items
+            if hasattr(item, "text")
+        ]
+
+        for symbol in ("▶", "⏸", "⏹", "✕", "▢", "🖥", "⚙", "📁"):
+            self.assertFalse(any(symbol in label for label in labels), symbol)
 
     def test_diagnostic_callbacks_are_forwarded_by_signal_bridge(self):
         calls = []
@@ -76,6 +91,22 @@ class TestTrayIcon(unittest.TestCase):
         tray._handle_export_diagnostic()
 
         self.assertEqual(calls, ["material", "copy", "open", "export"])
+
+    def test_workbench_routes_are_forwarded_by_signal_bridge(self):
+        calls = []
+        tray = TrayIcon(callbacks={
+            "open_workbench": lambda: calls.append("recording"),
+            "settings": lambda: calls.append("settings"),
+            "material_library": lambda: calls.append("materials"),
+            "diagnostics": lambda: calls.append("diagnostics"),
+        })
+
+        tray._handle_open_workbench()
+        tray._handle_settings()
+        tray._handle_material_library()
+        tray._handle_diagnostics()
+
+        self.assertEqual(calls, ["recording", "settings", "materials", "diagnostics"])
 
 
 if __name__ == "__main__":

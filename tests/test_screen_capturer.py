@@ -5,6 +5,8 @@ ScreenCapturer 单元测试
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -12,6 +14,196 @@ import numpy as np
 import pytest
 
 from recorder.screen_capturer import ScreenCapturer
+
+
+class _BufferedCameraWithoutNewFrame:
+    def __init__(self):
+        self.grab_calls = 0
+
+    def grab(self):
+        self.grab_calls += 1
+        return None
+
+    def get_latest_frame(self):
+        raise AssertionError("capture_frame must not use the blocking dxcam API")
+
+
+class _FakeCamera:
+    def __init__(self, frames=None, *, start_error=None):
+        self.frames = list(frames or [])
+        self.start_error = start_error
+        self.start_calls = []
+        self.stop_calls = 0
+        self.release_calls = 0
+
+    def start(self, *, target_fps, region, video_mode=True):
+        self.start_calls.append((target_fps, region, video_mode))
+        if self.start_error is not None:
+            raise self.start_error
+
+    def grab(self):
+        return self.frames.pop(0) if self.frames else None
+
+    def stop(self):
+        self.stop_calls += 1
+
+    def release(self):
+        self.release_calls += 1
+
+
+class TestScreenCapturerNonBlocking(unittest.TestCase):
+    def test_capture_frame_returns_none_before_start(self):
+        self.assertIsNone(ScreenCapturer().capture_frame())
+
+    def test_capture_frame_does_not_block_when_dxcam_has_no_new_frame(self):
+        camera = _BufferedCameraWithoutNewFrame()
+        capturer = ScreenCapturer()
+        capturer._camera = camera
+        capturer._started = True
+
+        frame = capturer.capture_frame()
+
+        self.assertIsNone(frame)
+        self.assertEqual(camera.grab_calls, 2)
+
+    def test_capture_frame_returns_buffered_frame_without_retry(self):
+        expected = np.zeros((20, 30, 3), dtype=np.uint8)
+        camera = _FakeCamera([expected])
+        capturer = ScreenCapturer()
+        capturer._camera = camera
+        capturer._started = True
+
+        frame = capturer.capture_frame()
+
+        self.assertIs(frame, expected)
+        self.assertEqual(camera.frames, [])
+
+    def test_start_creates_dxcam_with_expected_region(self):
+        camera = _FakeCamera()
+        create = Mock(return_value=camera)
+        capturer = ScreenCapturer(region=(10, 20, 321, 241))
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.start()
+
+        create.assert_called_once_with(output_idx=0, output_color="BGR")
+        self.assertEqual(camera.start_calls, [(60, (10, 20, 330, 260), True)])
+        self.assertTrue(capturer._started)
+        self.assertEqual(capturer._last_dxcam_region, (10, 20, 330, 260))
+
+    def test_invalid_region_is_rejected(self):
+        with self.assertRaises(ValueError):
+            ScreenCapturer(region=(0, 0, 1, 1))
+
+    def test_update_region_skips_unchanged_region(self):
+        capturer = ScreenCapturer(region=(10, 20, 320, 240))
+        camera = _FakeCamera()
+        capturer._camera = camera
+        capturer._started = True
+        capturer._last_dxcam_region = capturer._dxcam_region
+
+        capturer.update_region((10, 20, 320, 240))
+
+        self.assertEqual(camera.stop_calls, 0)
+        self.assertEqual(camera.release_calls, 0)
+
+    def test_update_region_rebuilds_running_camera(self):
+        old_camera = _FakeCamera()
+        new_camera = _FakeCamera()
+        create = Mock(return_value=new_camera)
+        capturer = ScreenCapturer(region=(0, 0, 320, 240))
+        capturer._camera = old_camera
+        capturer._started = True
+        capturer._last_dxcam_region = capturer._dxcam_region
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.update_region((11, 22, 333, 245))
+
+        self.assertEqual(old_camera.stop_calls, 1)
+        self.assertEqual(old_camera.release_calls, 1)
+        self.assertEqual(new_camera.start_calls, [(60, (11, 22, 343, 266), True)])
+        self.assertIs(capturer._camera, new_camera)
+        self.assertTrue(capturer._started)
+
+    def test_update_region_failure_leaves_clean_state(self):
+        old_camera = _FakeCamera()
+        failed_camera = _FakeCamera(start_error=RuntimeError("capture failed"))
+        capturer = ScreenCapturer(region=(0, 0, 320, 240))
+        capturer._camera = old_camera
+        capturer._started = True
+        capturer._last_dxcam_region = capturer._dxcam_region
+
+        with patch.dict(
+            sys.modules,
+            {"dxcam": SimpleNamespace(create=Mock(return_value=failed_camera))},
+        ):
+            capturer.update_region((20, 30, 320, 240))
+
+        self.assertEqual(failed_camera.release_calls, 1)
+        self.assertIsNone(capturer._camera)
+        self.assertFalse(capturer._started)
+
+    def test_update_region_rejects_invalid_dimensions(self):
+        capturer = ScreenCapturer(region=(0, 0, 320, 240))
+
+        with self.assertRaises(ValueError):
+            capturer.update_region((0, 0, 1, 1))
+
+    def test_region_accessors_use_normalized_dimensions(self):
+        capturer = ScreenCapturer(region=(10, 20, 321, 241))
+
+        self.assertEqual(capturer.get_capture_region(), (10, 20, 320, 240))
+        self.assertEqual(capturer.get_monitor_size(), (320, 240))
+
+    def test_close_releases_camera_and_resets_state(self):
+        camera = _FakeCamera()
+        capturer = ScreenCapturer()
+        capturer._camera = camera
+        capturer._started = True
+
+        capturer.close()
+
+        self.assertEqual(camera.stop_calls, 1)
+        self.assertEqual(camera.release_calls, 1)
+        self.assertIsNone(capturer._camera)
+        self.assertFalse(capturer._started)
+
+    def test_120fps_keeps_static_desktop_frames_available(self):
+        camera = _FakeCamera()
+        create = Mock(return_value=camera)
+        capturer = ScreenCapturer(target_fps=120)
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.start()
+
+        self.assertEqual(camera.start_calls, [(120, None, True)])
+
+    def test_120fps_reuses_prestart_frame_when_ring_buffer_is_still_empty(self):
+        expected = np.zeros((20, 30, 3), dtype=np.uint8)
+        camera = _FakeCamera([expected])
+        create = Mock(return_value=camera)
+        capturer = ScreenCapturer(target_fps=120)
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.start()
+            frame = capturer.capture_frame()
+
+        self.assertIs(frame, expected)
+
+    def test_region_restart_preserves_effective_target_fps(self):
+        old_camera = _FakeCamera()
+        new_camera = _FakeCamera()
+        capturer = ScreenCapturer(region=(0, 0, 320, 240), target_fps=60)
+        capturer._camera = old_camera
+        capturer._started = True
+
+        with patch.dict(
+            sys.modules,
+            {"dxcam": SimpleNamespace(create=Mock(return_value=new_camera))},
+        ):
+            capturer.update_region((10, 20, 320, 240))
+
+        self.assertEqual(new_camera.start_calls, [(60, (10, 20, 330, 260), True)])
 
 
 @pytest.mark.hardware

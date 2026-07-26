@@ -15,7 +15,11 @@ logger = logging.getLogger("QuickRec")
 class ScreenCapturer:
     """屏幕捕获器（基于 dxcam）"""
 
-    def __init__(self, region: tuple = None):
+    def __init__(
+        self,
+        region: tuple[int, int, int, int] | None = None,
+        target_fps: int = 60,
+    ):
         """
         初始化屏幕捕获器
 
@@ -23,17 +27,26 @@ class ScreenCapturer:
             region: 捕获区域 (left, top, width, height)
                    None 表示全屏捕获
         """
-        self._region = normalize_capture_region(region) if region else None
+        self._region: tuple[int, int, int, int] | None = (
+            normalize_capture_region(region) if region else None
+        )
         if region and self._region is None:
             raise ValueError(f"invalid capture region: {region}")
         self._camera = None
         self._started = False
-        self._last_dxcam_region = None  # 上一次 dxcam 使用的 region，避免重复重启
+        self._target_fps = max(int(target_fps), 1)
+        self._fallback_frame = None
+        self._last_dxcam_region: tuple[int, int, int, int] | None = None
 
         if self._region:
             left, top, width, height = self._region
             # dxcam 用 region=(left, top, right, bottom)
-            self._dxcam_region = (left, top, left + width, top + height)
+            self._dxcam_region: tuple[int, int, int, int] | None = (
+                left,
+                top,
+                left + width,
+                top + height,
+            )
         else:
             self._dxcam_region = None
 
@@ -41,11 +54,23 @@ class ScreenCapturer:
         """启动捕获（延迟初始化，应在录制线程中调用）"""
         import dxcam
         self._camera = dxcam.create(output_idx=0, output_color="BGR")
+        if self._target_fps >= 120:
+            self._fallback_frame = self._camera.grab()
         if self._dxcam_region:
             logger.info(f"ScreenCapturer region: {self._dxcam_region}")
-        self._camera.start(target_fps=60, region=self._dxcam_region)
+        self._start_camera()
         self._last_dxcam_region = self._dxcam_region
         self._started = True
+
+    def _start_camera(self) -> None:
+        camera = self._camera
+        if camera is None:
+            raise RuntimeError("DXCamera is not initialized")
+        camera.start(
+            target_fps=self._target_fps,
+            region=self._dxcam_region,
+            video_mode=True,
+        )
 
     def capture_frame(self):
         """
@@ -56,15 +81,22 @@ class ScreenCapturer:
         """
         if not self._started:
             return None
-        frame = self._camera.get_latest_frame()
+        # dxcam.get_latest_frame() waits indefinitely for a new desktop frame.
+        # Reading the current ring buffer keeps stop/cancel responsive on a
+        # completely static desktop.
+        frame = self._camera.grab()
         if frame is None:
             # 首帧可能为 None，短暂等待后重试
             import time
             time.sleep(0.01)
-            frame = self._camera.get_latest_frame()
+            frame = self._camera.grab()
+        if frame is not None and self._target_fps >= 120:
+            self._fallback_frame = frame
+        elif frame is None and self._fallback_frame is not None:
+            frame = self._fallback_frame
         return frame
 
-    def update_region(self, region: tuple):
+    def update_region(self, region: tuple[int, int, int, int]):
         """动态更新捕获区域（用于窗口录制跟踪窗口位置）
 
         Args:
@@ -90,7 +122,7 @@ class ScreenCapturer:
                 self._camera.release()
                 import dxcam
                 self._camera = dxcam.create(output_idx=0, output_color="BGR")
-                self._camera.start(target_fps=60, region=self._dxcam_region)
+                self._start_camera()
             except Exception as e:
                 logger.error(f"更新捕获区域失败: {e}")
                 # 重建失败时确保状态干净，避免后续 capture_frame 在坏状态上调用
@@ -102,7 +134,7 @@ class ScreenCapturer:
                 self._camera = None
                 self._started = False
 
-    def get_monitor_size(self) -> tuple:
+    def get_monitor_size(self) -> tuple[int, int]:
         """
         获取当前捕获区域的尺寸
 
@@ -118,7 +150,7 @@ class ScreenCapturer:
             user32 = ctypes.windll.user32
             return (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
 
-    def get_capture_region(self) -> tuple | None:
+    def get_capture_region(self) -> tuple[int, int, int, int] | None:
         return self._region
 
     def close(self):
@@ -128,6 +160,7 @@ class ScreenCapturer:
             self._camera.release()
             self._camera = None
         self._started = False
+        self._fallback_frame = None
 
     def __del__(self):
         try:

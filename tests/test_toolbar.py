@@ -9,10 +9,11 @@ import unittest
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication
 
 app = QApplication.instance()
 if app is None:
@@ -50,11 +51,11 @@ class TestRecordingToolbar(unittest.TestCase):
         toolbar = RecordingToolbar()
         toolbar.set_paused(True)
         self.assertTrue(toolbar._paused)
-        self.assertEqual(toolbar._btn_pause.text(), "▶ 继续")
+        self.assertEqual(toolbar._btn_pause.text(), "继续")
 
         toolbar.set_paused(False)
         self.assertFalse(toolbar._paused)
-        self.assertEqual(toolbar._btn_pause.text(), "⏸ 暂停")
+        self.assertEqual(toolbar._btn_pause.text(), "暂停")
 
     def test_signals_defined(self):
         """测试信号定义"""
@@ -100,6 +101,26 @@ class TestRecordingToolbar(unittest.TestCase):
         flags = toolbar.windowFlags()
         self.assertTrue(bool(flags & Qt.FramelessWindowHint))
         self.assertTrue(bool(flags & Qt.WindowStaysOnTopHint))
+
+    def test_toolbar_uses_semantic_indicator_and_nonempty_icons(self):
+        toolbar = RecordingToolbar()
+
+        self.assertEqual(toolbar._indicator.text(), "")
+        self.assertEqual(toolbar._indicator.property("state"), "recording")
+        self.assertTrue(
+            all(
+                not button.icon().isNull()
+                for button in (
+                    toolbar._btn_pause,
+                    toolbar._btn_stop,
+                    toolbar._btn_cancel,
+                    toolbar._btn_saved,
+                    toolbar._btn_open,
+                    toolbar._btn_material,
+                    toolbar._btn_close_result,
+                )
+            )
+        )
 
     def test_timer_not_counting_when_paused(self):
         """测试暂停时计时器不增加"""

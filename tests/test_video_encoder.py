@@ -1,8 +1,10 @@
 import io
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -67,6 +69,105 @@ class TestVideoEncoder(unittest.TestCase):
         self.assertEqual(cmd[0], self.ffmpeg_path)
         self.assertIn("libx264", cmd)
         self.assertIn("pipe:0", cmd)
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_high_frame_rate_uses_async_yuv420p_pipe(self, popen):
+        class RecordingStdin(io.BytesIO):
+            def close(self):
+                pass
+
+        proc = FakeProcess()
+        proc.stdin = RecordingStdin()
+        popen.return_value = proc
+        encoder = VideoEncoder(
+            self.file_path,
+            120,
+            self.frame_size,
+            self.ffmpeg_path,
+            high_frame_rate=True,
+        )
+
+        for _ in range(8):
+            self.assertTrue(encoder.write_frame(self._make_frame()))
+
+        self.assertTrue(encoder.close())
+        self.assertEqual(encoder.get_frame_count(), 8)
+        cmd = popen.call_args.args[0]
+        input_pix_fmt = cmd[cmd.index("-pix_fmt") + 1]
+        self.assertEqual(input_pix_fmt, "yuv420p")
+        expected_bytes = self.frame_size[0] * self.frame_size[1] * 3 // 2 * 8
+        self.assertEqual(len(proc.stdin.getvalue()), expected_bytes)
+        performance = encoder.get_performance_snapshot()
+        self.assertEqual(performance.completed_frames, 8)
+        self.assertEqual(len(performance.completion_times), 8)
+        self.assertEqual(len(performance.backlog_samples), 8)
+
+    @patch("recorder.video_encoder.subprocess.Popen")
+    def test_high_frame_rate_worker_failure_is_reported(self, popen):
+        class BrokenStdin:
+            def write(self, _):
+                raise BrokenPipeError()
+
+            def close(self):
+                pass
+
+        proc = FakeProcess()
+        proc.stdin = BrokenStdin()
+        popen.return_value = proc
+        encoder = VideoEncoder(
+            self.file_path,
+            120,
+            self.frame_size,
+            self.ffmpeg_path,
+            high_frame_rate=True,
+        )
+
+        self.assertTrue(encoder.write_frame(self._make_frame()))
+        self.assertFalse(encoder.close())
+        self.assertFalse(encoder.is_open())
+
+    def test_high_frame_rate_queue_wait_honors_cancel_event(self):
+        class FullQueue:
+            @staticmethod
+            def put(_item, timeout=None):
+                raise queue.Full
+
+        encoder = VideoEncoder.__new__(VideoEncoder)
+        encoder._is_open = True
+        encoder._worker_error = None
+        encoder._frame_queue = FullQueue()
+        encoder._frame_count = 0
+        cancel = threading.Event()
+        cancel.set()
+
+        result = encoder.write_frame(
+            self._make_frame(),
+            cancel_event=cancel,
+            timeout_seconds=1.0,
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(encoder._frame_count, 0)
+
+    def test_high_frame_rate_queue_wait_has_bounded_timeout(self):
+        class FullQueue:
+            @staticmethod
+            def put(_item, timeout=None):
+                raise queue.Full
+
+        encoder = VideoEncoder.__new__(VideoEncoder)
+        encoder._is_open = True
+        encoder._worker_error = None
+        encoder._frame_queue = FullQueue()
+        encoder._frame_count = 0
+
+        result = encoder.write_frame(
+            self._make_frame(),
+            timeout_seconds=0.01,
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(encoder._frame_count, 0)
 
     @patch("recorder.video_encoder.subprocess.Popen")
     def test_auto_create_directory_before_starting_ffmpeg(self, popen):

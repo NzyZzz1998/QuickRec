@@ -8,8 +8,21 @@
 import ctypes
 import json
 import os
+import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class ConfigSaveResult:
+    """配置持久化结果。"""
+
+    ok: bool
+    stage: str
+    message: str = ""
+    path: str = ""
 
 
 class ConfigManager:
@@ -19,7 +32,7 @@ class ConfigManager:
     defaults = {
         "save_path": str(Path.home() / "Videos" / "QuickRec"),
         "quality": "high",  # native / high / medium / low
-        "fps": 30,  # 30 / 60
+        "fps": 30,  # 30 / 60 / 120
         "shortcut_start": "Ctrl+Shift+R",
         "shortcut_stop": "Ctrl+Shift+S",
         "shortcut_pause": "Ctrl+Shift+P",
@@ -33,6 +46,7 @@ class ConfigManager:
         "diagnostic_dir": "",
         "diagnostic_dir_customized": False,
         "diagnostic_keep_days": 7,
+        "workbench_geometry": {},
     }
 
     # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
@@ -84,6 +98,10 @@ class ConfigManager:
         """
         self._config[key] = value
 
+    def snapshot(self) -> dict[str, Any]:
+        """返回与正式内存配置隔离的候选副本。"""
+        return self._config.copy()
+
     def get_diagnostic_dir(self) -> str:
         """获取有效诊断目录，未自定义时跟随保存路径。"""
         diagnostic_dir = str(self._config.get("diagnostic_dir", "") or "").strip()
@@ -105,15 +123,54 @@ class ConfigManager:
         self._config["diagnostic_dir"] = diagnostic_dir
         self._config["diagnostic_dir_customized"] = True
 
-    def save(self) -> None:
-        """将配置持久化到 JSON 文件"""
+    def save_candidate(self, candidate: Mapping[str, Any]) -> ConfigSaveResult:
+        """原子持久化候选配置，成功后才提交到内存。"""
+        config_path = self.config_path
+        temp_path: Path | None = None
+
         try:
-            # 确保目录存在
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[ConfigManager] 保存配置失败: {e}")
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            return ConfigSaveResult(
+                False,
+                "prepare_directory",
+                str(exc),
+                str(config_path),
+            )
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=config_path.parent,
+                prefix=f".{config_path.stem}-",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                json.dump(dict(candidate), temp_file, indent=2, ensure_ascii=False)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+        except Exception as exc:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            return ConfigSaveResult(False, "write_temp", str(exc), str(config_path))
+
+        try:
+            os.replace(temp_path, config_path)
+        except Exception as exc:
+            temp_path.unlink(missing_ok=True)
+            return ConfigSaveResult(False, "replace", str(exc), str(config_path))
+
+        self._config = dict(candidate)
+        return ConfigSaveResult(True, "complete", path=str(config_path))
+
+    def save(self) -> ConfigSaveResult:
+        """原子持久化当前内存配置并返回可判断结果。"""
+        result = self.save_candidate(self._config)
+        if not result.ok:
+            print(f"[ConfigManager] 保存配置失败 ({result.stage}): {result.message}")
+        return result
 
     def load(self) -> None:
         """从 JSON 文件加载配置"""
@@ -131,10 +188,9 @@ class ConfigManager:
             print(f"[ConfigManager] 加载配置失败，使用默认值: {e}")
             self._config = self.defaults.copy()
 
-    def reset(self) -> None:
+    def reset(self) -> ConfigSaveResult:
         """恢复默认配置"""
-        self._config = self.defaults.copy()
-        self.save()
+        return self.save_candidate(self.defaults.copy())
 
     @staticmethod
     def get_native_resolution() -> tuple[int, int]:

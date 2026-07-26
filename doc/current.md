@@ -2,80 +2,75 @@
 
 ## 当前定位
 
-- 产品线：QuickRec Full
-- 当前正式版本：v1.7
-- 当前发布分支：`master`
-- 当前标签：`v1.7`
-- 当前工作区：`E:\codex\QuickRec`
-- v1.6 tag 提交：`ac8d151aababb5e7c37b3dcc646ae10c8593acf3`
-- v1.6.1 功能实现提交：`8a1ee4710de70d5dd74c2478771a50a762b528ca`
-- v1.6 本地历史展开包：已清理，可从 GitHub Release 重新下载
-- GitHub Release 资产：`QuickRec-v1.6-win-x64.zip`
-- GitHub Release：[QuickRec Full v1.6](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.6)
-- 发布 ZIP SHA256：`30F002F8E085220E86C37B1EC672A47739560A80488743A4D6EDE1DB9FED6C69`
-- v1.6.1 发布资产：`QuickRec-v1.6.1-win-x64.zip`
-- v1.6.1 Release：[QuickRec Full v1.6.1](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.6.1)
-- v1.6.1 ZIP SHA256：`CE72D690DD46950C46CDEE2F3999B6F64E6DC0362B20CAC21FC53A34FCE197CF`
-- v1.6.1 锁定 EXE SHA256：`2CB447709769A8A986B7A48A63C98377803A002ED56892E57F0911661FA3E092`
-- v1.6.1 验收证据：`E:\QRtest\QuickRec-v1.6.1-acceptance`
-- v1.7 当前状态：正式发布
-- v1.7 候选 EXE：`E:\QRtest\QuickRec-v1.7-candidate-fix1-dist\QuickRec\QuickRec.exe`
-- v1.7 EXE SHA256：`8966985B6E1EBCEDC27499404BF8467133EFCC9C6A827898D8904CE137E15AF2`
-- v1.7 发布资产：`QuickRec-v1.7-win-x64.zip`
-- v1.7 Release：[QuickRec Full v1.7](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.7)
-- v1.7 ZIP SHA256：`0C200C549D1E4ED495BC381298E1A3157B1534526337899DB9ED9C655A37E963`
-- v1.7 验收证据：`E:\QRtest\QuickRec-v1.7-acceptance`
+- 产品线：QuickRec Full。
+- 当前公开正式版本：v1.8。
+- 当前发布分支：`master`。
+- 当前发布标签：`v1.8`。
+- 开发与集成分支：`test`。
+- 当前工作区：`E:\codex\QuickRec`。
+- QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
+- 当前阶段：v1.8 正式发布。
 
-`v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce feat(v1.4.x): add diagnostic export workflow`。本工作区当前 `master` 后续 HEAD 可能包含 post-split 文档治理提交，但不得移动或重写 `v1.4.1` tag。
+## v1.8 发布状态
 
-## 当前发布状态
+v1.8 包含两条正式产品主线：
 
-v1.6 轻量素材库基础版已完成开发、自动化验证、独立打包、硬件 smoke 和 D7 GUI 手动验收，作为 v1.6.1 的直接代码与发布包回滚点保留。
+1. Full 工作台基础壳与完整视觉改版，将录制、素材库、设置和诊断统一到单实例工作台。
+2. 单显示器环境下的 1080p120 全屏录制，包括能力检测、快速校验、性能告警和诊断信息。
 
-v1.6.1 已完成开发、自动化门禁、独立打包与 GUI 手动验收，作为 v1.7 的直接回滚点保留。
+当前发布阻塞项已经关闭：
 
-v1.7 已完成素材搜索、筛选、排序、待入库分区和异常降级能力，自动化与 D6 GUI 技术验收通过，现作为 QuickRec Full 当前正式版本发布。
+- D11 GUI、DPI 与真实硬件验收：`24/24`。
+- 全量测试：`523 passed, 1 skipped, 25 deselected, 48 subtests passed`。
+- Packaging：`13 passed`。
+- Ruff、项目门禁 mypy、compileall、UTF-8 和 `git diff --check`：通过。
+- 三次 1080p120 技术门禁：通过。
+- 无声、系统声音、麦克风、系统声音＋麦克风：通过。
+- 双音频 10 分钟漂移增量：`-8.333 ms`，通过 `20 ms` 门槛。
+- r13 四事件音画最大绝对偏移：`18.229 ms`，通过 `40 ms` 门槛。
+- 100%、125%、150% DPI：通过。
+- QuickRec Lite：未修改。
 
-v1.6 tag 是 v1.6.1 的直接代码回滚点；回滚不会删除待入库主文件、降级标记或视频文件。
+## 当前候选身份
 
-v1.5 与 v1.4.1 继续作为历史稳定发布点保留，其中 v1.4.1 固定承载诊断导出发布成果。
+正式发布包：
+
+```text
+目录: E:\QRtest\QuickRec-v1.8-release-dist\QuickRec
+EXE: E:\QRtest\QuickRec-v1.8-release-dist\QuickRec\QuickRec.exe
+EXE SHA256: 8BDB84FB08198E927C722E41AC37276A796AD168C55183EE6C24194F2BFE7EA6
+ZIP: E:\QRtest\QuickRec-v1.8-win-x64.zip
+ZIP SHA256: 78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27
+```
+
+D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基础上更新版本号为
+`v1.8` 并重新构建，已通过基础启动和 ZIP 内容检查。
 
 ## 当前版本文档
 
-- PRD：`doc/releases/v1.6.1/prd.md`
-- 实施计划：`doc/releases/v1.6.1/dev_plan.md`
-- 进度：`doc/releases/v1.6.1/progress.md`
-- 测试用例：`doc/releases/v1.6.1/test-cases.md`
-- 手动验收：`doc/releases/v1.6.1/manual-verification.md`
-- 验证汇总：`doc/releases/v1.6.1/verification.md`
-- Bugfix：`doc/releases/v1.6.1/bugfix-log.md`
-- 发布说明：`doc/releases/v1.6.1/release-notes.md`
-- 变更日志：`doc/releases/v1.6.1/changelog.md`
+- PRD：[releases/v1.8/prd.md](releases/v1.8/prd.md)
+- 实施计划：[releases/v1.8/dev_plan.md](releases/v1.8/dev_plan.md)
+- 进度：[releases/v1.8/progress.md](releases/v1.8/progress.md)
+- 自动化验证：[releases/v1.8/verification.md](releases/v1.8/verification.md)
+- GUI 与硬件验收：[releases/v1.8/manual-verification.md](releases/v1.8/manual-verification.md)
+- 缺陷记录：[releases/v1.8/bugfix-log.md](releases/v1.8/bugfix-log.md)
+- 发布说明：[releases/v1.8/release-notes.md](releases/v1.8/release-notes.md)
+- 变更日志：[releases/v1.8/changelog.md](releases/v1.8/changelog.md)
+- 高保真原型：[releases/v1.8/prototype/index.html](releases/v1.8/prototype/index.html)
+- 视觉核对：[releases/v1.8/visual-verification.md](releases/v1.8/visual-verification.md)
 
-## v1.7 当前版本文档
+## 历史稳定点
 
-- PRD：`doc/releases/v1.7/prd.md`
-- 实施计划：`doc/releases/v1.7/dev_plan.md`
-- 进度：`doc/releases/v1.7/progress.md`
-- 手动验收：`doc/releases/v1.7/manual-verification.md`
-- 验证汇总：`doc/releases/v1.7/verification.md`
-- Bugfix：`doc/releases/v1.7/bugfix-log.md`
-- 发布说明：`doc/releases/v1.7/release-notes.md`
-- 变更日志：`doc/releases/v1.7/changelog.md`
+- v1.7：历史稳定版，也是 v1.8 的直接回滚点。
+- v1.6.1：待入库恢复补丁。
+- v1.6：中央素材库。
+- v1.5：最近录制。
+- v1.4.1：诊断导出；tag 固定指向 `16c7dce`，不得移动或重写。
 
-## 当前版本过程记录
+## v1.8 回滚
 
-- 开发日志：`doc/releases/v1.6.1/dev_log.md`
-
-v1.6 正式发布资料继续保留在 `doc/releases/v1.6/`，作为直接回滚依据。
-
-## 历史与支撑文档
-
-- 产品总 PRD：`doc/product/PRD-QuickRec.md`
-- v1.4 历史发布资料：`doc/releases/v1.4/`
-- 技术设计与历史实施计划：`doc/technical/`
-- 历史测试用例：`doc/verification/`
-- 原型资料：`doc/prototypes/`
-- 历史想法池和日志归档：`doc/archive/`
-
-QuickRec Lite 已拆分到 `E:\codex\QuickRec-Lite`，不属于 Full 当前工作区范围。
+1. 退出 QuickRec。
+2. 如果当前配置使用 `fps=120`，在回滚前将其改为 `60`。
+3. 使用 `v1.7` tag 对应代码或 v1.7 GitHub Release 发布包。
+4. 保留 `%APPDATA%\QuickRec\recordings.json`、待入库记录和所有录制视频。
+5. 回滚不需要删除素材索引；工作台布局和 120 FPS 能力缓存可由旧版本忽略。
