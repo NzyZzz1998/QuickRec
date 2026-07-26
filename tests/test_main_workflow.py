@@ -504,7 +504,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
             text = app._build_diagnostic_text()
 
-        self.assertIn("version: v1.7", text)
+        self.assertIn("version: v1.8", text)
         self.assertNotIn("version: v1.4.x", text)
 
     def test_export_diagnostic_file_writes_file_and_notifies(self):

@@ -3,24 +3,23 @@
 ## 1. 当前结论
 
 - 验证阶段：D10 工程门禁与 D11 GUI 验收。
-- 当前结论：**自动化、工作台核心 GUI 与 120 FPS 技术门禁通过；v1.8 整体仍为部分通过。**
-- 发布状态：不可进入发布收口。
-- 验证日期：2026-07-25。
+- 当前结论：**自动化、工作台核心 GUI、120 FPS 技术门禁和 D11 音画同步验收均通过。**
+- 发布状态：发布门禁通过，已授权执行正式发布。
+- 验证日期：2026-07-26。
 - 分支：`test`。
-- HEAD：`8fdf902ac5216bedd6efcd932b83e78b7d14b2c4`，工作区包含尚未提交的 v1.8 实现。
+- HEAD：`fee1bec6a10239aa4edd47ebab7ad6555eebc9a8`，工作区包含尚未提交的音画同步最小修复。
 - 正式发布基线：`v1.7`。
 
-不可发布的原因包括：麦克风和双音频证据、10 分钟音画同步、缓存失效、
-快速校验、设置失败、素材操作、窗口几何和三档 DPI 已闭合。当前只剩真实麦克风、
-双音频及 10 分钟音画同步证据。
+麦克风、双音频、10 分钟漂移、音画绝对偏移、缓存失效、快速校验、设置失败、
+素材操作、窗口几何和三档 DPI 均已闭合。当前没有 D11 发布阻塞项。
 
 ## 2. 质量门禁
 
 | 检查 | 结果 | 证据摘要 |
 | --- | --- | --- |
-| 全量 pytest | 通过 | `515 passed, 25 deselected, 48 subtests passed` |
+| 全量 pytest | 通过 | `523 passed, 1 skipped, 25 deselected, 48 subtests passed` |
 | 全项目覆盖率 | 通过 | 当前完整 coverage 结果为 `86.08%`，门槛 80% |
-| Packaging 测试 | 通过 | `13 passed, 527 deselected` |
+| Packaging 测试 | 通过 | `13 passed, 536 deselected` |
 | Ruff | 通过 | `All checks passed!` |
 | Mypy | 通过 | 22 个源文件无问题 |
 | Compileall | 通过 | `src`、`scripts`、`tests` 编译通过 |
@@ -48,9 +47,9 @@ Mypy 的正式门禁命令为 `python -m mypy`，由 `pyproject.toml` 锁定 22 
 - 正式结论：技术门禁通过，D8/D9 已恢复实施。
 - 详细证据：[120fps-spike.md](120fps-spike.md)。
 
-## 4. 最终候选包身份
+## 4. 历史工作台候选包身份
 
-最终候选目录：
+历史工作台候选目录：
 
 ```text
 E:\QRtest\QuickRec-v1.8-workbench-candidate-20260724-r5\QuickRec
@@ -73,7 +72,7 @@ E:\QRtest\QuickRec-v1.8-workbench-candidate-20260724-r5\QuickRec
 
 ## 5. 工作台 GUI 验证
 
-最终候选隔离目录：
+历史工作台候选隔离目录：
 
 ```text
 E:\QRtest\QuickRec-v1.8-workbench-acceptance-20260724-r5
@@ -252,3 +251,58 @@ E:\QRtest\QuickRec-v1.8-candidate-20260725-r7\QuickRec
 - 证据：
   `E:\QRtest\QuickRec-v1.8-final-manual-20260726\sync-analysis\recorded-sync-analysis-report.json`
   和 `source-sync-analysis-report.json`。
+
+## 16. BUG-V18-005 修复与 r13 定向复验
+
+### 根因与实现
+
+- 音频捕获早于视频首帧写入，但原 WAV 与封装链路没有保存二者的单调时钟关系。
+- 系统回环实际起点还包含输出缓冲和默认设备周期；当前设备实测合计 `56.625 ms`。
+- 修复后每条音轨记录启动时刻和设备延迟，视频记录首帧成功写入时刻，混音前按
+  有效起点分别执行 `atrim` 或 `adelay`。
+- `r12` 忽略设备延迟而过度补偿，已失效并保留为排查证据；`r13` 使用设备实测
+  延迟完成最终复验。
+
+### 自动验证
+
+- 专项：`63 passed`。
+- 全量：`523 passed, 1 skipped, 25 deselected, 48 subtests passed`。
+- Packaging：`13 passed, 536 deselected`。
+- Ruff、项目门禁 mypy、compileall 和 `git diff --check`：通过。
+
+### r13 身份
+
+```text
+EXE: E:\QRtest\QuickRec-v1.8-candidate-20260726-r13\QuickRec\QuickRec.exe
+EXE SHA256: 1ECE0901BBD0EC36ADDEBE2A04D3599E0174DAF944B5563884FA39E6F8E59321
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+证据目录: E:\QRtest\QuickRec-v1.8-audio-sync-r13
+```
+
+最终四次音画偏移为 `+15.104 ms`、`+6.771 ms`、`+6.771 ms`、
+`-18.229 ms`，最大绝对偏移 `18.229 ms`，通过 `40 ms` 门槛。
+r11 的 10 分钟漂移增量为 `-8.333 ms`，通过 `20 ms` 门槛；本次仅校正固定起点，
+不改变音视频节奏。D11.22 与 BUG-V18-005 均已关闭。
+
+## 17. D12 最终发布包
+
+版本号更新为 `v1.8` 后重新执行完整质量门禁：
+
+- 全量与 coverage：`523 passed, 1 skipped, 25 deselected, 48 subtests passed`，
+  总覆盖率 `85.39%`。
+- Packaging：`13 passed, 536 deselected`。
+- Ruff、项目门禁 mypy、compileall 和 `git diff --check`：通过。
+- 最终分发目录包含 244 个文件，共 428,142,083 字节。
+- 最终 EXE 隔离启动 5 秒，进程保持正常，随后正常结束验证进程。
+- ZIP 可读取并包含 EXE、FFmpeg 和 FFprobe。
+- GitHub 连接器列出的远端分支为 `lite-master`、`lite-test`、`master`、`test`；
+  `v1.8` ref 查询返回不存在，当前没有同名远端冲突。
+
+最终身份：
+
+```text
+EXE: E:\QRtest\QuickRec-v1.8-release-dist\QuickRec\QuickRec.exe
+EXE SHA256: 8BDB84FB08198E927C722E41AC37276A796AD168C55183EE6C24194F2BFE7EA6
+ZIP: E:\QRtest\QuickRec-v1.8-win-x64.zip
+ZIP SHA256: 78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27
+```

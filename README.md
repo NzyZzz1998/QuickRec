@@ -1,28 +1,27 @@
 # QuickRec Full
 
 > 面向 Windows 的本地屏幕录制与素材管理工具。支持全屏、区域和窗口录制，
-> 四类音频模式、中央素材库、诊断导出，以及正在 `test` 分支推进的统一工作台与
-> 1080p120 录制能力。
+> 四类音频模式、中央素材库、诊断导出，以及统一工作台与单显示器
+> 1080p120 全屏录制能力。
 
-[![正式版本](https://img.shields.io/badge/正式版本-v1.7-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.7)
-![开发版本](https://img.shields.io/badge/test-v1.8%20开发中-F59E0B)
+[![正式版本](https://img.shields.io/badge/正式版本-v1.8-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
+![发布状态](https://img.shields.io/badge/状态-正式发布-16A34A)
 ![平台](https://img.shields.io/badge/平台-Windows-111827)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB)
-![测试](https://img.shields.io/badge/tests-519%20passed-16A34A)
+![测试](https://img.shields.io/badge/tests-523%20passed-16A34A)
 ![coverage](https://img.shields.io/badge/coverage-86.07%25-16A34A)
 
 ## 版本状态
 
 | 产品线 | 状态 | 分支 / 标签 | 说明 |
 | --- | --- | --- | --- |
-| QuickRec Full v1.7 | **当前正式版** | `master` / `v1.7` | 素材搜索、筛选与排序已经发布 |
-| QuickRec Full v1.8 | **开发候选** | `test` | 工作台、视觉改版和 1080p120 已实现，D11 验收完成 `20/24` |
+| QuickRec Full v1.8 | **当前正式版** | `master` / `v1.8` | 统一工作台、视觉改版和 1080p120 已发布 |
+| QuickRec Full v1.7 | 历史稳定版 | `v1.7` | v1.8 的直接回滚点 |
 | QuickRec Lite | 独立维护 | `E:\codex\QuickRec-Lite` | 轻量产品线，不属于本工作区 |
 
-v1.8 尚未替换正式版本。当前剩余验收集中在真实麦克风、双音频和 10 分钟音画同步，
-通过后才会进入发布收口。
+v1.8 已完成开发、自动化门禁、真实硬件与 GUI 验收，并作为 QuickRec Full 当前正式版发布。
 
-- [下载 QuickRec Full v1.7](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.7)
+- [下载 QuickRec Full v1.8](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
 - [查看当前事实入口](doc/current.md)
 - [查看 v1.8 进度](doc/releases/v1.8/progress.md)
 - [查看 v1.8 验收记录](doc/releases/v1.8/manual-verification.md)
@@ -65,7 +64,7 @@ v1.8 高保真交互原型与逐页面实现核对：
 - 复制诊断信息、打开日志目录、导出诊断文件和自定义诊断目录。
 - 配置采用原子写入；保存失败时保留原配置并提供明确反馈。
 
-## v1.8 开发预览
+## v1.8 正式版本
 
 v1.8 包含两条正式产品主线：
 
@@ -81,8 +80,18 @@ v1.8 包含两条正式产品主线：
    - 区域和窗口录制最高 60 FPS，不会覆盖已保存的全屏 120 设置。
    - 性能不足时保留视频并展示实际平均 FPS、最低 FPS 和稳定性告警。
 
-当前候选包已经通过三次 1080p120 技术门禁、三档 DPI、自动化回归和主要 GUI 链路。
+当前候选包已经通过三次 1080p120 技术门禁、三档 DPI、四类音频、10 分钟漂移、
+音画绝对偏移、自动化回归和主要 GUI 链路。
 详细证据见 [v1.8 verification](doc/releases/v1.8/verification.md)。
+
+正式发布包：
+
+```text
+目录：E:\QRtest\QuickRec-v1.8-release-dist\QuickRec
+EXE SHA256：8BDB84FB08198E927C722E41AC37276A796AD168C55183EE6C24194F2BFE7EA6
+ZIP：E:\QRtest\QuickRec-v1.8-win-x64.zip
+ZIP SHA256：78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27
+```
 
 ## 快速运行
 
@@ -109,13 +118,15 @@ python -m mypy
 python -m compileall -q src scripts
 ```
 
-当前 v1.8 开发提交的最近验证结果：
+当前 v1.8 的最终验证结果：
 
-- 全量测试：`519 passed, 25 deselected, 48 subtests passed`
+- 全量测试：`523 passed, 1 skipped, 25 deselected, 48 subtests passed`
 - Packaging：`13 passed`
 - 覆盖率最近记录：`86.07%`
 - Ruff、mypy、compileall、UTF-8 和 `git diff --check`：通过
 - 100%、125%、150% DPI：通过
+- 音画最大绝对偏移：`18.229 ms`，门槛 `40 ms`
+- 10 分钟漂移增量：`-8.333 ms`，门槛 `20 ms`
 - QuickRec Lite：未修改
 
 硬件冒烟：
@@ -149,8 +160,8 @@ doc/
 │   ├── v1.5/                  # 最近录制
 │   ├── v1.6/                  # 中央素材库
 │   ├── v1.6.1/                # 待入库恢复补丁
-│   ├── v1.7/                  # 当前正式版本
-│   └── v1.8/                  # 当前 test 开发与验收资料
+│   ├── v1.7/                  # 历史稳定版本
+│   └── v1.8/                  # 当前正式版本
 ├── technical/
 ├── verification/
 ├── prototypes/
@@ -168,9 +179,10 @@ v1.8 的主要文档：
 
 ## 发布与回滚
 
-- 当前正式 Release：[QuickRec Full v1.7](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.7)
-- v1.7 ZIP SHA256：`0C200C549D1E4ED495BC381298E1A3157B1534526337899DB9ED9C655A37E963`
-- 直接回滚点：`v1.6.1`
+- 当前正式 Release：[QuickRec Full v1.8](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
+- v1.8 ZIP SHA256：`78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27`
+- v1.8 直接代码和发布包回滚点：`v1.7`
+- 从 v1.8 回滚至 v1.7 前，如配置中 `fps=120`，应先改为 `60`；视频和素材索引无需删除。
 - `v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce`，未被移动或重写。
 
 QuickRec Lite 已拆分到 `E:\codex\QuickRec-Lite`，Full 与 Lite 的代码、文档、发布包和
