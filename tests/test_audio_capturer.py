@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,6 +39,47 @@ class TestAudioCapturer(unittest.TestCase):
 
         self.assertIs(microphone, expected_loopback)
         self.assertEqual(sample_rate, 48000)
+
+    def test_system_track_records_stream_start_time(self):
+        class FakeRecorder:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+        loopback = SimpleNamespace(
+            channels=2,
+            recorder=lambda samplerate: FakeRecorder(),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            capturer = AudioCapturer(AudioSource.SYSTEM, temp_dir)
+            with patch.object(capturer, "_find_loopback_mic", return_value=(loopback, 48000)), \
+                    patch.object(capturer, "_estimate_system_output_latency", return_value=0.055), \
+                    patch("recorder.audio_capturer.time.perf_counter", return_value=12.5):
+                self.assertTrue(capturer._start_system("audio"))
+
+            timings = capturer.get_track_start_times()
+            latencies = capturer.get_track_latency_seconds()
+            self.assertEqual(timings[capturer._system_temp_path], 12.5)
+            self.assertEqual(latencies[capturer._system_temp_path], 0.055)
+            capturer._cleanup()
+
+    def test_system_output_latency_uses_buffer_and_default_device_period(self):
+        player = SimpleNamespace(
+            buffersize=2238,
+            deviceperiod=(0.01, 0.003),
+        )
+        soundcard = SimpleNamespace(
+            default_speaker=lambda: SimpleNamespace(
+                player=lambda samplerate: player,
+            ),
+        )
+
+        with patch.dict(sys.modules, {"soundcard": soundcard}):
+            latency = AudioCapturer._estimate_system_output_latency(48000)
+
+        self.assertAlmostEqual(latency, 2238 / 48000 + 0.01)
 
 
 if __name__ == "__main__":

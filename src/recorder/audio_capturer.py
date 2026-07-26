@@ -11,6 +11,7 @@
 import logging
 import os
 import threading
+import time
 import wave
 
 import numpy as np
@@ -48,6 +49,8 @@ class AudioCapturer:
 
         self._is_recording = threading.Event()
         self._audio_thread = None
+        self._track_start_times: dict[str, float] = {}
+        self._track_latency_seconds: dict[str, float] = {}
 
         # 系统声音: soundcard
         self._sys_recorder = None
@@ -157,6 +160,14 @@ class AudioCapturer:
     def get_channels(self) -> int:
         return self._channels
 
+    def get_track_start_times(self) -> dict[str, float]:
+        """返回每条 WAV 轨道对应的单调时钟采集起点。"""
+        return dict(self._track_start_times)
+
+    def get_track_latency_seconds(self) -> dict[str, float]:
+        """返回每条轨道需要计入时间线的设备缓冲时长。"""
+        return dict(self._track_latency_seconds)
+
     @staticmethod
     def probe_system_available() -> bool:
         try:
@@ -240,9 +251,11 @@ class AudioCapturer:
 
             self._sample_rate = rate
             self._channels = loopback_mic.channels
+            output_latency_seconds = self._estimate_system_output_latency(rate)
 
             self._sys_recorder = loopback_mic.recorder(samplerate=rate)
             self._sys_recorder.__enter__()
+            system_started_at = time.perf_counter()
 
             stem = output_stem or "audio_sys"
             self._system_temp_path = os.path.join(
@@ -252,8 +265,15 @@ class AudioCapturer:
             self._system_wav.setnchannels(self._channels)
             self._system_wav.setsampwidth(2)  # 16-bit
             self._system_wav.setframerate(rate)
+            self._track_start_times[self._system_temp_path] = system_started_at
+            self._track_latency_seconds[self._system_temp_path] = output_latency_seconds
 
-            logger.info(f"系统声音捕获初始化成功: {rate}Hz, {self._channels}ch")
+            logger.info(
+                "系统声音捕获初始化成功: %dHz, %dch, output_latency_ms=%.3f",
+                rate,
+                self._channels,
+                output_latency_seconds * 1000,
+            )
             return True
 
         except Exception as e:
@@ -278,6 +298,7 @@ class AudioCapturer:
                 input=True,
                 frames_per_buffer=1024,
             )
+            microphone_started_at = time.perf_counter()
 
             stem = output_stem or "audio_mic"
             self._mic_temp_path = os.path.join(
@@ -287,6 +308,8 @@ class AudioCapturer:
             self._mic_wav.setnchannels(mic_channels)
             self._mic_wav.setsampwidth(2)  # 16-bit
             self._mic_wav.setframerate(mic_rate)
+            self._track_start_times[self._mic_temp_path] = microphone_started_at
+            self._track_latency_seconds[self._mic_temp_path] = 0.0
 
             logger.info(f"麦克风捕获初始化成功: {mic_rate}Hz, {mic_channels}ch")
             return True
@@ -295,6 +318,23 @@ class AudioCapturer:
             logger.warning(f"麦克风捕获初始化失败: {e}", exc_info=True)
             self._cleanup_mic()
             return False
+
+    @staticmethod
+    def _estimate_system_output_latency(sample_rate: int) -> float:
+        """估算共享模式输出缓冲；loopback 数据在该缓冲前到达应用。"""
+        try:
+            import soundcard as sc
+
+            player = sc.default_speaker().player(samplerate=sample_rate)
+            buffer_seconds = float(player.buffersize) / float(sample_rate)
+            default_period_seconds = float(player.deviceperiod[0])
+            latency_seconds = buffer_seconds + default_period_seconds
+            if not 0 <= latency_seconds <= 0.5:
+                raise ValueError(f"unexpected output latency: {latency_seconds}")
+            return latency_seconds
+        except Exception as e:
+            logger.warning(f"无法估算系统声音输出缓冲，按 0ms 处理: {e}")
+            return 0.0
 
     def _capture_loop(self):
         """音频捕获线程主循环"""
@@ -317,7 +357,7 @@ class AudioCapturer:
                     except Exception as e:
                         read_errors += 1
                         if read_errors >= max_errors:
-                            logger.error(f"系统声音连续读取错误过多，停止音频捕获")
+                            logger.error("系统声音连续读取错误过多，停止音频捕获")
                             break
                         logger.warning(f"系统声音读取异常 ({read_errors}/{max_errors}): {e}")
 
@@ -334,7 +374,7 @@ class AudioCapturer:
                     except Exception as e:
                         read_errors += 1
                         if read_errors >= max_errors:
-                            logger.error(f"麦克风连续读取错误过多，停止音频捕获")
+                            logger.error("麦克风连续读取错误过多，停止音频捕获")
                             break
                         logger.warning(f"麦克风读取异常 ({read_errors}/{max_errors}): {e}")
 

@@ -126,6 +126,12 @@ class FakeAudioCapturer:
             f.write(b"fake wav")
         return path
 
+    def get_track_start_times(self):
+        return {os.path.join(self.output_dir, "audio.wav"): 10.0}
+
+    def get_track_latency_seconds(self):
+        return {os.path.join(self.output_dir, "audio.wav"): 0.05}
+
 
 class TestRecorderManager(unittest.TestCase):
     def setUp(self):
@@ -755,6 +761,68 @@ class TestRecorderManager(unittest.TestCase):
         self.assertIn("aformat=sample_rates=48000:channel_layouts=stereo", filter_graph)
         self.assertIn("amix=inputs=2", filter_graph)
         self.assertNotIn("amerge", filter_graph)
+
+    def test_mix_audio_trims_track_started_before_first_video_frame(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.125
+        audio_path = self._write_wav("early-audio.wav")
+        manager._audio_track_start_times = {audio_path: 10.0}
+        manager._audio_track_latency_seconds = {audio_path: 0.05}
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            result = manager._mix_audio("video.mp4", [audio_path])
+
+        self.assertEqual(result, os.path.join(self.temp_dir, "mixed.mp4"))
+        cmd = run.call_args.args[0]
+        self.assertIn("-filter_complex", cmd)
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("atrim=start=0.075000", filter_graph)
+        self.assertIn("asetpts=PTS-STARTPTS", filter_graph)
+        self.assertIn("-map", cmd)
+        self.assertIn("[a]", cmd)
+
+    def test_mix_audio_delays_track_started_after_first_video_frame(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.0
+        audio_path = self._write_wav("late-audio.wav")
+        manager._audio_track_start_times = {audio_path: 10.08}
+        manager._audio_track_latency_seconds = {audio_path: 0.0}
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            manager._mix_audio("video.mp4", [audio_path])
+
+        cmd = run.call_args.args[0]
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("adelay=80:all=1", filter_graph)
+
+    def test_mix_audio_aligns_system_and_microphone_tracks_independently(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.1
+        system_path = self._write_wav("system.wav")
+        microphone_path = self._write_wav("microphone.wav")
+        manager._audio_track_start_times = {
+            system_path: 9.98,
+            microphone_path: 10.14,
+        }
+        manager._audio_track_latency_seconds = {
+            system_path: 0.05,
+            microphone_path: 0.0,
+        }
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            manager._mix_audio("video.mp4", [system_path, microphone_path])
+
+        cmd = run.call_args.args[0]
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("[1:a]atrim=start=0.070000", filter_graph)
+        self.assertIn("[2:a]adelay=40:all=1", filter_graph)
+        self.assertIn("[aligned1][aligned2]amix=inputs=2", filter_graph)
 
     def test_mix_audio_downmixes_eight_channel_system_and_mono_mic_to_stereo(self):
         ffmpeg = Path(__file__).parent.parent / "ffmpeg" / "ffmpeg.exe"

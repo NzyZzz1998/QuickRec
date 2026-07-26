@@ -98,6 +98,9 @@ class RecorderManager:
             microphone_available=False,
         )
         self._audio_temp_paths: list = []
+        self._audio_track_start_times: dict[str, float] = {}
+        self._audio_track_latency_seconds: dict[str, float] = {}
+        self._video_started_at: float | None = None
 
         # 窗口录制
         self._window_hwnd: int = None
@@ -431,6 +434,9 @@ class RecorderManager:
 
             # 音频初始化（输出到会话目录）
             self._audio_temp_paths = []
+            self._audio_track_start_times = {}
+            self._audio_track_latency_seconds = {}
+            self._video_started_at = None
             self._audio_capturer = None
             audio_source_str = self._config.get("audio_source", "none")
             system_available, microphone_available = self._probe_audio_sources(audio_source_str)
@@ -540,6 +546,7 @@ class RecorderManager:
         last_window_update = 0
 
         while not self._stop_event.is_set():
+            frame_captured_at = time.perf_counter()
             window_is_moving = self._pending_window_region is not None
             if not self._resume_event.wait(timeout=0.1):
                 if self._stop_event.is_set():
@@ -602,6 +609,7 @@ class RecorderManager:
             else:
                 try:
                     frame = self._capturer.capture_frame()
+                    frame_captured_at = time.perf_counter()
                 except Exception:
                     break
                 if frame is None:
@@ -630,6 +638,12 @@ class RecorderManager:
                     self._recording_failed_reason = "video frame write failed"
                     self._stop_event.set()
                     break
+                if frames_written == 0:
+                    self._video_started_at = frame_captured_at
+                    logger.info(
+                        "video timeline started: monotonic=%.6f",
+                        self._video_started_at,
+                    )
                 frames_written += 1
 
             if self._stop_event.is_set():
@@ -754,10 +768,18 @@ class RecorderManager:
             return
 
         self._audio_temp_paths = []
+        self._audio_track_start_times = {}
+        self._audio_track_latency_seconds = {}
         if self._audio_capturer:
             try:
                 paths = self._audio_capturer.stop()
                 self._audio_temp_paths = [p for p in (paths if isinstance(paths, list) else [paths]) if p and os.path.exists(p)]
+                self._audio_track_start_times = (
+                    self._audio_capturer.get_track_start_times()
+                )
+                self._audio_track_latency_seconds = (
+                    self._audio_capturer.get_track_latency_seconds()
+                )
             except Exception as e:
                 logger.error(f"停止音频捕获异常: {e}")
             self._audio_capturer = None
@@ -819,7 +841,24 @@ class RecorderManager:
         cmd = [self._ffmpeg_path, "-y", "-i", video_path]
         for ap in audio_paths:
             cmd.extend(["-i", ap])
-        if len(audio_paths) == 1:
+        alignment_filters = self._build_audio_alignment_filters(audio_paths)
+        if alignment_filters:
+            filter_parts, output_labels = alignment_filters
+            if len(output_labels) == 1:
+                filter_parts.append(f"{output_labels[0]}anull[a]")
+            else:
+                filter_parts.append(
+                    "".join(output_labels)
+                    + f"amix=inputs={len(output_labels)}:"
+                    "duration=longest:dropout_transition=0[a]"
+                )
+            cmd.extend([
+                "-filter_complex", ";".join(filter_parts),
+                "-map", "0:v", "-map", "[a]",
+                "-c:v", "copy", "-c:a", "aac", "-ac", "2",
+                "-b:a", "192k", "-shortest", mixed,
+            ])
+        elif len(audio_paths) == 1:
             cmd.extend([
                 "-c:v", "copy", "-c:a", "aac", "-ac", "2",
                 "-b:a", "192k", "-shortest", mixed,
@@ -841,6 +880,57 @@ class RecorderManager:
             logger.error(f"音频混合失败: {e}")
             self._last_failure_reason = f"audio mix failed: {e}"
             return ""
+
+    def _build_audio_alignment_filters(
+        self,
+        audio_paths: list[str],
+    ) -> tuple[list[str], list[str]] | None:
+        if self._video_started_at is None:
+            return None
+
+        filters: list[str] = []
+        labels: list[str] = []
+        for index, path in enumerate(audio_paths, start=1):
+            audio_started_at = self._audio_track_start_times.get(path)
+            if audio_started_at is None:
+                logger.warning("audio alignment timestamp missing: path=%s", path)
+                return None
+
+            device_latency_seconds = self._audio_track_latency_seconds.get(path, 0.0)
+            effective_audio_started_at = audio_started_at + device_latency_seconds
+            offset_seconds = self._video_started_at - effective_audio_started_at
+            if abs(offset_seconds) > 5.0:
+                logger.warning(
+                    "audio alignment offset rejected: path=%s offset_ms=%.3f",
+                    path,
+                    offset_seconds * 1000,
+                )
+                return None
+
+            if offset_seconds >= 0:
+                alignment = f"atrim=start={offset_seconds:.6f}"
+            else:
+                delay_ms = max(0, round(-offset_seconds * 1000))
+                alignment = f"adelay={delay_ms}:all=1"
+            label = f"[aligned{index}]"
+            filters.append(
+                f"[{index}:a]{alignment},asetpts=PTS-STARTPTS,"
+                f"aformat=sample_rates=48000:channel_layouts=stereo{label}"
+            )
+            labels.append(label)
+            logger.info(
+                "audio timeline alignment: path=%s audio_start=%.6f "
+                "device_latency_ms=%.3f effective_audio_start=%.6f "
+                "video_start=%.6f offset_ms=%.3f operation=%s",
+                path,
+                audio_started_at,
+                device_latency_seconds * 1000,
+                effective_audio_started_at,
+                self._video_started_at,
+                offset_seconds * 1000,
+                "trim" if offset_seconds >= 0 else "delay",
+            )
+        return filters, labels
 
     @staticmethod
     def _audio_has_samples(path: str) -> bool:
