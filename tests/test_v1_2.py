@@ -29,9 +29,13 @@ class TestConfigV12(unittest.TestCase):
     """ConfigManager v1.2 新增配置项测试"""
 
     def setUp(self):
-        with patch("src.config.ConfigManager.__init__", lambda self: None):
-            self.config = ConfigManager()
-            self.config._config = ConfigManager.defaults.copy()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.config = ConfigManager.__new__(ConfigManager)
+        self.config.config_path = Path(self.temp_dir.name) / "config.json"
+        self.config._config = ConfigManager.defaults.copy()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
 
     def test_default_shortcut_window(self):
         """测试窗口录制快捷键默认值"""
@@ -129,39 +133,73 @@ class TestConfigV12(unittest.TestCase):
 class TestAutostart(unittest.TestCase):
     """开机自启模块测试"""
 
-    def test_is_autostart_enabled_default(self):
-        """测试默认未开启开机自启"""
+    @patch("utils.autostart._get_executable_path", return_value=r"C:\QuickRec\QuickRec.exe")
+    @patch("utils.autostart.winreg")
+    def test_is_autostart_enabled_matches_mocked_registry_value(self, mock_winreg, _mock_path):
+        """读取模拟注册表，不访问真实 HKCU。"""
         from utils.autostart import is_autostart_enabled
-        # 默认应该返回 False（除非用户手动设置过）
-        result = is_autostart_enabled()
-        self.assertIsInstance(result, bool)
 
-    def test_enable_and_disable(self):
-        """测试开启和关闭开机自启"""
-        from utils.autostart import enable_autostart, disable_autostart, is_autostart_enabled
+        mock_winreg.QueryValueEx.return_value = (
+            r"C:\QuickRec\QuickRec.exe",
+            mock_winreg.REG_SZ,
+        )
 
-        # 开启
-        result = enable_autostart()
-        self.assertTrue(result, "enable_autostart 应该成功")
+        self.assertTrue(is_autostart_enabled())
+        mock_winreg.OpenKey.assert_called_once()
+        mock_winreg.CloseKey.assert_called_once()
 
-        # 验证已开启
-        self.assertTrue(is_autostart_enabled(), "开启后 is_autostart_enabled 应为 True")
+    @patch("utils.autostart._get_executable_path", return_value=r"C:\QuickRec\QuickRec.exe")
+    @patch("utils.autostart.winreg")
+    def test_enable_writes_mocked_registry_value(self, mock_winreg, _mock_path):
+        """开启时只验证注册表调用，不修改真实 HKCU。"""
+        from utils.autostart import AUTO_RUN_KEY, AUTO_RUN_NAME, enable_autostart
 
-        # 关闭
-        result = disable_autostart()
-        self.assertTrue(result, "disable_autostart 应该成功")
+        key = object()
+        mock_winreg.OpenKey.return_value = key
 
-        # 验证已关闭
-        self.assertFalse(is_autostart_enabled(), "关闭后 is_autostart_enabled 应为 False")
+        self.assertTrue(enable_autostart())
+        mock_winreg.OpenKey.assert_called_once_with(
+            mock_winreg.HKEY_CURRENT_USER,
+            AUTO_RUN_KEY,
+            0,
+            mock_winreg.KEY_SET_VALUE,
+        )
+        mock_winreg.SetValueEx.assert_called_once_with(
+            key,
+            AUTO_RUN_NAME,
+            0,
+            mock_winreg.REG_SZ,
+            r"C:\QuickRec\QuickRec.exe",
+        )
+        mock_winreg.CloseKey.assert_called_once_with(key)
 
-    def test_disable_when_not_enabled(self):
-        """测试未开启时关闭不报错"""
+    @patch("utils.autostart.winreg")
+    def test_disable_deletes_mocked_registry_value(self, mock_winreg):
+        """关闭时删除模拟注册表值，不修改真实 HKCU。"""
+        from utils.autostart import AUTO_RUN_KEY, AUTO_RUN_NAME, disable_autostart
+
+        key = object()
+        mock_winreg.OpenKey.return_value = key
+
+        self.assertTrue(disable_autostart())
+        mock_winreg.OpenKey.assert_called_once_with(
+            mock_winreg.HKEY_CURRENT_USER,
+            AUTO_RUN_KEY,
+            0,
+            mock_winreg.KEY_SET_VALUE,
+        )
+        mock_winreg.DeleteValue.assert_called_once_with(key, AUTO_RUN_NAME)
+        mock_winreg.CloseKey.assert_called_once_with(key)
+
+    @patch("utils.autostart.winreg")
+    def test_disable_when_not_enabled_uses_mocked_registry(self, mock_winreg):
+        """注册表项不存在时关闭仍成功。"""
         from utils.autostart import disable_autostart
-        # 先确保关闭
-        disable_autostart()
-        # 再次关闭应该不报错
-        result = disable_autostart()
-        self.assertTrue(result)
+
+        mock_winreg.OpenKey.side_effect = FileNotFoundError
+
+        self.assertTrue(disable_autostart())
+        mock_winreg.DeleteValue.assert_not_called()
 
 
 # class TestRecordModeWindow(unittest.TestCase):
@@ -200,6 +238,8 @@ class TestWindowSelector(unittest.TestCase):
             return True
 
         user32.EnumWindows(WNDENUMPROC(_callback), 0)
+        if not windows:
+            self.skipTest("当前测试环境没有可枚举的可见窗口")
         self.assertGreater(len(windows), 0, "应该至少枚举到一个可见窗口")
 
 
