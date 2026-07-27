@@ -65,6 +65,12 @@ python src/main.py
 python -m pytest tests/test_config.py tests/test_main_workflow.py tests/test_settings_dialog.py tests/test_tray_icon.py -q
 ```
 
+Lite CI 独立覆盖：
+
+- `lite-master` / `lite-test` push。
+- 目标为 `lite-master` / `lite-test` 的 Pull Request。
+- `lite-master`、`lite-test` 和 `lite-v*` push 的 Windows packaging smoke。
+
 硬件冒烟：
 
 ```powershell

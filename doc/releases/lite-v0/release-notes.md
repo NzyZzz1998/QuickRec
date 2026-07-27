@@ -1,4 +1,4 @@
-# QuickRec Lite v0 Release Notes
+# QuickRec Lite v0 发布说明
 
 发布日期：2026-07-08
 
@@ -52,7 +52,16 @@ dist/QuickRec/QuickRec.exe
 - NumPy：`25.83 MB`
 - Python runtime：`13.69 MB`
 
-详细体积报告见 `doc/lite/lite-v0-package-size-report.md`。
+详细体积报告见 `doc/releases/lite-v0/package-size-report.md`。
+
+## 发布身份
+
+- 发布分支：`lite-master`
+- 发布标签：`lite-v0`
+- 标签提交：`c15940e feat: prepare QuickRec Lite v0`
+- 当前维护工作区：`E:\codex\QuickRec-Lite`
+
+`lite-v0` 固定指向已验收的 Lite v0 版本点。后续文档和 CI 治理提交位于该标签之后，不移动或重写标签。
 
 ## 验证结果
 

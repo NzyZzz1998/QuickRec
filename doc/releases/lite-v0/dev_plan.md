@@ -8,13 +8,13 @@
 
 **Tech Stack:** Python 3.12 / PyQt5 / dxcam / OpenCV / FFmpeg / soundcard / pyaudio / pystray / pynput / winotify / PyInstaller / pytest / ruff / mypy
 
-**项目路径:** `E:\codex\QuickRec\`
+**项目路径:** `E:\codex\QuickRec-Lite\`
 
 ---
 
 ## 当前实施口径（2026-07-08）
 
-本实施计划以 [PRD-QuickRec-Lite.md](PRD-QuickRec-Lite.md) 为需求基线。后续如需变更 Lite v0 范围，必须先更新 PRD，再更新本实施计划。
+本实施计划以 [prd.md](prd.md) 为需求基线。后续如需变更 Lite v0 范围，必须先更新 PRD，再更新本实施计划。
 
 ### 分支策略
 
@@ -91,8 +91,8 @@ python -m pytest -q
 
 **Files:**
 - No code change
-- Verify: `doc/lite/PRD-QuickRec-Lite.md`
-- Verify/Create: `doc/lite/implementation-plan-lite.md`
+- Verify: `doc/releases/lite-v0/prd.md`
+- Verify/Create: `doc/releases/lite-v0/dev_plan.md`
 
 - [ ] **Step 1: 创建 Lite 正式分支**
 
@@ -507,7 +507,7 @@ python -m pytest -q
 - Modify if needed: `build_std.spec`
 - Modify if needed: `requirements.txt`
 - Modify if needed: `scripts/package_size_report.py`
-- Add: `doc/lite/lite-v0-package-size-report.md`
+- Add: `doc/releases/lite-v0/package-size-report.md`
 
 - [ ] **Step 1: 建立 Lite v0 打包基线**
 
@@ -519,7 +519,7 @@ python -m PyInstaller build_std.spec --clean --noconfirm
 
 - [ ] **Step 2: 生成体积报告**
 
-新增 `doc/lite/lite-v0-package-size-report.md`，记录：
+新增 `doc/releases/lite-v0/package-size-report.md`，记录：
 
 - 产物路径。
 - 总体积。
@@ -575,7 +575,7 @@ python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode full
 如果未低于 200MB：
 
 - 不阻断 Lite v0 发布。
-- 在 `doc/lite/lite-v0-package-size-report.md` 中记录未达标原因和下一步方案。
+- 在 `doc/releases/lite-v0/package-size-report.md` 中记录未达标原因和下一步方案。
 
 ---
 
@@ -583,8 +583,8 @@ python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode full
 
 **Files:**
 - Modify: `README.md`
-- Add: `doc/lite/release-notes-lite-v0.md`
-- Modify: `doc/lite/implementation-plan-lite.md` if final status needs update
+- Add: `doc/releases/lite-v0/release-notes.md`
+- Modify: `doc/releases/lite-v0/dev_plan.md` if final status needs update
 
 - [ ] **Step 1: 更新 README**
 
@@ -600,7 +600,7 @@ README 需要说明 Lite v0：
 
 - [ ] **Step 2: 编写 release notes**
 
-新增 `doc/lite/release-notes-lite-v0.md`，包含：
+新增 `doc/releases/lite-v0/release-notes.md`，包含：
 
 - 版本定位。
 - 新增 / 保留能力。
@@ -753,8 +753,8 @@ lite-v0
 
 Lite v0 只有在以下条件全部满足后才能进入 tag 准备：
 
-- [ ] `doc/lite/PRD-QuickRec-Lite.md` 与实际实现一致。
-- [ ] `doc/lite/implementation-plan-lite.md` 与实际执行结果无明显冲突。
+- [ ] `doc/releases/lite-v0/prd.md` 与实际实现一致。
+- [ ] `doc/releases/lite-v0/dev_plan.md` 与实际执行结果无明显冲突。
 - [ ] `lite-test` 完成本计划所有必须任务。
 - [ ] 区域录制和窗口录制用户入口已移除。
 - [ ] 区域录制和窗口录制快捷键设置已移除。
@@ -773,9 +773,9 @@ Lite v0 只有在以下条件全部满足后才能进入 tag 准备：
 - [ ] `python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode fullscreen` 通过。
 - [ ] PyInstaller 打包成功。
 - [ ] 打包产物启动成功。
-- [ ] `doc/lite/lite-v0-package-size-report.md` 完成。
+- [ ] `doc/releases/lite-v0/package-size-report.md` 完成。
 - [ ] README 已更新 Lite v0 口径。
-- [ ] `doc/lite/release-notes-lite-v0.md` 完成。
+- [ ] `doc/releases/lite-v0/release-notes.md` 完成。
 - [ ] 体积低于 200MB，或已记录未达标原因且确认不阻断发布。
 - [ ] `lite-test` 合并到 `lite-master`。
 - [ ] 准备 tag `lite-v0`，且 tag 指向已验收提交。

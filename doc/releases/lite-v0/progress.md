@@ -1,19 +1,19 @@
 # QuickRec Lite v0 总体进度
 
-> 本文档作为 QuickRec Lite 产品线的独立总体进度跟踪，按 Lite v0 模块组织 Vibe Coding 最小可执行任务。每个模块对应一组 checklist，完成时勾选。完整需求见 `PRD-QuickRec-Lite.md`，实施步骤见 `implementation-plan-lite.md`。开发过程流水记录单独维护在 `development-log-lite.md`。
+> 本文档作为 QuickRec Lite 产品线的独立总体进度跟踪，按 Lite v0 模块组织 Vibe Coding 最小可执行任务。完整需求见 `prd.md`，实施步骤见 `dev_plan.md`，开发过程流水记录单独维护在 `development-log.md`。
 
-**最后更新**: 2026-07-08  
-**当前阶段**: QuickRec Lite v0 手动验证完成 / 待打包与发布收口  
-**当前分支口径**: `master` / `test` 仅用于 QuickRec Full；Lite 后续使用 `lite-master` / `lite-test`。当前已有 `lite` 分支为过渡分支。  
-**当前里程碑**: Lite v0 已在 `lite-test` 完成首轮入口裁剪、配置收敛、自动化验证、硬件冒烟、设置窗口 Computer Use 验证和人工手动验证。下一步进入打包体积记录、README / release notes 与发布收口。
+**最后更新**: 2026-07-27
+**当前阶段**: QuickRec Lite v0 已完成打包、验收、分支收口和 `lite-v0` 标签，当前进入发布后文档与 CI 治理。
+**当前分支口径**: `master` / `test` 仅用于 QuickRec Full；Lite 使用 `lite-master` / `lite-test`。
+**当前里程碑**: Lite v0 是已完成的轻量全屏录制基线；体积继续收敛和运行身份隔离留待 Lite v0.1，不影响 Lite v0 已完成状态。
 
 ---
 
 ## 当前文档同步进度（2026-07-08）
 
-- [x] 新增 Lite 独立文档目录 `doc/lite/`。
-- [x] 新增 `doc/lite/PRD-QuickRec-Lite.md`。
-- [x] 新增 `doc/lite/implementation-plan-lite.md`。
+- [x] Lite 当前版本文档已集中到 `doc/releases/lite-v0/`。
+- [x] Lite v0 PRD 已归档为 `doc/releases/lite-v0/prd.md`。
+- [x] Lite v0 实施计划已归档为 `doc/releases/lite-v0/dev_plan.md`。
 - [x] 主 PRD `doc/PRD-QuickRec.md` 已追加 Lite v0 摘要并链接 Lite PRD。
 - [x] 明确 Lite v0 不是 Full 的免费版、低配模式或运行时功能开关。
 - [x] 明确 Lite v0 只保留全屏录制作为用户可见录制模式。
@@ -21,8 +21,8 @@
 - [x] 明确 Lite v0 保留无声 / 系统声音 / 麦克风 / 两者都有四种音频模式。
 - [x] 明确 Lite v0 移除区域录制、窗口录制、鼠标点击高亮和录制倒计时入口。
 - [x] 明确 Lite v0 体积目标低于 200MB，但不作为发布阻断验收。
-- [x] 新增 Lite 独立进度文档 `doc/lite/progress.md`。
-- [x] 新增 Lite 独立开发日志 `doc/lite/development-log-lite.md`。
+- [x] Lite v0 进度文档已归档为 `doc/releases/lite-v0/progress.md`。
+- [x] Lite v0 开发日志已归档为 `doc/releases/lite-v0/development-log.md`。
 - [x] 创建或确认 `lite-master` / `lite-test` 分支。
 - [x] 将 Lite v0 开发切换到 `lite-test`。
 
@@ -32,8 +32,8 @@
 
 | 版本 | 阶段 | 平台 | 状态 |
 |------|------|------|------|
-| Lite v0 | 轻量全屏录制基线 | Windows 10 / 11 | 手动验证完成 / 待打包 |
-| Lite v0.1 | 体积与依赖继续收敛 | Windows 10 / 11 | 未开始 |
+| Lite v0 | 轻量全屏录制基线 | Windows 10 / 11 | 已完成，tag `lite-v0` |
+| Lite v0.1 | 运行身份隔离及工程治理候选 | Windows 10 / 11 | 需求池阶段 |
 | Lite v1.0 | Lite 稳定发布线 | Windows 10 / 11 | 未开始 |
 
 ---
@@ -47,12 +47,12 @@
 | **LITE-2** | 设置窗口裁剪 | 已完成 | 18/18 |
 | **LITE-3** | 托盘菜单和主入口裁剪 | 已完成 | 18/18 |
 | **LITE-4** | 倒计时与鼠标高亮停用 | 已完成 | 10/10 |
-| **LITE-5** | 全屏录制和四种音频模式回归 | 手动验证完成 | 20/22 |
-| **LITE-6** | 自动化测试与质量门槛 | 已通过首轮门槛 | 18/20 |
-| **LITE-7** | 打包与体积优化尝试 | 稳定包完成 / 体积未达标但不阻断 | 17/24 |
-| **LITE-8** | README / release notes / 发布收口 | 文档完成 / 待合并 tag | 14/18 |
+| **LITE-5** | 全屏录制和四种音频模式回归 | 已完成 | 22/22 |
+| **LITE-6** | 自动化测试与质量门槛 | 已完成 | 20/20 |
+| **LITE-7** | 打包与体积优化尝试 | 稳定包完成；可选体积实验延期 | 17/24 |
+| **LITE-8** | README / release notes / 发布收口 | 已完成 | 18/18 |
 
-**Lite v0 总进度**: 140/155 任务完成。当前已完成源码应用快捷键录制、硬件冒烟、设置窗口 Computer Use 验证、四种音频模式验证、用户手动补验、PyInstaller 打包、打包产物验证、体积报告、README 和 release notes；仅剩 `lite-test` 合并到 `lite-master`、tag 和推送收口。
+**Lite v0 发布状态**: 发布必需项已闭合。仍未执行的体积实验属于可选优化，并已明确延期到后续版本，不再作为 Lite v0 待发布事项。
 
 ---
 
@@ -91,10 +91,10 @@
 
 ### 模块 0.2: Lite 文档基线
 
-- [x] 0.2.1 Review `doc/lite/PRD-QuickRec-Lite.md`，确认需求无冲突。
-- [x] 0.2.2 Review `doc/lite/implementation-plan-lite.md`，确认实施任务可执行。
-- [x] 0.2.3 确认 `doc/lite/progress.md` 与 PRD / implementation plan 对齐。
-- [x] 0.2.4 在 `doc/lite/development-log-lite.md` 记录分支创建结果。
+- [x] 0.2.1 Review `doc/releases/lite-v0/prd.md`，确认需求无冲突。
+- [x] 0.2.2 Review `doc/releases/lite-v0/dev_plan.md`，确认实施任务可执行。
+- [x] 0.2.3 确认 `doc/releases/lite-v0/progress.md` 与 PRD / implementation plan 对齐。
+- [x] 0.2.4 在 `doc/releases/lite-v0/development-log.md` 记录分支创建结果。
 
 ---
 
@@ -235,11 +235,11 @@
 - [x] 5.3.2 验证系统声音录制输出可播放并包含系统声音。
 - [x] 5.3.3 验证麦克风录制输出可播放并包含麦克风声音。
 - [x] 5.3.4 验证系统声音 + 麦克风录制输出可播放并包含混合音频。
-- [ ] 5.3.5 验证音频设备不可用时降级路径不生成损坏文件。
-- [ ] 5.3.6 补充或更新音频自检测试。
+- [x] 5.3.5 验证音频设备不可用时降级路径不生成损坏文件。
+- [x] 5.3.6 补充或更新音频自检测试。
 - [x] 5.3.7 执行本地硬件冒烟。
 - [x] 5.3.8 在开发日志中记录手动验证结果。
-- [ ] 5.3.9 若发现音频问题，记录失败日志和复测结果。
+- [x] 5.3.9 未发现遗留的发布阻断音频问题，无需新增失败复测记录。
 
 ---
 
@@ -252,7 +252,7 @@
 - [x] 6.1.3 更新托盘菜单测试。
 - [x] 6.1.4 更新快捷键注册测试。
 - [x] 6.1.5 更新主流程测试。
-- [ ] 6.1.6 更新打包配置测试。
+- [x] 6.1.6 更新打包配置测试。
 
 ### 模块 6.2: Lite 边界测试
 
@@ -272,7 +272,7 @@
 - [x] 6.3.3 执行 `python -m mypy`。
 - [x] 6.3.4 执行 `python -m pytest -q`。
 - [x] 6.3.5 将验证结果记录到开发日志。
-- [ ] 6.3.6 所有自动化门槛通过后进入打包阶段。
+- [x] 6.3.6 所有自动化门槛通过后进入打包阶段。
 
 ---
 
@@ -288,7 +288,7 @@
 
 ### 模块 7.2: 体积报告
 
-- [x] 7.2.1 新增 `doc/lite/lite-v0-package-size-report.md`。
+- [x] 7.2.1 新增 `doc/releases/lite-v0/package-size-report.md`。
 - [x] 7.2.2 记录 FFmpeg 体积。
 - [x] 7.2.3 记录 OpenCV / cv2 体积。
 - [x] 7.2.4 记录 PyQt5 体积。
@@ -296,7 +296,7 @@
 - [x] 7.2.6 记录 Python runtime 体积。
 - [x] 7.2.7 记录 Top 大文件和 Top 大目录。
 
-### 模块 7.3: 体积优化尝试
+### 模块 7.3: 体积优化尝试（可选，延期到后续版本）
 
 - [ ] 7.3.1 尝试 PyInstaller excludes 继续收敛。
 - [ ] 7.3.2 尝试更小 FFmpeg 构建或压缩方案。
@@ -326,21 +326,21 @@
 
 ### 模块 8.2: release notes
 
-- [x] 8.2.1 新增 `doc/lite/release-notes-lite-v0.md`。
+- [x] 8.2.1 新增 `doc/releases/lite-v0/release-notes.md`。
 - [x] 8.2.2 写入版本定位。
 - [x] 8.2.3 写入保留能力。
 - [x] 8.2.4 写入移除能力。
 - [x] 8.2.5 写入已知限制。
 - [x] 8.2.6 写入验证结果。
 - [x] 8.2.7 写入打包产物路径和体积。
-- [ ] 8.2.8 写入分支、commit、tag 信息。
+- [x] 8.2.8 写入分支、commit、tag 信息。
 
 ### 模块 8.3: 发布分支与 tag
 
-- [ ] 8.3.1 确认 `lite-test` 所有必须任务完成。
-- [ ] 8.3.2 确认 `lite-test` 不包含 Full 非预期改动。
-- [ ] 8.3.3 将 `lite-test` 合并到 `lite-master`。
-- [ ] 8.3.4 准备 `lite-v0` tag。
+- [x] 8.3.1 确认 `lite-test` 所有必须任务完成。
+- [x] 8.3.2 确认 `lite-test` 不包含 Full 非预期改动。
+- [x] 8.3.3 将 `lite-test` 合并到 `lite-master`。
+- [x] 8.3.4 创建 `lite-v0` tag，并固定指向 `c15940e`。
 
 ---
 
@@ -367,27 +367,27 @@
 
 ## Lite v0 必须完成项
 
-- [ ] `lite-master` / `lite-test` 分支策略确认完成。
-- [ ] Lite v0 开发在 `lite-test` 上完成。
-- [ ] 不修改 Full `master` / `test` 发布内容。
-- [ ] 区域录制和窗口录制用户入口已移除。
-- [ ] 区域录制和窗口录制快捷键设置已移除。
-- [ ] 鼠标点击高亮入口和运行路径已停用。
-- [ ] 录制倒计时入口和运行路径已停用。
-- [ ] 设置窗口只展示 Lite v0 允许的设置项。
+- [x] `lite-master` / `lite-test` 分支策略确认完成。
+- [x] Lite v0 开发在 `lite-test` 上完成。
+- [x] 不修改 Full `master` / `test` 发布内容。
+- [x] 区域录制和窗口录制用户入口已移除。
+- [x] 区域录制和窗口录制快捷键设置已移除。
+- [x] 鼠标点击高亮入口和运行路径已停用。
+- [x] 录制倒计时入口和运行路径已停用。
+- [x] 设置窗口只展示 Lite v0 允许的设置项。
 - [x] 托盘空闲菜单只展示全屏录制、设置、打开保存文件夹、退出。
-- [ ] 全屏录制以原生分辨率和 60fps 输出。
-- [ ] 无声、系统声音、麦克风、两者都有四种模式均通过真实验证。
+- [x] 全屏录制以原生分辨率和 60fps 输出。
+- [x] 无声、系统声音、麦克风、两者都有四种模式均通过真实验证。
 - [x] 暂停、恢复、停止、保存流程通过真实验证。
 - [x] Toast、结果条、打开文件、打开文件夹通过真实验证。
-- [ ] 自动化质量门槛全部通过。
+- [x] 自动化质量门槛全部通过。
 - [x] PyInstaller 打包成功。
 - [x] 打包产物启动成功。
-- [x] `doc/lite/lite-v0-package-size-report.md` 完成。
+- [x] `doc/releases/lite-v0/package-size-report.md` 完成。
 - [x] README 已更新 Lite v0 口径。
-- [x] `doc/lite/release-notes-lite-v0.md` 完成。
-- [ ] `lite-test` 合并到 `lite-master`。
-- [ ] 准备 tag `lite-v0`。
+- [x] `doc/releases/lite-v0/release-notes.md` 完成。
+- [x] `lite-test` 合并到 `lite-master`。
+- [x] tag `lite-v0` 已创建并指向已验收提交 `c15940e`。
 
 ---
 
@@ -417,16 +417,16 @@
 
 Lite v0 只有在以下条件全部满足后才能进入 tag 准备：
 
-- [ ] `doc/lite/PRD-QuickRec-Lite.md` 与实际实现一致。
-- [ ] `doc/lite/implementation-plan-lite.md` 与实际执行结果无明显冲突。
-- [ ] `doc/lite/progress.md` 中所有 Lite v0 必须项已完成。
-- [ ] `doc/lite/development-log-lite.md` 已记录关键验证和打包结果。
-- [ ] `python -m compileall src scripts tests` 通过。
-- [ ] `python -m ruff check .` 通过。
-- [ ] `python -m mypy` 通过。
-- [ ] `python -m pytest -q` 通过。
-- [ ] `python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode fullscreen` 通过。
+- [x] `doc/releases/lite-v0/prd.md` 与实际实现一致。
+- [x] `doc/releases/lite-v0/dev_plan.md` 与实际执行结果无明显冲突。
+- [x] `doc/releases/lite-v0/progress.md` 中所有 Lite v0 发布必须项已完成。
+- [x] `doc/releases/lite-v0/development-log.md` 已记录关键验证和打包结果。
+- [x] `python -m compileall src scripts tests` 通过。
+- [x] `python -m ruff check .` 通过。
+- [x] `python -m mypy` 通过。
+- [x] `python -m pytest -q` 通过。
+- [x] `python scripts\hardware_smoke.py --output-dir E:\QRtest --duration 3 --mode fullscreen` 通过。
 - [x] 打包产物完成全屏 + 四种音频模式手动验证。
 - [x] 体积低于 200MB，或已记录未达标原因且确认不阻断发布。
-- [ ] `lite-test` 合并到 `lite-master`。
-- [ ] tag `lite-v0` 指向已验收提交。
+- [x] `lite-test` 已合并到 `lite-master`。
+- [x] tag `lite-v0` 指向已验收提交 `c15940e`。

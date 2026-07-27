@@ -26,6 +26,15 @@ Lite v0 是 QuickRec 的第一个轻量化版本，当前只保留全屏录制�
 - 发布说明：`doc/releases/lite-v0/release-notes.md`
 - 开发日志：`doc/releases/lite-v0/development-log.md`
 
+## 当前工程门禁
+
+- CI：`.github/workflows/ci.yml`
+- 测试触发：`lite-master` / `lite-test` push，以及目标为这两个分支的 Pull Request。
+- 打包触发：`lite-master`、`lite-test` 和 `lite-v*` push。
+- 打包门禁：Windows PyInstaller onedir 构建、`QuickRec.exe` 与内置 `ffmpeg.exe` 存在性和可执行性检查。
+
+Lite v0 的可选体积实验已延期，不影响 `lite-v0` 作为当前基线版本点。
+
 ## Full 历史资料归属
 
 QuickRec Lite 不维护 Full v1.x 历史 PRD、技术设计、验证资料、发布记录、v1.4.1 诊断导出文档或 Full Workbench 原型副本。

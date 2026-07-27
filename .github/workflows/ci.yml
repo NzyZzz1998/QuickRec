@@ -1,22 +1,26 @@
-name: CI
+name: QuickRec Lite CI
+
+permissions:
+  contents: read
 
 on:
   push:
-    branches: ["master", "v1.4-engineering-baseline"]
+    branches: ["lite-master", "lite-test"]
+    tags: ["lite-v*"]
   pull_request:
-    branches: ["master"]
+    branches: ["lite-master", "lite-test"]
 
 jobs:
   test:
-    name: Windows test baseline
+    name: Lite Windows test baseline
     runs-on: windows-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -35,3 +39,70 @@ jobs:
 
       - name: Pytest with coverage
         run: python -m pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+  packaging:
+    name: Lite Windows packaging smoke
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Packaging tests
+        run: python -m pytest -m packaging -q
+
+      - name: Stage FFmpeg
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+
+          $packageRoot = Join-Path $env:ChocolateyInstall "lib\ffmpeg"
+          if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
+            throw "Chocolatey FFmpeg package directory was not found: $packageRoot"
+          }
+
+          $ffmpegSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffmpeg.exe" |
+            Where-Object { $_.Length -gt 1MB } |
+            Select-Object -First 1
+
+          if ($null -eq $ffmpegSource) {
+            throw "A real FFmpeg executable was not found in $packageRoot"
+          }
+
+          New-Item -ItemType Directory -Path "ffmpeg" -Force | Out-Null
+          Copy-Item -LiteralPath $ffmpegSource.FullName -Destination "ffmpeg\ffmpeg.exe"
+
+          $file = Get-Item -LiteralPath "ffmpeg\ffmpeg.exe"
+          if ($file.Length -le 1MB) {
+            throw "Staged FFmpeg is not a real executable"
+          }
+          & "ffmpeg\ffmpeg.exe" -version
+
+      - name: Build Lite onedir package
+        run: >-
+          python -m PyInstaller build_std.spec --clean --noconfirm
+          --distpath ci-dist --workpath ci-build
+
+      - name: Verify Lite package contents
+        shell: pwsh
+        run: |
+          $required = @(
+            "ci-dist\QuickRec\QuickRec.exe",
+            "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing Lite packaging artifact: $path"
+            }
+          }
+          & "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe" -version

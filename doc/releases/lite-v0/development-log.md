@@ -3,10 +3,10 @@
 > 本文档用于记录 QuickRec Lite 产品线的开发过程、验证结果、问题处理、打包记录和发布收口。总体进度和 Vibe Coding 最小任务请维护在 `progress.md`，不要把开发流水写入 progress。
 
 **最后更新**: 2026-07-08  
-**当前阶段**: Lite v0 手动验证完成 / 待打包与发布收口  
+**当前阶段**: Lite v0 已完成发布收口；本文保留历史开发过程，当前状态以 `progress.md` 和 `../../current.md` 为准。
 **关联文档**:
-- `PRD-QuickRec-Lite.md`
-- `implementation-plan-lite.md`
+- `prd.md`
+- `dev_plan.md`
 - `progress.md`
 
 ---
@@ -15,12 +15,12 @@
 
 ### 已完成
 
-- 新增 Lite 独立文档目录 `doc/lite/`。
-- 新增 Lite v0 PRD：`PRD-QuickRec-Lite.md`。
-- 新增 Lite v0 实施计划：`implementation-plan-lite.md`。
+- 新增 Lite 独立文档；拆分后当前目录为 `doc/releases/lite-v0/`。
+- 新增 Lite v0 PRD；拆分后当前文件为 `prd.md`。
+- 新增 Lite v0 实施计划；拆分后当前文件为 `dev_plan.md`。
 - 新增 Lite v0 进度文档：`progress.md`。
-- 新增 Lite 开发日志：`development-log-lite.md`。
-- 主 PRD `doc/PRD-QuickRec.md` 已追加 Lite v0 摘要，并指向 `doc/lite/PRD-QuickRec-Lite.md`。
+- 新增 Lite 开发日志；拆分后当前文件为 `development-log.md`。
+- 拆分前主 PRD 曾追加 Lite v0 摘要；当前 Lite 需求事实源已独立为 `doc/releases/lite-v0/prd.md`。
 
 ### 当前决策
 
@@ -80,7 +80,7 @@
 
 ### 已完成
 
-- 新增 Lite v0 独立测试用例文档：`doc/lite/lite-v0-test-cases.md`。
+- 新增 Lite v0 独立测试用例文档；拆分后当前文件为 `doc/releases/lite-v0/test-cases.md`。
 - 使用 Computer Use 捕获并检查 `QuickRec Lite 设置` 窗口。
 - 设置窗口保留项验证通过：保存路径、音频源、开机自启、开始快捷键、停止快捷键、暂停快捷键、保存、取消。
 - 设置窗口裁剪项验证通过：未出现画质、帧率、区域录制、窗口录制、录制倒计时、鼠标点击高亮。
@@ -130,7 +130,7 @@
 
 - 执行打包命令：`python -m PyInstaller build_std.spec --clean --noconfirm`。
 - 打包产物路径：`dist/QuickRec/QuickRec.exe`。
-- 打包体积报告：`doc/lite/lite-v0-package-size-report.md`。
+- 打包体积报告：`doc/releases/lite-v0/package-size-report.md`。
 - 产物总体积：`257.89 MB`。
 - 打包约束检查通过：内置 FFmpeg、保留 cv2、排除 OpenCV 自带视频 IO FFmpeg 插件、未包含测试资源。
 - 打包产物启动通过。

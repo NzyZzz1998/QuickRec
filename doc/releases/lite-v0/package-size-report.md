@@ -4,7 +4,7 @@
 > 打包命令：`python -m PyInstaller build_std.spec --clean --noconfirm`  
 > 发布判断：体积目标低于 200MB，但 Lite v0 明确不以体积作为阻断项；当前稳定包通过打包约束和运行验证，可进入发布收口。
 
-- 分析目录：`E:\codex\QuickRec\dist\QuickRec`
+- 分析目录：`E:\codex\QuickRec-Lite\dist\QuickRec`
 
 - 总体积：257.89 MB
 
