@@ -202,6 +202,36 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         self.assertIn("1920 × 1080", dialog._detail_video.text())
         self.assertEqual(dialog._detail_mode.text(), "全屏录制")
 
+    def test_available_material_can_request_add_to_project(self):
+        video = self.base_path / "加入项目.mp4"
+        video.write_bytes(b"video")
+        item = self._item(1)
+        item.file_path = str(video)
+        item.file_name = video.name
+        item.directory = str(video.parent)
+        self.assertTrue(self.service.replace([item]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+        requested = []
+        dialog.add_to_project_requested.connect(requested.append)
+
+        dialog._table.selectRow(0)
+        dialog._btn_add_to_project.click()
+
+        self.assertEqual([value.id for value in requested], [item.id])
+
+    def test_missing_or_pending_material_cannot_request_add_to_project(self):
+        item = self._item(1)
+        self.assertTrue(self.service.replace([item]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+        requested = []
+        dialog.add_to_project_requested.connect(requested.append)
+
+        dialog._table.selectRow(0)
+
+        self.assertFalse(dialog._btn_add_to_project.isEnabled())
+        dialog._btn_add_to_project.click()
+        self.assertEqual(requested, [])
+
     def test_migration_and_legacy_source_feedback_are_explicit(self):
         dialog = MaterialLibraryDialog(self.service)
         source = self.base_path / "legacy" / "recordings.json"
@@ -433,6 +463,7 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         video = self.base_path / "QuickRec_pending.mp4"
         video.write_bytes(b"video")
         item = self._pending_item(video)
+        item.project_id = "project-1"
         self.assertTrue(self.pending_service.persist(item).ok)
         coordinator = SimpleNamespace()
 
@@ -446,7 +477,12 @@ class TestMaterialLibraryDialog(unittest.TestCase):
                 item_id=item.material_id,
             ).ok)
             self.assertTrue(self.pending_service.remove(item.pending_id, current_save_dir=self.base_path).ok)
-            return SimpleNamespace(formal_indexed=True, error="")
+            return SimpleNamespace(
+                formal_indexed=True,
+                material_id=item.material_id,
+                project_id=item.project_id,
+                error="",
+            )
 
         coordinator.retry = retry
         dialog = MaterialLibraryDialog(
@@ -455,6 +491,8 @@ class TestMaterialLibraryDialog(unittest.TestCase):
             ingestion_coordinator=coordinator,
             current_save_dir=self.base_path,
         )
+        retried = []
+        dialog.pending_retry_succeeded.connect(retried.append)
         dialog._table.selectRow(0)
 
         dialog._btn_retry_pending.click()
@@ -462,6 +500,9 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         self.assertEqual(dialog._table.rowCount(), 1)
         self.assertEqual(dialog._table.item(0, 5).text(), "可用")
         self.assertIn("素材已加入素材库", dialog._status_label.text())
+        self.assertEqual(len(retried), 1)
+        self.assertEqual(retried[0].project_id, "project-1")
+        self.assertEqual(retried[0].material_id, "material-1")
 
     def test_remove_pending_confirmation_keeps_video_file(self):
         video = self.base_path / "QuickRec_pending.mp4"

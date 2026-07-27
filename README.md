@@ -5,26 +5,60 @@
 > 1080p120 全屏录制能力。
 
 [![正式版本](https://img.shields.io/badge/正式版本-v1.8-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
+![候选版本](https://img.shields.io/badge/候选版本-v1.9-F59E0B)
 ![发布状态](https://img.shields.io/badge/状态-正式发布-16A34A)
 ![平台](https://img.shields.io/badge/平台-Windows-111827)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB)
-![测试](https://img.shields.io/badge/tests-523%20passed-16A34A)
-![coverage](https://img.shields.io/badge/coverage-85.39%25-16A34A)
+![候选测试](https://img.shields.io/badge/v1.9_tests-642%20passed-16A34A)
+![候选覆盖率](https://img.shields.io/badge/v1.9_coverage-85.76%25-16A34A)
 
 ## 版本状态
 
 | 产品线 | 状态 | 分支 / 标签 | 说明 |
 | --- | --- | --- | --- |
+| QuickRec Full v1.9 | **已验收候选版** | `test` | 项目工作区基础已完成 D8，等待正式发布授权 |
 | QuickRec Full v1.8 | **当前正式版** | `master` / `v1.8` | 统一工作台、视觉改版和 1080p120 已发布 |
 | QuickRec Full v1.7 | 历史稳定版 | `v1.7` | v1.8 的直接回滚点 |
 | QuickRec Lite | 独立维护 | `E:\codex\QuickRec-Lite` | 轻量产品线，不属于本工作区 |
 
-v1.8 已完成开发、自动化门禁、真实硬件与 GUI 验收，并作为 QuickRec Full 当前正式版发布。
+v1.8 仍是当前公开正式版。v1.9 已完成开发、自动化门禁和 D8 GUI 验收，但尚未
+提交、合并、打 tag 或创建 GitHub Release。
 
 - [下载 QuickRec Full v1.8](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
 - [查看当前事实入口](doc/current.md)
+- [查看 v1.9 候选进度](doc/releases/v1.9/progress.md)
+- [查看 v1.9 验收记录](doc/releases/v1.9/manual-verification.md)
 - [查看 v1.8 进度](doc/releases/v1.8/progress.md)
 - [查看 v1.8 验收记录](doc/releases/v1.8/manual-verification.md)
+
+## v1.9 发布候选
+
+v1.9 在 v1.8 工作台中新增本地项目工作区基础：
+
+- 工作台新增“项目”一级页面。
+- 支持创建、原地打开、重命名、说明编辑、归档、恢复和安全删除项目。
+- 素材以稳定 ID 引用加入一个或多个项目，不复制、移动或接管原视频。
+- 支持从项目上下文发起全屏、区域和窗口录制，并分别反馈视频保存、素材入库和项目关联结果。
+- 支持项目缺失重新定位、损坏备份恢复、只读约束和外部修改冲突保护。
+- 删除项目默认不处理视频；只有可证明独占的素材允许选择，并且只进入 Windows 回收站。
+
+锁定候选包：
+
+```text
+EXE: E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe
+EXE SHA256: CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47
+状态: D8 24/24 通过，等待发布授权
+```
+
+详细资料：
+
+- [v1.9 PRD](doc/releases/v1.9/prd.md)
+- [v1.9 实施计划](doc/releases/v1.9/dev_plan.md)
+- [v1.9 进度看板](doc/releases/v1.9/progress.md)
+- [v1.9 自动验证](doc/releases/v1.9/verification.md)
+- [v1.9 GUI 验收](doc/releases/v1.9/manual-verification.md)
+- [v1.9 发布说明](doc/releases/v1.9/release-notes.md)
+- [v1.9 变更日志](doc/releases/v1.9/changelog.md)
 
 ## 产品界面
 
@@ -58,6 +92,15 @@ v1.8 高保真交互原型与逐页面实现核对：
 - 支持复制路径、仅移除索引，以及将受控视频移入 Windows 回收站。
 - 索引写入失败不会改写“视频已保存”的事实，可通过待入库机制重试。
 
+### 项目工作区（v1.9 候选）
+
+- 使用 `%APPDATA%\QuickRec\projects.json` 维护中央项目发现索引。
+- 每个项目使用独立 `project.qrproj` 保存详情和素材稳定 ID 引用。
+- 支持同一素材加入多个项目，从单个项目移除不会删除视频或全局素材记录。
+- 支持默认或自定义项目位置、外部项目原地登记和最近项目查询。
+- 支持项目缺失、损坏、只读和外部冲突恢复。
+- 项目文件和选择的独占视频只进入 Windows 回收站，不提供永久删除路径。
+
 ### 设置与诊断
 
 - 保存路径、质量、FPS、音频、倒计时、快捷键和开机自启配置。
@@ -77,6 +120,8 @@ flowchart LR
     G --> H["中央素材索引"]
     H --> I["搜索 / 筛选 / 排序"]
     I --> J["打开 / 定位 / 整理"]
+    H --> L["项目工作区"]
+    L --> M["项目引用 / 项目录制"]
     F -. "失败上下文" .-> K["本地诊断导出"]
 ```
 
@@ -175,7 +220,8 @@ doc/
 │   ├── v1.6/                  # 中央素材库
 │   ├── v1.6.1/                # 待入库恢复补丁
 │   ├── v1.7/                  # 历史稳定版本
-│   └── v1.8/                  # 当前正式版本
+│   ├── v1.8/                  # 当前正式版本
+│   └── v1.9/                  # 已验收发布候选
 ├── technical/
 ├── verification/
 ├── prototypes/
@@ -193,9 +239,12 @@ v1.8 的主要文档：
 - [发布说明](doc/releases/v1.8/release-notes.md)
 - [变更日志](doc/releases/v1.8/changelog.md)
 
+v1.9 候选文档入口见 [doc/releases/v1.9/progress.md](doc/releases/v1.9/progress.md)。
+
 ## 发布与回滚
 
 - 当前正式 Release：[QuickRec Full v1.8](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.8)
+- v1.9 当前仅为已验收候选，尚无远端 `v1.9` tag 或 GitHub Release。
 - v1.8 ZIP SHA256：`78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27`
 - v1.8 直接代码和发布包回滚点：`v1.7`
 - 从 v1.8 回滚至 v1.7 前，如配置中 `fps=120`，应先改为 `60`；视频和素材索引无需删除。

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "project_id": "project-normal",
+  "name": "中文 示例项目",
+  "description": "正常项目夹具",
+  "created_at": "2026-07-26T10:00:00+08:00",
+  "updated_at": "2026-07-26T10:00:00+08:00",
+  "archived_at": null,
+  "materials": [
+    {
+      "material_id": "material-1",
+      "last_known_path": "E:\\QRtest\\中文 空格\\demo.mp4",
+      "file_name": "demo.mp4",
+      "added_at": "2026-07-26T10:05:00+08:00",
+      "metadata_snapshot": {
+        "duration_sec": 3.5,
+        "width": 1920,
+        "height": 1080,
+        "fps": 60
+      },
+      "extensions": {}
+    }
+  ],
+  "extensions": {
+    "future": true
+  }
+}

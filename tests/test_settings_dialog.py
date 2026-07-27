@@ -23,7 +23,6 @@ if app is None:
 from unittest.mock import Mock, patch
 
 from config import ConfigManager, ConfigSaveResult
-from ui.settings_dialog import SettingsDialog
 from services.capture_capability import (
     CaptureReadiness,
     DisplayEnvironment,
@@ -31,6 +30,7 @@ from services.capture_capability import (
     SelfTestResult,
 )
 from services.capture_capability_runtime import CapabilityInspection
+from ui.settings_dialog import SettingsDialog
 
 
 class TestSettingsDialog(unittest.TestCase):
@@ -42,6 +42,8 @@ class TestSettingsDialog(unittest.TestCase):
         self.config.config_path = Path(self.temp_dir) / "config.json"
         self.config._config = ConfigManager.defaults.copy()
         self.config._config["save_path"] = self.temp_dir
+        self.project_root = str(Path(self.temp_dir) / "Projects")
+        self.config._config["project_root_path"] = self.project_root
 
     def tearDown(self):
         import shutil
@@ -56,9 +58,37 @@ class TestSettingsDialog(unittest.TestCase):
         """测试加载配置值到控件"""
         dialog = SettingsDialog(self.config)
         self.assertEqual(dialog._edit_save_path.text(), self.temp_dir)
+        self.assertEqual(dialog._edit_project_root.text(), self.project_root)
         # v1.2: 画质下拉框使用动态文本，验证 currentData
         self.assertEqual(dialog._combo_quality.currentData(), "high")
         self.assertEqual(dialog._combo_fps.currentText(), "30")
+
+    def test_project_root_participates_in_embedded_draft_save_and_discard(self):
+        page = SettingsDialog(self.config, embedded=True)
+        changed = str(Path(self.temp_dir) / "新 项目位置")
+
+        page._edit_project_root.setText(changed)
+        self.assertTrue(page.is_dirty)
+        page.discard_changes()
+        self.assertEqual(page._edit_project_root.text(), self.project_root)
+
+        page._edit_project_root.setText(changed)
+        with patch("ui.settings_dialog.is_autostart_enabled", return_value=False):
+            self.assertTrue(page.save_changes())
+
+        self.assertEqual(self.config.get("project_root_path"), changed)
+
+    def test_project_root_is_not_committed_when_settings_save_fails(self):
+        page = SettingsDialog(self.config, embedded=True)
+        changed = str(Path(self.temp_dir) / "不能提交")
+        page._edit_project_root.setText(changed)
+        failure = ConfigSaveResult(False, "replace", "replace failed", "")
+
+        with patch("ui.settings_dialog.is_autostart_enabled", return_value=False), \
+             patch.object(self.config, "save_candidate", return_value=failure):
+            self.assertFalse(page.save_changes())
+
+        self.assertEqual(self.config.get("project_root_path"), self.project_root)
 
     def test_save_config_updates_values(self):
         """测试保存配置更新值"""

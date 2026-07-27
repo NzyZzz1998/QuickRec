@@ -49,6 +49,18 @@ def test_recording_page_shows_effective_configuration_and_routes_modes(tmp_path)
     assert "视频 目录" in page._path_value.text()
 
 
+def test_recording_page_presents_all_modes_as_peer_actions(tmp_path):
+    page = RecordingPage(_config(tmp_path))
+    buttons = (
+        page._btn_fullscreen,
+        page._btn_region,
+        page._btn_window,
+    )
+
+    assert [button.property("role") for button in buttons] == [None, None, None]
+    assert all(not button.icon().isNull() for button in buttons)
+
+
 def test_recording_page_exposes_read_only_recording_state_and_result(tmp_path):
     page = RecordingPage(_config(tmp_path))
 

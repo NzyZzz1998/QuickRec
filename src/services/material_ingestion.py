@@ -23,6 +23,7 @@ class IngestionResult:
     already_indexed: bool = False
     pending_id: str = ""
     material_id: str = ""
+    project_id: str | None = None
     error_code: str = ""
     error: str = ""
 
@@ -34,6 +35,7 @@ class StartupRetrySummary:
     failed_count: int = 0
     missing_count: int = 0
     already_ran: bool = False
+    recovered: tuple[IngestionResult, ...] = ()
 
 
 class MaterialIngestionCoordinator:
@@ -56,6 +58,7 @@ class MaterialIngestionCoordinator:
         diagnostic_dir: str | None,
         pending_id: str | None = None,
         material_id: str | None = None,
+        project_id: str | None = None,
     ) -> IngestionResult:
         path = Path(output_path)
         pending_key = pending_id or uuid.uuid4().hex
@@ -63,7 +66,14 @@ class MaterialIngestionCoordinator:
         existing = self.library_service.find_existing(item_id=material_key, file_path=path)
         if existing is not None:
             self._completed[pending_key] = existing.id
-            return IngestionResult(True, True, already_indexed=True, pending_id=pending_key, material_id=existing.id)
+            return IngestionResult(
+                True,
+                True,
+                already_indexed=True,
+                pending_id=pending_key,
+                material_id=existing.id,
+                project_id=project_id,
+            )
         try:
             formal = self.library_service.add_recording(
                 path,
@@ -75,7 +85,13 @@ class MaterialIngestionCoordinator:
             formal = _failed_library_result(self.library_service, str(exc))
         if formal.ok:
             self._completed[pending_key] = material_key
-            return IngestionResult(True, True, pending_id=pending_key, material_id=material_key)
+            return IngestionResult(
+                True,
+                True,
+                pending_id=pending_key,
+                material_id=material_key,
+                project_id=project_id,
+            )
 
         item = self._create_pending_item(
             path,
@@ -84,6 +100,7 @@ class MaterialIngestionCoordinator:
             pending_id=pending_key,
             material_id=material_key,
             error=str(formal.error),
+            project_id=project_id,
         )
         persisted = self.pending_service.persist_with_fallback(item)
         if persisted.ok:
@@ -93,6 +110,7 @@ class MaterialIngestionCoordinator:
                 pending_persisted=True,
                 pending_id=pending_key,
                 material_id=material_key,
+                project_id=project_id,
                 error_code="FORMAL_INDEX_WRITE_FAILED",
                 error=str(formal.error),
             )
@@ -103,6 +121,7 @@ class MaterialIngestionCoordinator:
             pending_persisted=False,
             pending_id=pending_key,
             material_id=material_key,
+            project_id=project_id,
             error_code=persisted.error_code or "PENDING_FALLBACK_WRITE_FAILED",
             error=persisted.error or str(formal.error),
         )
@@ -133,7 +152,12 @@ class MaterialIngestionCoordinator:
                 )
             item = next((candidate for candidate in loaded.items if candidate.pending_id == pending_id), None)
             if item is None:
-                return IngestionResult(True, False, error_code="PENDING_NOT_FOUND", pending_id=pending_id)
+                return IngestionResult(
+                    True,
+                    False,
+                    error_code="PENDING_NOT_FOUND",
+                    pending_id=pending_id,
+                )
             path = Path(item.file_path)
             if not path.is_file():
                 item.status = "missing"
@@ -147,6 +171,7 @@ class MaterialIngestionCoordinator:
                     pending_persisted=True,
                     pending_id=item.pending_id,
                     material_id=item.material_id,
+                    project_id=item.project_id,
                     error_code="VIDEO_MISSING",
                     error=item.last_error_summary,
                 )
@@ -161,6 +186,7 @@ class MaterialIngestionCoordinator:
                     already_indexed=True,
                     pending_id=item.pending_id,
                     material_id=existing.id,
+                    project_id=item.project_id,
                 )
 
             item.attempt_count += 1
@@ -195,6 +221,7 @@ class MaterialIngestionCoordinator:
                     pending_persisted=True,
                     pending_id=item.pending_id,
                     material_id=item.material_id,
+                    project_id=item.project_id,
                     error_code="FORMAL_INDEX_WRITE_FAILED",
                     error=str(formal.error),
                 )
@@ -211,6 +238,7 @@ class MaterialIngestionCoordinator:
                 pending_persisted=not cleanup.ok,
                 pending_id=item.pending_id,
                 material_id=item.material_id,
+                project_id=item.project_id,
                 error_code="PENDING_CLEANUP_FAILED" if not cleanup.ok else "",
                 error=cleanup.error if not cleanup.ok else "",
             )
@@ -227,10 +255,12 @@ class MaterialIngestionCoordinator:
         succeeded = 0
         failed = 0
         missing = 0
+        recovered: list[IngestionResult] = []
         for item in loaded.items:
             result = self.retry(item.pending_id, current_save_dir=current_save_dir)
             if result.formal_indexed:
                 succeeded += 1
+                recovered.append(result)
             elif result.error_code == "VIDEO_MISSING":
                 missing += 1
             else:
@@ -242,7 +272,13 @@ class MaterialIngestionCoordinator:
             failed,
             missing,
         )
-        return StartupRetrySummary(len(loaded.items), succeeded, failed, missing)
+        return StartupRetrySummary(
+            len(loaded.items),
+            succeeded,
+            failed,
+            missing,
+            recovered=tuple(recovered),
+        )
 
     @staticmethod
     def _create_pending_item(
@@ -253,6 +289,7 @@ class MaterialIngestionCoordinator:
         pending_id: str,
         material_id: str,
         error: str,
+        project_id: str | None,
     ) -> PendingRecordingItem:
         now = _now()
         stat = path.stat() if path.exists() else None
@@ -280,6 +317,7 @@ class MaterialIngestionCoordinator:
             fps=_optional_float(metadata.get("fps")),
             file_size_bytes=stat.st_size if stat else None,
             diagnostics_dir=diagnostic_dir,
+            project_id=project_id,
         )
 
 

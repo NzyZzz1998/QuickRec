@@ -139,7 +139,16 @@ def load_library(path: str | Path) -> LibraryLoadResult:
         logger.info("material library loaded: items=%s", len(result.items))
         return result
 
-    corrupt_path = _archive_corrupt_file(target)
+    try:
+        corrupt_path = _archive_corrupt_file(target)
+    except OSError as exc:
+        logger.warning(
+            "material library unavailable, archive skipped: path=%s read_error=%s archive_error=%s",
+            target,
+            result.error,
+            exc,
+        )
+        return LibraryLoadResult(False, target, error=result.error)
     logger.warning("material library corrupt, archived=%s error=%s", corrupt_path, result.error)
     backup_path = target.with_name(f"{target.name}.bak")
     backup = _read_library(backup_path) if backup_path.exists() else None

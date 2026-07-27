@@ -1,0 +1,11 @@
+{
+  "schema_version": 99,
+  "project_id": "future-project",
+  "name": "未来项目",
+  "description": "",
+  "created_at": "2026-07-26T10:00:00+08:00",
+  "updated_at": "2026-07-26T10:00:00+08:00",
+  "archived_at": null,
+  "materials": [],
+  "extensions": {}
+}

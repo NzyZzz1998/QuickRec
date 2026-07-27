@@ -22,8 +22,10 @@ import main  # noqa: E402
 from config import ConfigManager  # noqa: E402
 from services.material_ingestion import MaterialIngestionCoordinator  # noqa: E402
 from services.pending_recordings import PendingRecordingService  # noqa: E402
+from services.project_library import ProjectLibraryService  # noqa: E402
 from services.recording_library import RecordingLibraryService  # noqa: E402
 from ui.material_library_dialog import MaterialLibraryDialog  # noqa: E402
+from ui.project_page import ProjectPage  # noqa: E402
 from ui.settings_dialog import SettingsDialog  # noqa: E402
 from ui.workbench_pages import DiagnosticPage, RecordingPage  # noqa: E402
 
@@ -129,6 +131,16 @@ def test_workbench_has_expected_default_and_minimum_size():
     window.close()
 
 
+def test_workbench_page_order_includes_projects_between_materials_and_settings():
+    assert list(WorkbenchPage) == [
+        WorkbenchPage.RECORDING,
+        WorkbenchPage.MATERIALS,
+        WorkbenchPage.PROJECTS,
+        WorkbenchPage.SETTINGS,
+        WorkbenchPage.DIAGNOSTICS,
+    ]
+
+
 def test_workbench_sidebar_status_tracks_recording_lifecycle():
     window = WorkbenchWindow()
 
@@ -227,6 +239,10 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         app._config = config
         app._library_service = RecordingLibraryService(base / "recordings.json")
+        app._project_service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "project-files",
+        )
         app._pending_service = PendingRecordingService(base / "pending.json")
         app._ingestion_coordinator = MaterialIngestionCoordinator(
             app._library_service,
@@ -237,6 +253,7 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         app._recorder = Recorder()
         app._recording_page = None
         app._material_library_dialog = None
+        app._project_page = None
         app._settings_page = None
         app._diagnostic_page = None
 
@@ -250,6 +267,10 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         assert isinstance(
             window.page_widgets[WorkbenchPage.MATERIALS],
             MaterialLibraryDialog,
+        )
+        assert isinstance(
+            window.page_widgets[WorkbenchPage.PROJECTS],
+            ProjectPage,
         )
         assert isinstance(
             window.page_widgets[WorkbenchPage.SETTINGS],

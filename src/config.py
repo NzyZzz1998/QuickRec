@@ -31,6 +31,7 @@ class ConfigManager:
     # 默认配置值
     defaults = {
         "save_path": str(Path.home() / "Videos" / "QuickRec"),
+        "project_root_path": str(Path.home() / "Videos" / "QuickRec" / "Projects"),
         "quality": "high",  # native / high / medium / low
         "fps": 30,  # 30 / 60 / 120
         "shortcut_start": "Ctrl+Shift+R",

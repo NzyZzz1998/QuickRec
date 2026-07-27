@@ -134,6 +134,35 @@ class TestMaterialIngestionCoordinator(unittest.TestCase):
         self.assertEqual(result.error_code, "VIDEO_MISSING")
         self.assertEqual(load_pending(self.pending.pending_path).items[0].status, "missing")
 
+    def test_failed_project_recording_ingestion_persists_project_context(self):
+        failure = LibraryWriteResult(
+            False,
+            self.library.library_path,
+            error="denied",
+        )
+        with patch.object(self.library, "add_recording", return_value=failure):
+            result = self.coordinator.ingest_saved_recording(
+                self.video,
+                metadata=self.metadata,
+                diagnostic_dir=None,
+                project_id="project-1",
+            )
+        pending = load_pending(self.pending.pending_path).items[0]
+
+        self.assertFalse(result.formal_indexed)
+        self.assertEqual(result.project_id, "project-1")
+        self.assertEqual(pending.project_id, "project-1")
+
+    def test_retry_returns_project_context_for_follow_up_linking(self):
+        item = self._pending_item()
+        item.project_id = "project-1"
+        self.assertTrue(self.pending.persist(item).ok)
+
+        result = self.coordinator.retry(item.pending_id)
+
+        self.assertTrue(result.formal_indexed)
+        self.assertEqual(result.project_id, "project-1")
+
     def test_retry_failure_updates_attempt_and_error_for_later_retry(self):
         item = self._pending_item()
         self.assertTrue(self.pending.persist(item).ok)

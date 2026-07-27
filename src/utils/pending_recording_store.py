@@ -39,6 +39,7 @@ class PendingRecordingItem:
     fps: float | None = None
     file_size_bytes: int | None = None
     diagnostics_dir: str | None = None
+    project_id: str | None = None
     source: str = "recording_auto_ingest"
 
     @classmethod
@@ -75,6 +76,7 @@ class PendingRecordingItem:
             fps=_optional_float(payload.get("fps")),
             file_size_bytes=_optional_int(payload.get("file_size_bytes")),
             diagnostics_dir=_optional_str(payload.get("diagnostics_dir")),
+            project_id=_optional_str(payload.get("project_id")),
             source=str(payload.get("source") or "recording_auto_ingest"),
         )
 

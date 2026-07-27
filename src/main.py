@@ -44,11 +44,14 @@ from services.material_ingestion import (
     StartupRetrySummary,
 )
 from services.pending_recordings import PendingRecordingService
+from services.project_library import ProjectLibraryService
+from services.project_recording import ProjectRecordingCoordinator
 from services.recording_library import MigrationResult, RecordingLibraryService
 from ui.area_selector import AreaSelector
 from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
 from ui.material_library_dialog import MaterialLibraryDialog
+from ui.project_page import ProjectPage
 from ui.qt_localization import install_qt_zh_cn
 from ui.settings_dialog import SettingsDialog
 from ui.toolbar import RecordingToolbar
@@ -69,6 +72,7 @@ from utils.diagnostics import (
 from utils.disk_checker import DiskChecker, show_disk_warning
 from utils.media_metadata import resolve_ffmpeg_path
 from utils.pending_recording_store import resolve_pending_file
+from utils.project_store import resolve_project_index
 from utils.recording_library_store import resolve_library_file
 from version import APP_VERSION
 
@@ -154,18 +158,28 @@ class QuickRecApp:
         self._hotkey = HotkeyManager()
         self._toolbar = None
         self._library_service = RecordingLibraryService(resolve_library_file())
+        self._project_service = ProjectLibraryService(
+            resolve_project_index(),
+            default_root=self._config.get("project_root_path", ""),
+        )
         self._pending_service = PendingRecordingService(resolve_pending_file())
         self._ingestion_coordinator = MaterialIngestionCoordinator(
             self._library_service,
             self._pending_service,
         )
+        self._project_recording_coordinator = ProjectRecordingCoordinator(
+            self._project_service,
+            self._library_service,
+        )
         self._pending_ids_by_output: dict[str, str] = {}
         self._material_library_dialog = None
+        self._project_page = None
         self._recording_page = None
         self._settings_page = None
         self._diagnostic_page = None
         self._recording_source: str | None = None
         self._recording_mode = ""
+        self._active_project_recording_id: str | None = None
         self._last_save_path = str(self._config.get("save_path", ""))
         self._workbench = WorkbenchCoordinator(self._create_workbench_window)
         self._initial_migration_result: MigrationResult | None = None
@@ -260,6 +274,10 @@ class QuickRecApp:
             current_save_dir=self._config.get("save_path", ""),
             embedded=True,
         )
+        self._project_page = ProjectPage(
+            self._project_service,
+            self._library_service,
+        )
         self._settings_page = SettingsDialog(
             self._config,
             embedded=True,
@@ -297,6 +315,18 @@ class QuickRecApp:
         self._recording_page.open_file_requested.connect(self._on_open_file)
         self._recording_page.open_folder_requested.connect(self._on_open_folder)
         self._recording_page.retry_material_requested.connect(self._retry_material_item)
+        self._material_library_dialog.add_to_project_requested.connect(
+            self._on_material_add_to_project
+        )
+        self._material_library_dialog.pending_retry_succeeded.connect(
+            self._on_material_pending_retry_succeeded
+        )
+        self._project_page.start_recording_requested.connect(
+            self._on_start_project_recording
+        )
+        self._project_page.open_diagnostics_requested.connect(
+            lambda: self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+        )
 
         self._settings_page.config_saved.connect(self._on_workbench_config_saved)
         self._settings_page.open_capture_diagnostics_requested.connect(
@@ -317,6 +347,7 @@ class QuickRecApp:
             pages={
                 WorkbenchPage.RECORDING: self._recording_page,
                 WorkbenchPage.MATERIALS: self._material_library_dialog,
+                WorkbenchPage.PROJECTS: self._project_page,
                 WorkbenchPage.SETTINGS: self._settings_page,
                 WorkbenchPage.DIAGNOSTICS: self._diagnostic_page,
             },
@@ -349,6 +380,10 @@ class QuickRecApp:
         material_reload = getattr(material_page, "reload", None)
         if page == WorkbenchPage.MATERIALS and callable(material_reload):
             material_reload()
+        project_page = getattr(self, "_project_page", None)
+        project_reload = getattr(project_page, "reload", None)
+        if page == WorkbenchPage.PROJECTS and callable(project_reload):
+            project_reload()
         recording_page = getattr(self, "_recording_page", None)
         refresh_summary = getattr(recording_page, "refresh_summary", None)
         if callable(refresh_summary):
@@ -358,6 +393,8 @@ class QuickRecApp:
     def _on_workbench_page_changed(self, page: WorkbenchPage) -> None:
         if page == WorkbenchPage.MATERIALS and self._material_library_dialog is not None:
             self._material_library_dialog.reload()
+        elif page == WorkbenchPage.PROJECTS and self._project_page is not None:
+            self._project_page.reload()
         elif page == WorkbenchPage.RECORDING and self._recording_page is not None:
             self._recording_page.refresh_summary()
         elif page == WorkbenchPage.SETTINGS and self._settings_page is not None:
@@ -375,9 +412,75 @@ class QuickRecApp:
             self._recording_page.refresh_summary()
         if self._material_library_dialog is not None:
             self._material_library_dialog.set_current_save_dir(current_save_path)
+        if self._project_service is not None:
+            project_root = str(self._config.get("project_root_path", "") or "")
+            if project_root:
+                self._project_service.default_root = Path(project_root)
         if current_save_path and current_save_path != self._last_save_path:
             self._handle_save_path_changed(current_save_path)
         self._last_save_path = current_save_path
+
+    def _on_material_add_to_project(self, material) -> None:
+        project_page = getattr(self, "_project_page", None)
+        if project_page is None:
+            self._show_workbench(WorkbenchPage.PROJECTS)
+            project_page = self._project_page
+        if project_page is not None:
+            self._show_workbench(WorkbenchPage.PROJECTS)
+            project_page.prompt_add_material(material)
+
+    def _on_material_pending_retry_succeeded(self, result: IngestionResult) -> None:
+        if not result.project_id or not result.material_id:
+            return
+        linked = self._project_recording_coordinator.link_material(
+            result.project_id,
+            result.material_id,
+        )
+        if self._project_page is not None:
+            self._project_page.reload()
+        if self._material_library_dialog is not None:
+            self._material_library_dialog.show_pending_project_link_result(
+                ok=linked.ok,
+                error=linked.error,
+            )
+        if not linked.ok:
+            logger.warning(
+                "pending project link failed after material library retry: "
+                "project_id=%s material_id=%s stage=%s error=%s",
+                result.project_id,
+                result.material_id,
+                linked.stage,
+                linked.error,
+            )
+
+    def _on_start_project_recording(self, project_id: str, mode: str) -> None:
+        if mode not in {"fullscreen", "region", "window"}:
+            QMessageBox.warning(
+                None,
+                "无法开始项目录制",
+                "不支持当前录制模式，请重新选择。",
+            )
+            return
+        loaded = self._project_service.get_project(project_id)
+        if (
+            not loaded.ok
+            or loaded.project is None
+            or loaded.project.archived_at
+            or loaded.status != "available"
+        ):
+            QMessageBox.warning(
+                None,
+                "无法开始项目录制",
+                "项目当前不可写，请刷新项目状态后重试。",
+            )
+            return
+        self._active_project_recording_id = project_id
+        if mode == "fullscreen":
+            self._on_start_fullscreen(source="project")
+        elif mode == "region":
+            self._on_start_region(source="project")
+        elif mode == "window":
+            self._on_start_window(source="project")
 
     def _sync_workbench_recording_state(self) -> None:
         page = getattr(self, "_recording_page", None)
@@ -422,7 +525,7 @@ class QuickRecApp:
                 "selecting" if mode in {"region", "window"} else "starting",
                 mode=mode,
             )
-        if source == "workbench":
+        if source in {"workbench", "project"}:
             self._workbench.hide()
 
     def _set_recording_request_state(self, state: str) -> None:
@@ -441,10 +544,17 @@ class QuickRecApp:
         source = getattr(self, "_recording_source", None)
         self._recording_source = None
         self._recording_mode = ""
-        if restore_workbench and source == "workbench":
-            self._show_workbench(WorkbenchPage.RECORDING)
+        if restore_workbench and source in {"workbench", "project"}:
+            target_page = (
+                WorkbenchPage.PROJECTS
+                if source == "project"
+                else WorkbenchPage.RECORDING
+            )
+            self._show_workbench(target_page)
         else:
             self._set_recording_request_state("idle")
+        if source == "project":
+            self._active_project_recording_id = None
 
     def run(self):
         """启动应用"""
@@ -471,10 +581,30 @@ class QuickRecApp:
         self._pending_retry_thread.start()
 
     def _on_pending_retry_finished(self, summary: StartupRetrySummary) -> None:
+        project_recovered = 0
+        for result in summary.recovered:
+            if result.project_id and result.material_id:
+                linked = self._project_recording_coordinator.link_material(
+                    result.project_id,
+                    result.material_id,
+                )
+                project_recovered += int(linked.ok)
+                if not linked.ok:
+                    logger.warning(
+                        "pending project link failed after startup retry: "
+                        "project_id=%s material_id=%s stage=%s error=%s",
+                        result.project_id,
+                        result.material_id,
+                        linked.stage,
+                        linked.error,
+                    )
         if summary.succeeded_count:
             self._tray.show_notification(f"已恢复 {summary.succeeded_count} 条录制")
         if self._material_library_dialog is not None:
             self._material_library_dialog.reload()
+        project_page = getattr(self, "_project_page", None)
+        if project_page is not None and project_recovered:
+            project_page.reload()
 
     def _start_initial_migration(self) -> None:
         if self._migration_thread is not None and self._migration_thread.is_alive():
@@ -953,6 +1083,11 @@ class QuickRecApp:
         """主线程中处理编码完成"""
         logger.info(f"主线程处理编码完成: {output_path}")
         source = getattr(self, "_recording_source", None)
+        project_id = (
+            getattr(self, "_active_project_recording_id", None)
+            if source == "project"
+            else None
+        )
         if output_path:
             file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
             size_str = f"{file_size_mb:.1f}MB"
@@ -980,8 +1115,31 @@ class QuickRecApp:
                     self._tray.show_notification(
                         "录制已保存，但本次未稳定达到 120 FPS"
                     )
-            ingestion = self._save_material_item(output_path)
+            ingestion = self._save_material_item(
+                output_path,
+                project_id=project_id,
+            )
             index_ok = ingestion.formal_indexed
+            project_linked = False
+            project_message = ""
+            if project_id and index_ok:
+                linked = self._project_recording_coordinator.link_material(
+                    project_id,
+                    ingestion.material_id,
+                )
+                project_linked = linked.ok
+                if not linked.ok:
+                    project_message = "素材已入库，但项目关联失败，可在项目页重试"
+                    logger.warning(
+                        "project recording link failed: "
+                        "project_id=%s material_id=%s stage=%s error=%s",
+                        project_id,
+                        ingestion.material_id,
+                        linked.stage,
+                        linked.error,
+                    )
+            elif project_id:
+                project_message = "素材待重试入库，成功后将继续关联项目"
             if ingestion.pending_id:
                 self._pending_ids_by_output[self._normalize_output_path(output_path)] = (
                     ingestion.pending_id
@@ -1001,7 +1159,17 @@ class QuickRecApp:
             )
 
             # v1.1: 工具栏显示结果条
-            if source == "workbench" and self._recording_page is not None:
+            if source == "project" and project_id and self._project_page is not None:
+                self._hide_toolbar()
+                self._finish_recording_request(restore_workbench=True)
+                self._project_page.show_recording_result(
+                    project_id,
+                    video_saved=True,
+                    material_indexed=index_ok,
+                    project_linked=project_linked,
+                    message=project_message,
+                )
+            elif source == "workbench" and self._recording_page is not None:
                 self._recording_page.show_result(
                     output_path,
                     size_str,
@@ -1020,9 +1188,20 @@ class QuickRecApp:
             logger.error("编码保存失败")
             self._tray.show_notification("保存失败")
             self._hide_toolbar()
-            if source == "workbench" and self._recording_page is not None:
+            if source == "project" and project_id and self._project_page is not None:
+                self._finish_recording_request(restore_workbench=True)
+                self._project_page.show_recording_result(
+                    project_id,
+                    video_saved=False,
+                    material_indexed=False,
+                    project_linked=False,
+                    message="编码器未生成可用输出文件。",
+                )
+            elif source == "workbench" and self._recording_page is not None:
                 self._recording_page.show_failure("编码器未生成可用输出文件。")
-            self._finish_recording_request(restore_workbench=True)
+                self._finish_recording_request(restore_workbench=True)
+            else:
+                self._finish_recording_request(restore_workbench=True)
 
         self._tray.set_recording_state(False)
         if self._window_highlighter:
@@ -1030,7 +1209,12 @@ class QuickRecApp:
             self._window_highlighter = None
         self._click_highlighter.stop()
 
-    def _save_material_item(self, output_path: str) -> IngestionResult:
+    def _save_material_item(
+        self,
+        output_path: str,
+        *,
+        project_id: str | None = None,
+    ) -> IngestionResult:
         try:
             metadata = (
                 self._recorder.get_last_recording_metadata()
@@ -1044,6 +1228,7 @@ class QuickRecApp:
                 output_path,
                 metadata=metadata,
                 diagnostic_dir=self._config.get_diagnostic_dir(),
+                project_id=project_id,
             )
             if not result.formal_indexed:
                 logger.warning(
@@ -1082,7 +1267,29 @@ class QuickRecApp:
         )
         if result.formal_indexed:
             self._pending_ids_by_output.pop(normalized, None)
-            self._tray.show_notification("素材已加入素材库")
+            project_linked = True
+            if result.project_id:
+                linked = self._project_recording_coordinator.link_material(
+                    result.project_id,
+                    result.material_id,
+                )
+                project_linked = linked.ok
+                if self._project_page is not None:
+                    self._project_page.reload()
+                if not linked.ok:
+                    logger.warning(
+                        "project link failed after manual retry: "
+                        "project_id=%s material_id=%s stage=%s error=%s",
+                        result.project_id,
+                        result.material_id,
+                        linked.stage,
+                        linked.error,
+                    )
+            self._tray.show_notification(
+                "素材已加入素材库"
+                if project_linked
+                else "素材已入库，但项目关联失败"
+            )
             if self._toolbar:
                 self._toolbar.mark_material_index_saved()
         else:

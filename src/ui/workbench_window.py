@@ -31,6 +31,7 @@ from ui.design_system import (
 class WorkbenchPage(StrEnum):
     RECORDING = "recording"
     MATERIALS = "materials"
+    PROJECTS = "projects"
     SETTINGS = "settings"
     DIAGNOSTICS = "diagnostics"
 
@@ -38,12 +39,14 @@ class WorkbenchPage(StrEnum):
 PAGE_LABELS = {
     WorkbenchPage.RECORDING: "录制",
     WorkbenchPage.MATERIALS: "素材库",
+    WorkbenchPage.PROJECTS: "项目",
     WorkbenchPage.SETTINGS: "设置",
     WorkbenchPage.DIAGNOSTICS: "诊断",
 }
 PAGE_ICONS = {
     WorkbenchPage.RECORDING: "record",
     WorkbenchPage.MATERIALS: "library",
+    WorkbenchPage.PROJECTS: "folder",
     WorkbenchPage.SETTINGS: "settings",
     WorkbenchPage.DIAGNOSTICS: "diagnostics",
 }

@@ -244,6 +244,12 @@ class RecorderManager:
         self._cancelled = cancel
         self._stop_event.set()
         self._resume_event.set()
+        capturer = self._capturer
+        if capturer is not None and hasattr(capturer, "request_stop"):
+            try:
+                capturer.request_stop()
+            except Exception:
+                logger.exception("DXCamera asynchronous stop request failed")
         self._stop_thread = threading.Thread(target=self._stop_and_encode, daemon=True)
         self._stop_thread.start()
         return ""
@@ -657,20 +663,25 @@ class RecorderManager:
         # 关闭编码器（FFmpeg flush）
         if self._encoder:
             encoder_ok = self._encoder.close()
+            logger.info("recording cleanup stage: encoder_closed")
+            logger.info("recording cleanup stage: performance_snapshot_started")
             self._capture_last_performance(
                 self._encoder,
                 captured_frames=captured_frames,
                 submitted_frames=frames_written,
             )
+            logger.info("recording cleanup stage: performance_snapshot_completed")
             if not encoder_ok and not self._recording_failed_reason:
                 self._recording_failed_reason = "video encoder did not complete successfully"
             self._encoder = None
 
         if self._capturer:
             try:
+                logger.info("recording cleanup stage: capturer_close_started")
                 self._capturer.close()
+                logger.info("recording cleanup stage: capturer_close_completed")
             except Exception:
-                pass
+                logger.exception("recording cleanup stage: capturer_close_failed")
             self._capturer = None
 
         logger.info(f"录制线程结束，frames={frames_written}")

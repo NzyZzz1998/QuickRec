@@ -3,6 +3,8 @@ ScreenCapturer 单元测试
 """
 
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,6 +51,25 @@ class _FakeCamera:
 
     def release(self):
         self.release_calls += 1
+
+
+class _BlockingReleaseCamera(_FakeCamera):
+    def __init__(self):
+        super().__init__()
+        self.release_started = threading.Event()
+        self.allow_release = threading.Event()
+
+    def release(self):
+        self.release_calls += 1
+        self.release_started.set()
+        self.allow_release.wait(timeout=2)
+
+
+class _AsyncStopCamera(_FakeCamera):
+    def __init__(self):
+        super().__init__()
+        self._DXCamera__stop_capture = threading.Event()
+        self._DXCamera__frame_available = threading.Event()
 
 
 class TestScreenCapturerNonBlocking(unittest.TestCase):
@@ -163,10 +184,52 @@ class TestScreenCapturerNonBlocking(unittest.TestCase):
 
         capturer.close()
 
-        self.assertEqual(camera.stop_calls, 1)
+        self.assertEqual(camera.stop_calls, 0)
         self.assertEqual(camera.release_calls, 1)
         self.assertIsNone(capturer._camera)
         self.assertFalse(capturer._started)
+
+    def test_close_does_not_block_recording_finalization_when_dxcam_release_stalls(self):
+        camera = _BlockingReleaseCamera()
+        capturer = ScreenCapturer()
+        capturer._camera = camera
+        capturer._started = True
+        capturer._release_timeout_seconds = 0.02
+
+        started = time.perf_counter()
+        capturer.close()
+        elapsed = time.perf_counter() - started
+
+        self.assertTrue(camera.release_started.is_set())
+        self.assertLess(elapsed, 0.2)
+        self.assertIsNone(capturer._camera)
+        self.assertFalse(capturer._started)
+
+        camera.allow_release.set()
+        capturer._release_thread.join(timeout=1)
+        self.assertFalse(capturer._release_thread.is_alive())
+
+    def test_request_stop_signals_dxcam_without_waiting_for_release(self):
+        camera = _AsyncStopCamera()
+        capturer = ScreenCapturer()
+        capturer._camera = camera
+        capturer._started = True
+
+        requested = capturer.request_stop()
+
+        self.assertTrue(requested)
+        self.assertTrue(camera._DXCamera__stop_capture.is_set())
+        self.assertTrue(camera._DXCamera__frame_available.is_set())
+        self.assertEqual(camera.stop_calls, 0)
+        self.assertEqual(camera.release_calls, 0)
+        self.assertIs(capturer._camera, camera)
+
+    def test_request_stop_falls_back_when_dxcam_contract_is_unavailable(self):
+        capturer = ScreenCapturer()
+        capturer._camera = _FakeCamera()
+        capturer._started = True
+
+        self.assertFalse(capturer.request_stop())
 
     def test_120fps_keeps_static_desktop_frames_available(self):
         camera = _FakeCamera()

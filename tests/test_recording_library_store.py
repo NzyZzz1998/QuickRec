@@ -96,6 +96,33 @@ class TestRecordingLibraryStore(unittest.TestCase):
             self.assertEqual(path.read_text(encoding="utf-8"), "{broken")
             self.assertEqual(len(list(path.parent.glob("recordings.corrupt-*.json"))), 1)
 
+    def test_transient_read_failure_does_not_escape_when_archive_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "recordings.json"
+            path.write_text('{"schema_version":2,"items":[]}', encoding="utf-8")
+            read_failure = type(load_library(path))(
+                False,
+                path,
+                error="file is locked",
+            )
+
+            with (
+                patch(
+                    "utils.recording_library_store._read_library",
+                    return_value=read_failure,
+                ),
+                patch(
+                    "utils.recording_library_store._archive_corrupt_file",
+                    side_effect=PermissionError("file is locked"),
+                ),
+            ):
+                result = load_library(path)
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.error, "file is locked")
+            self.assertIsNone(result.corrupt_path)
+            self.assertTrue(path.exists())
+
     def test_load_archives_corrupt_document_and_recovers_backup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "recordings.json"

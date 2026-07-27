@@ -6,6 +6,7 @@ dxcam 的创建和销毁都在调用线程中执行，避免跨线程问题。
 """
 
 import logging
+import threading
 
 from utils.window_geometry import normalize_capture_region
 
@@ -37,6 +38,8 @@ class ScreenCapturer:
         self._target_fps = max(int(target_fps), 1)
         self._fallback_frame = None
         self._last_dxcam_region: tuple[int, int, int, int] | None = None
+        self._release_thread: threading.Thread | None = None
+        self._release_timeout_seconds = 1.0
 
         if self._region:
             left, top, width, height = self._region
@@ -153,14 +156,57 @@ class ScreenCapturer:
     def get_capture_region(self) -> tuple[int, int, int, int] | None:
         return self._region
 
+    def request_stop(self) -> bool:
+        """请求 dxcam 捕获线程退出，但不在调用线程中等待释放完成。"""
+        camera = self._camera
+        if camera is None:
+            return False
+
+        # dxcam 0.3.x 没有公开的非阻塞 stop API。录制停止时先设置其内部
+        # 事件，让捕获线程在编码器刷盘期间退出，随后 close() 再完成正式释放。
+        stop_event = getattr(camera, "_DXCamera__stop_capture", None)
+        frame_available = getattr(camera, "_DXCamera__frame_available", None)
+        if not hasattr(stop_event, "set"):
+            logger.info("DXCamera asynchronous stop is unavailable")
+            return False
+
+        stop_event.set()
+        if hasattr(frame_available, "set"):
+            frame_available.set()
+        logger.info("DXCamera asynchronous stop requested")
+        return True
+
     def close(self):
         """释放资源"""
-        if self._camera:
-            self._camera.stop()
-            self._camera.release()
-            self._camera = None
+        camera = self._camera
+        self._camera = None
         self._started = False
         self._fallback_frame = None
+        if camera is None:
+            return
+
+        def release_camera() -> None:
+            try:
+                logger.info("DXCamera release worker started")
+                camera.release()
+                logger.info("DXCamera release worker completed")
+            except Exception as exc:
+                logger.warning("DXCamera release failed: %s", exc)
+
+        self._release_thread = threading.Thread(
+            target=release_camera,
+            name="QuickRecDXCameraRelease",
+            daemon=True,
+        )
+        self._release_thread.start()
+        logger.info("DXCamera release worker dispatched")
+        self._release_thread.join(timeout=self._release_timeout_seconds)
+        logger.info("DXCamera release wait returned")
+        if self._release_thread.is_alive():
+            logger.warning(
+                "DXCamera release exceeded %.2fs; continuing recording finalization",
+                self._release_timeout_seconds,
+            )
 
     def __del__(self):
         try:

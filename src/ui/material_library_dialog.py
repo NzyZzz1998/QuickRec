@@ -69,6 +69,8 @@ class _LibraryTask(QThread):
 
 class MaterialLibraryDialog(QDialog):
     PAGE_SIZE = 50
+    add_to_project_requested = pyqtSignal(object)
+    pending_retry_succeeded = pyqtSignal(object)
 
     def __init__(
         self,
@@ -299,6 +301,11 @@ class MaterialLibraryDialog(QDialog):
         self._btn_copy.setToolTip("复制所选素材的完整本地路径")
         set_button_icon(self._btn_copy, "copy")
         actions.addWidget(self._btn_copy)
+        self._btn_add_to_project = QPushButton("加入项目")
+        self._btn_add_to_project.clicked.connect(self._on_add_to_project)
+        self._btn_add_to_project.setToolTip("选择一个活跃项目并保存素材引用")
+        set_button_icon(self._btn_add_to_project, "folder")
+        actions.addWidget(self._btn_add_to_project)
         layout.addLayout(actions)
 
         manage = QGridLayout()
@@ -616,6 +623,9 @@ class MaterialLibraryDialog(QDialog):
             self._detail_source.setText(item.source_type)
             self._detail_failure.setText("-")
             self._btn_delete.setEnabled(item.status != "missing")
+            self._btn_add_to_project.setEnabled(
+                item.status == STATUS_AVAILABLE and Path(item.file_path).is_file()
+            )
             self._btn_relink.setEnabled(item.status in {"missing", STATUS_METADATA_INCOMPLETE})
             self._btn_relink.setVisible(
                 item.status in {"missing", STATUS_METADATA_INCOMPLETE}
@@ -635,6 +645,7 @@ class MaterialLibraryDialog(QDialog):
             self._btn_open,
             self._btn_open_dir,
             self._btn_copy,
+            self._btn_add_to_project,
             self._btn_relink,
             self._btn_retry_pending,
             self._btn_remove_pending,
@@ -648,6 +659,16 @@ class MaterialLibraryDialog(QDialog):
         self._btn_remove_pending.setVisible(pending)
         self._btn_remove.setVisible(not pending)
         self._btn_delete.setVisible(not pending)
+        self._btn_add_to_project.setVisible(not pending)
+
+    def _on_add_to_project(self) -> None:
+        item = self._selected_item()
+        if (
+            item is not None
+            and item.status == STATUS_AVAILABLE
+            and Path(item.file_path).is_file()
+        ):
+            self.add_to_project_requested.emit(item)
 
     def _on_open(self) -> None:
         item = self._selected_value()
@@ -716,8 +737,16 @@ class MaterialLibraryDialog(QDialog):
         self.reload()
         if result.formal_indexed:
             self._status_label.setText("素材已加入素材库")
+            self.pending_retry_succeeded.emit(result)
         else:
             self._status_label.setText(f"重试入库失败：{result.error or '未知错误'}")
+
+    def show_pending_project_link_result(self, *, ok: bool, error: str = "") -> None:
+        if ok:
+            self._status_label.setText("素材已加入素材库并关联项目")
+            return
+        detail = f"：{error}" if error else ""
+        self._status_label.setText(f"素材已入库，但项目关联失败{detail}")
 
     def _on_remove_pending(self) -> None:
         entry = self._selected_entry()

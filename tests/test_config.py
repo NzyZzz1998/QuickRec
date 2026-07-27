@@ -42,6 +42,11 @@ class TestConfigManager(unittest.TestCase):
         self.assertEqual(self.config.get("show_countdown"), False)
         self.assertEqual(self.config.get("countdown_seconds"), 3)
         self.assertTrue("Videos" in self.config.get("save_path"))
+        self.assertTrue(
+            str(self.config.get("project_root_path")).endswith(
+                str(Path("QuickRec") / "Projects")
+            )
+        )
         self.assertEqual(self.config.get("diagnostic_keep_days"), 7)
         self.assertEqual(self.config.get("workbench_geometry"), {})
         self.assertFalse(self.config.get("diagnostic_dir_customized"))

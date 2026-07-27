@@ -169,6 +169,20 @@ class TestPendingRecordingService(unittest.TestCase):
         self.assertEqual(result.storage, "fallback")
         self.assertTrue((video.parent / "QuickRecMetadata" / "Pending" / "fallback.json").exists())
 
+    def test_project_id_round_trips_and_remains_optional_for_legacy_items(self):
+        video = self._video(self.root / "QuickRec_project.mp4")
+        item = self._item(video, "project", "material-project")
+        item.project_id = "project-1"
+
+        self.assertTrue(self.service.persist(item).ok)
+        loaded = self.service.load().items[0]
+        legacy_payload = item.to_dict()
+        legacy_payload.pop("project_id")
+        legacy = PendingRecordingItem.from_dict(legacy_payload)
+
+        self.assertEqual(loaded.project_id, "project-1")
+        self.assertIsNone(legacy.project_id)
+
     def _video(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"video")

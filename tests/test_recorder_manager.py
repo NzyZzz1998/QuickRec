@@ -30,6 +30,7 @@ class FakeScreenCapturer:
         self.target_fps = target_fps
         self._started = False
         self.update_calls = []
+        self.request_stop_calls = 0
         FakeScreenCapturer.instances.append(self)
 
     def start(self):
@@ -47,6 +48,10 @@ class FakeScreenCapturer:
 
     def get_capture_region(self):
         return self.region
+
+    def request_stop(self):
+        self.request_stop_calls += 1
+        return True
 
     def close(self):
         self._started = False
@@ -369,6 +374,7 @@ class TestRecorderManager(unittest.TestCase):
         self.assertTrue(saved_paths[0].endswith(".mp4"))
         self.assertTrue(os.path.exists(saved_paths[0]))
         self.assertEqual(manager.get_state(), RecorderState.IDLE)
+        self.assertEqual(FakeScreenCapturer.instances[-1].request_stop_calls, 1)
 
     def test_stop_when_idle_returns_empty(self):
         manager = RecorderManager(self.config)

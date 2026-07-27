@@ -222,6 +222,19 @@ class SettingsDialog(QDialog):
         path_layout.addWidget(self._btn_browse)
         form.addRow("保存路径:", path_layout)
 
+        project_path_layout = QHBoxLayout()
+        self._edit_project_root = QLineEdit()
+        self._edit_project_root.setReadOnly(True)
+        self._edit_project_root.setAccessibleName("默认项目保存位置")
+        project_path_layout.addWidget(self._edit_project_root)
+        self._btn_browse_project_root = QPushButton("浏览...")
+        self._btn_browse_project_root.setFixedWidth(70)
+        self._btn_browse_project_root.clicked.connect(self._browse_project_root)
+        self._btn_browse_project_root.setToolTip("选择新建项目的默认保存目录")
+        set_button_icon(self._btn_browse_project_root, "folder")
+        project_path_layout.addWidget(self._btn_browse_project_root)
+        form.addRow("项目位置:", project_path_layout)
+
         # 画质选择（动态显示分辨率）
         self._combo_quality = QComboBox()
         self._combo_quality.setAccessibleName("录制画质")
@@ -396,6 +409,7 @@ class SettingsDialog(QDialog):
 
     def _connect_dirty_signals(self) -> None:
         self._edit_save_path.textChanged.connect(self._mark_dirty)
+        self._edit_project_root.textChanged.connect(self._mark_dirty)
         for combo in (
             self._combo_quality,
             self._combo_fps,
@@ -483,6 +497,9 @@ class SettingsDialog(QDialog):
         """从 ConfigManager 加载当前值到控件"""
         self._loading = True
         self._edit_save_path.setText(self._config.get("save_path"))
+        self._edit_project_root.setText(
+            str(self._config.get("project_root_path", ""))
+        )
 
         # 画质：根据配置值选择对应选项
         quality = self._config.get("quality", "native")
@@ -645,6 +662,7 @@ class SettingsDialog(QDialog):
 
         candidate.update({
             "save_path": save_path,
+            "project_root_path": self._edit_project_root.text().strip(),
             "quality": self._combo_quality.currentData(),
             "fps": int(self._combo_fps.currentText()),
             "shortcut_start": self._shortcut_start.text(),
@@ -693,6 +711,15 @@ class SettingsDialog(QDialog):
         if path:
             self._edit_save_path.setText(path)
 
+    def _browse_project_root(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "选择默认项目位置",
+            self._edit_project_root.text(),
+        )
+        if path:
+            self._edit_project_root.setText(path)
+
     def _browse_diagnostic_dir(self):
         """打开诊断目录选择对话框"""
         path = QFileDialog.getExistingDirectory(
@@ -722,6 +749,8 @@ class SettingsDialog(QDialog):
         for control in (
             self._edit_save_path,
             self._btn_browse,
+            self._edit_project_root,
+            self._btn_browse_project_root,
             self._combo_quality,
             self._combo_fps,
             self._combo_audio_source,

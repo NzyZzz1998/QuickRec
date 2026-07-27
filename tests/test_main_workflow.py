@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import main
 from services.material_ingestion import MaterialIngestionCoordinator
 from services.pending_recordings import PendingRecordingService
+from services.project_library import ProjectLibraryService
+from services.project_recording import ProjectRecordingCoordinator
 
 
 class FakeQApplication:
@@ -283,6 +285,18 @@ class FakeRecordingPage:
         self.clear_count += 1
 
 
+class FakeProjectPage:
+    def __init__(self):
+        self.results = []
+        self.reload_count = 0
+
+    def show_recording_result(self, project_id, **result):
+        self.results.append((project_id, result))
+
+    def reload(self):
+        self.reload_count += 1
+
+
 class TestQuickRecAppWorkflow(unittest.TestCase):
     class _ReadinessBox:
         AcceptRole = 1
@@ -504,7 +518,7 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
             text = app._build_diagnostic_text()
 
-        self.assertIn("version: v1.8", text)
+        self.assertIn(f"version: {main.APP_VERSION}", text)
         self.assertNotIn("version: v1.4.x", text)
 
     def test_export_diagnostic_file_writes_file_and_notifies(self):
@@ -552,6 +566,437 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             self.assertIn("both", text)
             self.assertFalse((Path(temp_dir) / "QuickRecMetadata" / "recordings.json").exists())
             self.assertEqual(app._tray.recording_states, [((False,), {})])
+
+    def test_project_recording_save_links_material_and_restores_project_page(self):
+        events = []
+
+        class OrderedProjectPage(FakeProjectPage):
+            def show_recording_result(self, project_id, **result):
+                events.append("result")
+                super().show_recording_result(project_id, **result)
+
+            def reload(self):
+                events.append("reload")
+                super().reload()
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_project.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = FakeToolbar()
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = OrderedProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._workbench = FakeWorkbenchCoordinator()
+            app._show_workbench = lambda page: (
+                app._workbench.open(page),
+                app._project_page.reload(),
+            )[0]
+            app._recording_source = "project"
+            app._recording_mode = "fullscreen"
+            app._active_project_recording_id = "project-1"
+            app._library_service = main.RecordingLibraryService(
+                base / "recordings.json"
+            )
+            app._project_service = ProjectLibraryService(
+                base / "projects.json",
+                default_root=base / "project-files",
+            )
+            assert app._project_service.create_project(
+                name="项目",
+                project_id="project-1",
+            ).ok
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._project_recording_coordinator = ProjectRecordingCoordinator(
+                app._project_service,
+                app._library_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+
+            project = app._project_service.get_project("project-1").project
+
+        self.assertEqual(len(project.materials), 1)
+        self.assertEqual(
+            app._project_page.results[0][1],
+            {
+                "video_saved": True,
+                "material_indexed": True,
+                "project_linked": True,
+                "message": "",
+            },
+        )
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.PROJECTS],
+        )
+        self.assertEqual(events, ["reload", "result"])
+        self.assertIsNone(app._active_project_recording_id)
+
+    def test_project_recording_global_index_failure_keeps_video_and_project_context_pending(self):
+        class FailingLibrary:
+            library_path = Path("denied-recordings.json")
+
+            def find_existing(self, **_kwargs):
+                return None
+
+            def add_recording(self, *_args, **_kwargs):
+                return type("Result", (), {"ok": False, "error": "denied"})()
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_project_pending.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = FakeProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_source = "project"
+            app._recording_mode = "region"
+            app._active_project_recording_id = "project-1"
+            app._library_service = FailingLibrary()
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+            app._project_recording_coordinator = SimpleNamespace()
+
+            app._handle_saved(str(video))
+
+            pending = app._pending_service.load(base).items[0]
+
+        self.assertEqual(pending.project_id, "project-1")
+        self.assertEqual(
+            app._project_page.results[0][1]["video_saved"],
+            True,
+        )
+        self.assertFalse(
+            app._project_page.results[0][1]["material_indexed"]
+        )
+        self.assertFalse(
+            app._project_page.results[0][1]["project_linked"]
+        )
+
+    def test_project_recording_output_failure_keeps_project_unchanged(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._tray = FakeTray(config=None, callbacks={})
+        app._toolbar = FakeToolbar()
+        app._window_highlighter = None
+        app._click_highlighter = FakeClickHighlighter()
+        app._project_page = FakeProjectPage()
+        app._recording_page = FakeRecordingPage()
+        app._workbench = FakeWorkbenchCoordinator()
+        app._recording_source = "project"
+        app._recording_mode = "window"
+        app._active_project_recording_id = "project-1"
+
+        app._handle_saved("")
+
+        self.assertEqual(
+            app._project_page.results,
+            [
+                (
+                    "project-1",
+                    {
+                        "video_saved": False,
+                        "material_indexed": False,
+                        "project_linked": False,
+                        "message": "编码器未生成可用输出文件。",
+                    },
+                )
+            ],
+        )
+        self.assertEqual(
+            app._workbench.opened_pages,
+            [main.WorkbenchPage.PROJECTS],
+        )
+        self.assertIsNone(app._active_project_recording_id)
+
+    def test_project_recording_link_failure_preserves_global_material(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_project_link_failed.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = FakeProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_source = "project"
+            app._recording_mode = "fullscreen"
+            app._active_project_recording_id = "project-1"
+            app._library_service = main.RecordingLibraryService(
+                base / "recordings.json"
+            )
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._project_recording_coordinator = SimpleNamespace(
+                link_material=lambda *_args, **_kwargs: SimpleNamespace(
+                    ok=False,
+                    stage="project",
+                    error="write denied",
+                )
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+
+            materials = app._library_service.load().items
+
+        self.assertEqual(len(materials), 1)
+        self.assertTrue(
+            app._project_page.results[0][1]["material_indexed"]
+        )
+        self.assertFalse(
+            app._project_page.results[0][1]["project_linked"]
+        )
+        self.assertIn(
+            "可在项目页重试",
+            app._project_page.results[0][1]["message"],
+        )
+
+    def test_project_pending_retry_continues_project_link_when_target_is_active(self):
+        class ToggleLibrary(main.RecordingLibraryService):
+            fail = True
+
+            def add_recording(self, *args, **kwargs):
+                if self.fail:
+                    return type("Result", (), {"ok": False, "error": "denied"})()
+                return super().add_recording(*args, **kwargs)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_project_retry.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = FakeToolbar()
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = FakeProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_source = "project"
+            app._recording_mode = "region"
+            app._active_project_recording_id = "project-1"
+            app._library_service = ToggleLibrary(base / "recordings.json")
+            app._project_service = ProjectLibraryService(
+                base / "projects.json",
+                default_root=base / "project-files",
+            )
+            assert app._project_service.create_project(
+                name="项目",
+                project_id="project-1",
+            ).ok
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._project_recording_coordinator = ProjectRecordingCoordinator(
+                app._project_service,
+                app._library_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+            reloads_before_retry = app._project_page.reload_count
+            app._library_service.fail = False
+            app._retry_material_item(str(video))
+
+            project = app._project_service.get_project("project-1").project
+
+        self.assertEqual(len(project.materials), 1)
+        self.assertEqual(
+            app._project_page.reload_count,
+            reloads_before_retry + 1,
+        )
+        self.assertIn(("素材已加入素材库",), app._tray.notifications)
+
+    def test_material_library_pending_retry_continues_project_link(self):
+        class FakeMaterialLibrary:
+            def __init__(self):
+                self.results = []
+
+            def show_pending_project_link_result(self, **result):
+                self.results.append(result)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._project_recording_coordinator = SimpleNamespace(
+            link_material=lambda project_id, material_id: SimpleNamespace(
+                ok=project_id == "project-1" and material_id == "material-1",
+                stage="",
+                error="",
+            )
+        )
+        app._project_page = FakeProjectPage()
+        app._material_library_dialog = FakeMaterialLibrary()
+
+        app._on_material_pending_retry_succeeded(
+            SimpleNamespace(
+                project_id="project-1",
+                material_id="material-1",
+            )
+        )
+
+        self.assertEqual(app._project_page.reload_count, 1)
+        self.assertEqual(
+            app._material_library_dialog.results,
+            [{"ok": True, "error": ""}],
+        )
+
+    def test_project_pending_retry_does_not_link_archived_target(self):
+        class ToggleLibrary(main.RecordingLibraryService):
+            fail = True
+
+            def add_recording(self, *args, **kwargs):
+                if self.fail:
+                    return type("Result", (), {"ok": False, "error": "denied"})()
+                return super().add_recording(*args, **kwargs)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_archived_retry.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = FakeProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._workbench = FakeWorkbenchCoordinator()
+            app._recording_source = "project"
+            app._recording_mode = "window"
+            app._active_project_recording_id = "project-1"
+            app._library_service = ToggleLibrary(base / "recordings.json")
+            app._project_service = ProjectLibraryService(
+                base / "projects.json",
+                default_root=base / "project-files",
+            )
+            assert app._project_service.create_project(
+                name="项目",
+                project_id="project-1",
+            ).ok
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._project_recording_coordinator = ProjectRecordingCoordinator(
+                app._project_service,
+                app._library_service,
+            )
+            app._pending_ids_by_output = {}
+
+            app._handle_saved(str(video))
+            assert app._project_service.archive_project("project-1").ok
+            app._library_service.fail = False
+            app._retry_material_item(str(video))
+
+            project = app._project_service.get_project("project-1").project
+
+        self.assertEqual(project.materials, [])
+        self.assertIn(
+            ("素材已入库，但项目关联失败",),
+            app._tray.notifications,
+        )
+
+    def test_non_project_recording_never_links_material_to_project(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            video = base / "QuickRec_normal.mp4"
+            video.write_bytes(b"video")
+            app._config = FakeConfig(
+                {"save_path": temp_dir, "audio_source": "none"}
+            )
+            app._recorder = FakeRecorder(app._config)
+            app._tray = FakeTray(config=None, callbacks={})
+            app._toolbar = None
+            app._window_highlighter = None
+            app._click_highlighter = FakeClickHighlighter()
+            app._material_library_dialog = None
+            app._project_page = FakeProjectPage()
+            app._recording_page = FakeRecordingPage()
+            app._recording_source = "hotkey"
+            app._recording_mode = "fullscreen"
+            app._active_project_recording_id = None
+            app._library_service = main.RecordingLibraryService(
+                base / "recordings.json"
+            )
+            app._pending_service = PendingRecordingService(
+                base / "pending-recordings.json"
+            )
+            app._ingestion_coordinator = MaterialIngestionCoordinator(
+                app._library_service,
+                app._pending_service,
+            )
+            app._pending_ids_by_output = {}
+            app._project_recording_coordinator = SimpleNamespace(
+                link_material=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    AssertionError("ordinary recording must not link project")
+                )
+            )
+
+            app._handle_saved(str(video))
+
+        self.assertEqual(app._project_page.results, [])
 
     def test_handle_saved_refreshes_open_material_library_after_index_write(self):
         class FakeMaterialLibraryDialog:

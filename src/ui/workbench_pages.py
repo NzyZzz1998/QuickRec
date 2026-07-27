@@ -57,8 +57,6 @@ class RecordingModeCard(QFrame):
         action_text: str,
         icon_name: str,
         callback,
-        *,
-        primary: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -94,12 +92,10 @@ class RecordingModeCard(QFrame):
         self.action_button.setToolTip(f"{description}。点击后进入对应的录制流程。")
         self.action_button.setAccessibleName(action_text)
         self.action_button.setAccessibleDescription(description)
-        if primary:
-            self.action_button.setProperty("role", "primary")
         set_button_icon(
             self.action_button,
-            "record" if primary else icon_name,
-            color="#FFFFFF" if primary else COLORS["secondary"],
+            icon_name,
+            color=COLORS["secondary"],
         )
         self.action_button.clicked.connect(callback)
         layout.addWidget(self.action_button)
@@ -146,7 +142,6 @@ class RecordingPage(QWidget):
             "开始全屏录制",
             "monitor",
             self.start_fullscreen_requested.emit,
-            primary=True,
         )
         self._card_region = RecordingModeCard(
             "区域录制",
