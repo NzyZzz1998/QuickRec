@@ -1,6 +1,6 @@
-# QuickRec Full v1.9 变更日志（候选）
+# QuickRec Full v1.9 变更日志
 
-> 状态：D8 GUI 验收通过，等待发布授权
+> 状态：正式发布
 > 验收收口日期：2026-07-27
 
 ## 新增
@@ -47,9 +47,10 @@
 - 仅删除项目、独占素材回收和回收站部分失败三条真实链路：通过。
 - QuickRec Lite：未修改。
 
-## 候选身份与回滚
+## 发布身份与回滚
 
 - 锁定 EXE：`E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe`。
 - EXE SHA256：`CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47`。
-- 当前公开正式版和直接回滚点：`v1.8`。
-- v1.9 将先集成到 `test`；尚未合并 `master`、打 tag 或创建 GitHub Release。
+- 正式 ZIP：`E:\QRtest\QuickRec-v1.9-win-x64.zip`。
+- ZIP SHA256：`B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446`。
+- 当前公开正式版：`v1.9`；直接回滚点：`v1.8`。

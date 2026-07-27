@@ -2,9 +2,9 @@
 
 ## 0. 追踪信息
 
-- 当前状态：**D0-D8 已完成，GUI 验收通过，可进入发布收口**。
+- 当前状态：**D0-D8 已完成，GUI 验收与发布收口通过，v1.9 正式发布**。
 - 目标版本：QuickRec Full v1.9。
-- 当前正式版本：v1.8。
+- 当前正式版本：v1.9。
 - 上游需求：`IDEA-001`、`IDEA-010`。
 - 需求事实源：[prd.md](prd.md)。
 - 实施计划：[dev_plan.md](dev_plan.md)。
@@ -13,9 +13,9 @@
 - 自动验证事实源：[verification.md](verification.md)。
 - GUI 验收事实源：[manual-verification.md](manual-verification.md)。
 - 当前 Full 路径：`E:\codex\QuickRec`。
-- 当前候选集成分支：`test`。
-- 验收实施分支：`feature/v1.9-project-workspace`，不单独推送远端。
-- 当前基线：`master` / `57dbc524a31526e5f4ff64b305169c329a200c69` / tag `v1.8`。
+- 当前发布分支：`master`；集成分支：`test`。
+- 历史验收实施分支：本地 `feature/v1.9-project-workspace`，未单独推送远端。
+- 当前发布标签：`v1.9`；直接回滚点：`v1.8` / `57dbc524a31526e5f4ff64b305169c329a200c69`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不进入本版范围。
 - PRD 确认：已完成（2026-07-26）。
 - 原型确认：已完成（2026-07-26）。
@@ -41,7 +41,7 @@
 - 业务实现：D0-D6 已完成。
 - 自动化与候选包：D7 已通过。
 - GUI 验收：D8 已完成 24/24。
-- 发布状态：可进入发布收口，尚未发布。
+- 发布状态：正式发布。
 
 ## 2. 总体进度
 
@@ -317,14 +317,16 @@
 - 2026-07-27：真实 120 FPS 自检平均 `119.586 FPS`、最低连续一秒 `117 FPS`；设置保存失败保持页面和未保存状态，恢复后配置不变。
 - 2026-07-27：R8 实际回收站复验覆盖仅删除项目、独占视频和项目文件回收、素材回收部分失败保留项目，三条链路均符合 PRD。
 - 2026-07-27：D8 当前为 24/24，无发布阻塞，可进入发布收口。
+- 2026-07-27：v1.9 功能提交与 CI 修复已推送 `test`，GitHub CI 运行 `30242128803` 的测试和 Windows packaging smoke 全部通过。
+- 2026-07-27：正式 ZIP 为 `E:\QRtest\QuickRec-v1.9-win-x64.zip`，SHA256 为 `B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446`。
+- 2026-07-27：v1.9 已合并 `master`、创建发布标签并进入正式发布。
 - 本节只记录已发生的事实，不把规划项写成已验证。
 
 ## 14. 下一步
 
-1. 仅使用锁定候选包 `E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe` 作为发布源。
-2. 进入发布收口，复核 README、current、release notes、changelog、产物身份和回滚点。
-3. 在获得用户明确授权前，不提交、推送、打 tag 或创建 GitHub Release。
-4. 保留 D8 证据目录和 Windows 回收站中的受控样本，不清空回收站。
+1. 以 `v1.9` tag 和 GitHub Release 作为当前正式发布事实源。
+2. 保留 D8 证据目录和 Windows 回收站中的受控样本，不清空回收站。
+3. 下一轮迭代先进入 Review/Idea，不把 v1.9 非目标直接升级为确定需求。
 
 ## 15. 记录边界
 

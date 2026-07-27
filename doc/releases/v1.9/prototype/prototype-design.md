@@ -11,7 +11,7 @@
 | 设计基线 | `doc/releases/v1.8/prototype/` |
 | 原型入口 | `doc/releases/v1.9/prototype/index.html` |
 | 产品线边界 | 仅 QuickRec Full，不修改 QuickRec Lite |
-| 开发门禁 | 原型门禁已通过；仍需确认开发承接文档并获得业务实现授权 |
+| 开发门禁 | 原型门禁已通过；PyQt 实现与 D8 GUI 验收均已完成 |
 
 ## 2. 原型目标
 

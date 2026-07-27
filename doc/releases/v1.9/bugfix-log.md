@@ -188,3 +188,34 @@ E:\QRtest\QuickRec-v1.9-acceptance\d8-r4-20260726-235149\Evidence\D8-7-r4-persis
 - Ruff、mypy、compileall 和 `git diff --check`：通过。
 - R7 因视觉回退失效；R8 EXE SHA256 为 `CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47`。
 - R8 GUI 截图：`E:\QRtest\QuickRec-v1.9-acceptance\d8-r7-recycle-20260727-094500\Evidence\D8-R8-recording-modes-peer.png`。
+
+## BUG-V19-006 GitHub CI 打包环境缺少 FFmpeg 工具
+
+### 基本信息
+
+- 发现阶段：v1.9 `test` 分支发布前 CI
+- 发现日期：2026-07-27
+- 影响范围：GitHub Windows packaging smoke
+- 严重度：发布工程阻塞
+- 数据影响：无；业务代码、锁定 R8 包和用户数据均不受影响
+
+### 根因
+
+本地 `ffmpeg/` 按项目约定被 `.gitignore` 排除，`build_std.spec` 又明确要求
+`ffmpeg.exe` 和 `ffprobe.exe`。GitHub 全新检出环境没有本地二进制，因此 PyInstaller
+在收集数据文件前失败。基础测试、ruff、mypy 和 coverage 任务均已通过。
+
+### 修复
+
+- Windows packaging job 使用 Chocolatey 准备真实 FFmpeg 工具。
+- 从实际安装目录复制 FFmpeg/FFprobe，不打包 Chocolatey shim。
+- 复制后校验两个文件大小并实际执行 `-version`。
+- 新增打包配置测试，确保工具准备步骤位于 PyInstaller 构建之前。
+
+### 自动化与复验
+
+- 本地 packaging：`14 passed, 654 deselected`。
+- Ruff 与 `git diff --check`：通过。
+- GitHub CI 运行 `30242128803`：
+  - Windows test baseline：通过。
+  - Windows packaging smoke：通过。

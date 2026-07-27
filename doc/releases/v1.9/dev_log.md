@@ -194,3 +194,13 @@
 - 真实 120 FPS 自检平均 `119.586 FPS`、最低连续一秒 `117 FPS`；设置保存失败保持页面和未保存状态。
 - 受控真实回收站验证覆盖仅删除项目、独占视频回收和部分失败三条链路；共享视频未被误删，失败后项目保留。
 - D8 完成 24/24，无发布阻塞，可以进入发布收口；本轮未提交、推送、打 tag 或创建 Release。
+
+## 2026-07-27 发布收口
+
+- v1.9 功能提交 `42192cf` 已集成到 `test`。
+- 首次 GitHub packaging smoke 暴露 CI 环境未准备 FFmpeg/FFprobe；业务测试任务通过。
+- 增加真实媒体工具准备与校验后，CI 修复提交 `31ef380` 推送 `test`。
+- GitHub CI 运行 `30242128803` 的 Windows test baseline 与 Windows packaging smoke 全部通过。
+- 正式 ZIP：`E:\QRtest\QuickRec-v1.9-win-x64.zip`。
+- ZIP SHA256：`B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446`。
+- R8 EXE、FFmpeg 和 FFprobe 哈希复核一致，QuickRec Lite 保持干净。

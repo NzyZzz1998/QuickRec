@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 当前状态 | D0-D7 已完成；D8 GUI 手动验收部分通过，等待最终补证 |
+| 当前状态 | D0-D8 已完成；GUI 手动验收 24/24 通过，已进入正式发布 |
 | 目标版本 | QuickRec Full v1.9 |
-| 当前正式版本 | v1.8 |
+| 当前正式版本 | v1.9 |
 | 上游需求 | `IDEA-001`、`IDEA-010` |
 | 需求池 | `doc/archive/ideas/mypm-idea-pool-post-v1.8-2026-07-26.md` |
 | 需求事实源 | `doc/releases/v1.9/prd.md` |
@@ -15,7 +15,7 @@
 | 开发日志 | `doc/releases/v1.9/dev_log.md` |
 | 缺陷记录 | 验收发现真实缺陷时创建 `doc/releases/v1.9/bugfix-log.md` |
 | 当前 Full 路径 | `E:\codex\QuickRec` |
-| 当前 Full 分支 | `feature/v1.9-project-workspace` |
+| 当前 Full 分支 | `master`；历史实施分支为本地 `feature/v1.9-project-workspace` |
 | 当前基线 | `v1.8` / `57dbc524a31526e5f4ff64b305169c329a200c69` |
 | QuickRec Lite | `E:\codex\QuickRec-Lite`，不进入本版范围 |
 | PRD 确认 | 已获得（2026-07-26） |

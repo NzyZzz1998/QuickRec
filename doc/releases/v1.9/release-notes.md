@@ -1,6 +1,7 @@
-# QuickRec Full v1.9 发布说明（候选）
+# QuickRec Full v1.9 发布说明
 
-> 当前状态：候选版本，D8 GUI 手动验收已通过，等待发布授权。
+> 当前状态：正式发布
+> 发布日期：2026-07-27
 
 ## 版本定位
 
@@ -53,18 +54,19 @@ v1.9 为 QuickRec Full 增加本地项目工作区基础。项目用于组织全
 - Packaging：`13 passed, 654 deselected`。
 - Ruff、mypy、compileall、原型回归和基础启动：通过。
 - GUI 手动验收：通过。三档 DPI、三类录制、四类音频、真实 120 FPS 自检、设置成功/失败、诊断、素材库和三条真实回收站路径均已补证。
-- 锁定候选：`E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe`，SHA256 `CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47`。
+- 正式发布源：`E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe`，SHA256 `CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47`。
 
-## 候选资产
+## 发布资产
 
 | 文件 | 大小 | SHA256 |
 | --- | ---: | --- |
 | `QuickRec.exe` | `7,047,836` 字节 | `CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47` |
 | `ffmpeg.exe` | `99,264,000` 字节 | `5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D` |
 | `ffprobe.exe` | `99,066,368` 字节 | `192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D` |
+| `QuickRec-v1.9-win-x64.zip` | `160,233,267` 字节 | `B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446` |
 
-分发目录包含 `244` 个文件，共 `428,210,468` 字节。正式 ZIP、tag 和 GitHub
-Release 将在发布授权后生成；不得用其他构建替代上述 R8 验收身份。
+分发目录包含 `244` 个文件，共 `428,210,468` 字节。正式 ZIP 直接由锁定 R8
+目录生成；不得用其他构建替代上述验收身份。
 
 ## 回滚
 

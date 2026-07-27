@@ -3,18 +3,16 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.8。
+- 当前公开正式版本：v1.9。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.8`。
+- 当前发布标签：`v1.9`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前候选版本：v1.9。
-- 当前候选集成分支：`test`。
-- 验收实施分支：`feature/v1.9-project-workspace`，不单独推送远端。
-- 当前阶段：v1.8 正式发布；v1.9 已完成 D8 GUI 验收，等待发布授权。
+- 当前阶段：v1.9 已完成 D8 GUI 验收并正式发布。
+- 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
-## v1.9 候选状态
+## v1.9 发布状态
 
 v1.9 的唯一产品主线是本地项目工作区基础：
 
@@ -35,7 +33,7 @@ v1.9 的唯一产品主线是本地项目工作区基础：
 - 三类录制、四类音频、真实 120 FPS 自检、三档 DPI、设置成功/失败、诊断和安全删除：通过。
 - QuickRec Lite：未修改。
 
-锁定候选：
+正式发布资产：
 
 ```text
 目录: E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec
@@ -43,15 +41,11 @@ EXE: E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe
 EXE SHA256: CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47
 FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
 FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9-win-x64.zip
+ZIP SHA256: B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446
 ```
 
-尚未执行：
-
-- 合并 `master`。
-- 创建或推送 `v1.9` tag。
-- 创建 v1.9 GitHub Release。
-
-## v1.9 候选文档
+## v1.9 当前文档
 
 - PRD：[releases/v1.9/prd.md](releases/v1.9/prd.md)
 - 实施计划：[releases/v1.9/dev_plan.md](releases/v1.9/dev_plan.md)
@@ -62,7 +56,7 @@ FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
 - 发布说明：[releases/v1.9/release-notes.md](releases/v1.9/release-notes.md)
 - 变更日志：[releases/v1.9/changelog.md](releases/v1.9/changelog.md)
 
-## v1.8 发布状态
+## v1.8 历史发布状态
 
 v1.8 包含两条正式产品主线：
 
@@ -112,7 +106,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.8：当前公开正式版，也是 v1.9 的直接回滚点。
+- v1.9：当前公开正式版。
+- v1.8：历史稳定版，也是 v1.9 的直接回滚点。
 - v1.7：历史稳定版，也是 v1.8 的直接回滚点。
 - v1.6.1：待入库恢复补丁。
 - v1.6：中央素材库。
@@ -127,7 +122,7 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 4. 保留 `%APPDATA%\QuickRec\recordings.json`、待入库记录和所有录制视频。
 5. 回滚不需要删除素材索引；工作台布局和 120 FPS 能力缓存可由旧版本忽略。
 
-## v1.9 候选回滚
+## v1.9 回滚
 
 1. 退出 QuickRec。
 2. 使用 `v1.8` tag 或 v1.8 GitHub Release 发布包。
