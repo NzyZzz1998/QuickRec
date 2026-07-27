@@ -26,9 +26,9 @@ v1.9 的唯一产品主线是本地项目工作区基础：
 当前门禁：
 
 - D8 GUI 验收：`24/24`，通过。
-- 全量测试：`642 passed, 25 deselected, 52 subtests passed`。
+- 全量测试：`642 passed, 26 deselected, 52 subtests passed`。
 - 总体覆盖率：`85.76%`。
-- Packaging：`13 passed, 654 deselected`。
+- Packaging：`14 passed, 654 deselected`。
 - Ruff、mypy、compileall、UTF-8、文档链接和 `git diff --check`：通过。
 - 三类录制、四类音频、真实 120 FPS 自检、三档 DPI、设置成功/失败、诊断和安全删除：通过。
 - QuickRec Lite：未修改。

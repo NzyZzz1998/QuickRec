@@ -63,7 +63,7 @@
 - [ ] `config.get("shortcut_area")` 返回 "Ctrl+Shift+A"
 - [ ] 旧版配置文件加载后新字段有默认值
 
-**任务文件**：[task-v1.1-config.md](task-v1.1-config.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 
@@ -103,7 +103,7 @@
 - [ ] 选区太小时显示红色提示
 - [ ] 确认对话框正常弹出和响应
 
-**任务文件**：[task-v1.1-area_selector.md](task-v1.1-area_selector.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 
@@ -149,7 +149,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] 音频设备初始化失败时不影响视频录制
 - [ ] WAV 文件可被 FFmpeg 正确识别
 
-**任务文件**：[task-v1.1-audio_capturer.md](task-v1.1-audio_capturer.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 #### 3.2 FFmpeg 打包配置
 
@@ -165,7 +165,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] `ffmpeg/ffmpeg.exe -version` 可运行
 - [ ] 打包后 `dist/QuickRec/_internal/ffmpeg/ffmpeg.exe` 存在
 
-**任务文件**：[task-v1.1-ffmpeg_setup.md](task-v1.1-ffmpeg_setup.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 
@@ -240,7 +240,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] FFmpeg 不可用时：视频文件正常，log 警告
 - [ ] 区域录制设置 RECORDING 模式
 
-**任务文件**：[task-v1.1-recorder_manager.md](task-v1.1-recorder_manager.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 
@@ -308,7 +308,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] 暂停状态"暂停"变为"继续"
 - [ ] Toast 通知显示"打开文件夹"按钮
 
-**任务文件**：[task-v1.1-tray_icon.md](task-v1.1-tray_icon.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 #### 5.2 toolbar.py 更新
 
@@ -354,7 +354,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] 5 秒后自动关闭
 - [ ] 点击按钮后停止自动关闭定时器
 
-**任务文件**：[task-v1.1-toolbar.md](task-v1.1-toolbar.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 #### 5.3 settings_dialog.py 更新
 
@@ -388,7 +388,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] 保存时正确写入新配置项
 - [ ] 旧版配置加载后新字段有默认值
 
-**任务文件**：[task-v1.1-settings_dialog.md](task-v1.1-settings_dialog.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 
@@ -460,7 +460,7 @@ AudioCapturer:  # 系统声音: soundcard, 麦克风: pyaudio
 - [ ] 编码完成后 Toast 通知 + 结果条
 - [ ] 结果条"打开"按钮功能正常
 
-**任务文件**：[task-v1.1-main.md](task-v1.1-main.md)
+**任务清单**：[v1.1 模块进度](../releases/v1.4/progress.md#v11-模块进度)
 
 ---
 

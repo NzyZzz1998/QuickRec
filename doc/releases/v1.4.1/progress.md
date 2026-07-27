@@ -3,8 +3,8 @@
 > 版本: v1.4.x  
 > 创建时间: 2026-07-09  
 > 状态: 通过 / 可发布  
-> PRD: [PRD-diagnostic-export-v1.4.x.md](PRD-diagnostic-export-v1.4.x.md)  
-> Dev Plan: [dev_plan_v1.4.x.md](dev_plan_v1.4.x.md)  
+> PRD: [prd.md](prd.md)
+> Dev Plan: [dev_plan.md](dev_plan.md)
 
 ---
 
@@ -23,8 +23,8 @@
 
 ## 2. D0 文档与分支准备
 
-- [x] 确认用户已通过 `doc/PRD-diagnostic-export-v1.4.x.md`
-- [x] 确认用户已通过 `doc/dev_plan_v1.4.x.md`
+- [x] 确认用户已通过 `doc/releases/v1.4.1/prd.md`
+- [x] 确认用户已通过 `doc/releases/v1.4.1/dev_plan.md`
 - [x] 确认用户已通过 `doc/progress_v1.4.x.md`
 - [x] 确认本功能目标版本为 Full v1.4.x 后续版本
 - [x] 确认不进入 Lite v0 必做范围

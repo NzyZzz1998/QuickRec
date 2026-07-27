@@ -181,9 +181,9 @@ python -m compileall -q src scripts
 
 当前 v1.9 的最终验证结果：
 
-- 全量测试：`523 passed, 1 skipped, 25 deselected, 48 subtests passed`
-- Packaging：`13 passed`
-- 总体覆盖率：`85.39%`
+- 全量测试：`642 passed, 26 deselected, 52 subtests passed`
+- Packaging：`14 passed`
+- 总体覆盖率：`85.76%`
 - Ruff、mypy、compileall、UTF-8 和 `git diff --check`：通过
 - 100%、125%、150% DPI：通过
 - 音画最大绝对偏移：`18.229 ms`，门槛 `40 ms`

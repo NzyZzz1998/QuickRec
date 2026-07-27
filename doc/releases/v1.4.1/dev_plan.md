@@ -3,7 +3,7 @@
 > 版本: v1.4.x  
 > 创建时间: 2026-07-09  
 > 状态: 已完成 / 已验收通过  
-> PRD: [PRD-diagnostic-export-v1.4.x.md](PRD-diagnostic-export-v1.4.x.md)  
+> PRD: [prd.md](prd.md)
 > 目标分支: Full `test` 开发，验收通过后合并 `master`  
 
 ---
@@ -65,7 +65,7 @@
 **详细步骤**：
 
 1. 从 Full `test` 分支开始开发。
-2. 确认 `doc/PRD-diagnostic-export-v1.4.x.md` 为需求基线。
+2. 确认 `doc/releases/v1.4.1/prd.md` 为需求基线。
 3. 确认本计划和 `progress_v1.4.x.md` 已被用户确认。
 4. 检查当前工作区未提交文件，避免覆盖 Lite 文档或历史发布文档。
 

@@ -49,9 +49,9 @@ v1.9 为 QuickRec Full 增加本地项目工作区基础。项目用于组织全
 
 ## 验证状态
 
-- 全量测试：`642 passed, 25 deselected, 52 subtests passed`。
+- 全量测试：`642 passed, 26 deselected, 52 subtests passed`。
 - 总体覆盖率：`85.76%`。
-- Packaging：`13 passed, 654 deselected`。
+- Packaging：`14 passed, 654 deselected`。
 - Ruff、mypy、compileall、原型回归和基础启动：通过。
 - GUI 手动验收：通过。三档 DPI、三类录制、四类音频、真实 120 FPS 自检、设置成功/失败、诊断、素材库和三条真实回收站路径均已补证。
 - 正式发布源：`E:\QRtest\QuickRec-v1.9-dist-r8\QuickRec\QuickRec.exe`，SHA256 `CFE6BC6D4FC342039A0B410B4CF80FC9A34BAD47908F671AE9161FC63F7A9D47`。

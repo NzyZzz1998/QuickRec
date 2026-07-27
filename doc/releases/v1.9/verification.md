@@ -28,11 +28,11 @@ R8 由 v1.9 最终业务源生成，并在发布提交前完成身份锁定。R0
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 全量测试与覆盖率 | `python -m pytest --cov=src --cov-report=term --cov-fail-under=80 -q` | `642 passed, 25 deselected, 52 subtests passed` |
+| 全量测试与覆盖率 | `python -m pytest --cov=src --cov-report=term --cov-fail-under=80 -q` | `642 passed, 26 deselected, 52 subtests passed` |
 | 总体覆盖率 | 同上 | `85.76%` |
 | 项目模块定向回归 | 项目存储、服务、查询、UI、录制、恢复、删除与主流程联合测试 | `151 passed` |
 | 项目模块覆盖率 | 项目服务、删除、录制、项目页和对话框 | `84.60%` |
-| Packaging | `python -m pytest -m packaging -q` | `13 passed, 654 deselected` |
+| Packaging | `python -m pytest -m packaging -q` | `14 passed, 654 deselected` |
 | Ruff | `python -m ruff check src tests scripts` | 通过 |
 | Mypy | `python -m mypy` | 通过，检查 30 个源文件 |
 | Compileall | `python -m compileall -q src tests scripts` | 通过 |
