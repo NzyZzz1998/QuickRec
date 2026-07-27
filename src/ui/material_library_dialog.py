@@ -71,6 +71,7 @@ class MaterialLibraryDialog(QDialog):
     PAGE_SIZE = 50
     add_to_project_requested = pyqtSignal(object)
     pending_retry_succeeded = pyqtSignal(object)
+    return_to_project_requested = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -100,6 +101,8 @@ class MaterialLibraryDialog(QDialog):
         self._library_load_error = ""
         self._pending_load_error = ""
         self._library_recovered = False
+        self._source_project_id = ""
+        self._source_material_id = ""
         self._task: _LibraryTask | None = None
         self._task_result_handler: Callable[[Any], None] | None = None
         self._close_when_task_done = False
@@ -120,6 +123,22 @@ class MaterialLibraryDialog(QDialog):
             subtitle = QLabel("跨保存路径查找、筛选并整理本地录制素材。")
             subtitle.setObjectName("pageSubtitle")
             root.addWidget(subtitle)
+
+        self._project_context_bar = QFrame()
+        self._project_context_bar.setProperty("role", "panel")
+        context_layout = QHBoxLayout(self._project_context_bar)
+        context_layout.setContentsMargins(12, 8, 12, 8)
+        self._project_context_label = QLabel("")
+        self._project_context_label.setWordWrap(True)
+        context_layout.addWidget(self._project_context_label, 1)
+        self._btn_return_to_project = QPushButton("返回项目")
+        self._btn_return_to_project.clicked.connect(
+            self._on_return_to_project
+        )
+        set_button_icon(self._btn_return_to_project, "folder")
+        context_layout.addWidget(self._btn_return_to_project)
+        self._project_context_bar.hide()
+        root.addWidget(self._project_context_bar)
 
         query_row = QHBoxLayout()
         self._search_input = QLineEdit()
@@ -344,6 +363,58 @@ class MaterialLibraryDialog(QDialog):
 
     def set_current_save_dir(self, path: str | Path) -> None:
         self._current_save_dir = Path(path) if path else None
+
+    def focus_material(
+        self,
+        material_id: str,
+        *,
+        source_project_id: str = "",
+        source_project_name: str = "",
+    ) -> bool:
+        self._query_timer.stop()
+        self._apply_query_controls()
+        self._source_project_id = str(source_project_id)
+        self._source_material_id = str(material_id)
+        if self._source_project_id:
+            label = source_project_name or self._source_project_id
+            self._project_context_label.setText(
+                f"来自项目“{label}” · 已定位对应的全局素材记录"
+            )
+            self._project_context_bar.show()
+        else:
+            self._project_context_bar.hide()
+        self.reload()
+        if self._select_material_by_id(material_id):
+            return True
+        self._query_session.reset()
+        self._restore_query_controls()
+        self._refresh_query()
+        found = self._select_material_by_id(material_id)
+        if not found:
+            self._status_label.setText(
+                "该项目引用尚未关联到全局素材记录；未创建任何占位记录。"
+            )
+        return found
+
+    def _select_material_by_id(self, material_id: str) -> bool:
+        for row, (kind, item) in enumerate(self._rows):
+            if (
+                kind == "material"
+                and isinstance(item, MaterialItem)
+                and item.id == material_id
+            ):
+                self._table.selectRow(row)
+                self._table.scrollToItem(self._table.item(row, 0))
+                return True
+        return False
+
+    def _on_return_to_project(self) -> None:
+        if self._source_project_id and self._source_material_id:
+            self.return_to_project_requested.emit(
+                self._source_project_id,
+                self._source_material_id,
+            )
+        self._project_context_bar.hide()
 
     def reload(self) -> None:
         selected = self._selected_entry()

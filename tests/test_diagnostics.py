@@ -78,6 +78,18 @@ class TestDiagnostics(unittest.TestCase):
             ffmpeg={},
             audio={},
             window={},
+            thumbnail={
+                "paused": False,
+                "active_count": 1,
+                "worker_count": 2,
+                "recent": [
+                    {
+                        "material_id": "material-1",
+                        "state": "failed",
+                        "error_code": "ffmpeg_timeout",
+                    }
+                ],
+            },
             errors=[],
             recent_logs=[],
         )
@@ -87,6 +99,8 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIn(f"version: {APP_VERSION}", text)
         self.assertIn("save_path: unknown", text)
         self.assertIn("state: unknown", text)
+        self.assertIn("[thumbnail]", text)
+        self.assertIn("ffmpeg_timeout", text)
 
     def test_export_diagnostic_file_writes_utf8_named_file(self):
         target = self.base_path / "diagnostics"

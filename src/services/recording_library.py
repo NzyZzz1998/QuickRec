@@ -71,10 +71,35 @@ class RelinkCandidate:
     match_reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MaterialLibraryChangeEvent:
+    reason: str
+    items: tuple[MaterialItem, ...]
+
+
 class RecordingLibraryService:
     def __init__(self, library_path: str | Path):
         self.library_path = Path(library_path)
         self._lock = threading.RLock()
+        self._change_listeners: list[
+            Callable[[MaterialLibraryChangeEvent], None]
+        ] = []
+
+    def subscribe_changes(
+        self,
+        listener: Callable[[MaterialLibraryChangeEvent], None],
+    ) -> None:
+        with self._lock:
+            if listener not in self._change_listeners:
+                self._change_listeners.append(listener)
+
+    def unsubscribe_changes(
+        self,
+        listener: Callable[[MaterialLibraryChangeEvent], None],
+    ) -> None:
+        with self._lock:
+            if listener in self._change_listeners:
+                self._change_listeners.remove(listener)
 
     def load(self) -> LibraryLoadResult:
         return load_library(self.library_path)
@@ -92,12 +117,15 @@ class RecordingLibraryService:
         loaded = self.load()
         if not loaded.ok:
             return LibraryWriteResult(False, self.library_path, error=loaded.error)
-        return save_library(
+        result = save_library(
             self.library_path,
             [item, *loaded.items],
             migration_sources=loaded.migration_sources,
             extensions=loaded.extensions,
         )
+        if result.ok:
+            self._notify_changes("added", (item,))
+        return result
 
     def add_recording(
         self,
@@ -266,6 +294,7 @@ class RecordingLibraryService:
         )
         if result.ok:
             logger.info("material relink completed: id=%s", item_id)
+            self._notify_changes("relinked", (item,))
         else:
             logger.warning("material relink failed: id=%s error=%s", item_id, result.error)
         return result
@@ -398,12 +427,26 @@ class RecordingLibraryService:
     def commit_migration(self, preview: MigrationResult) -> LibraryWriteResult:
         if not preview.ok:
             return LibraryWriteResult(False, self.library_path, error=preview.error)
-        return save_library(
+        loaded = self.load()
+        existing_ids = (
+            {item.id for item in loaded.items}
+            if loaded.ok
+            else set()
+        )
+        result = save_library(
             self.library_path,
             preview.items,
             migration_sources=preview.migration_sources,
             extensions=preview.library_extensions,
         )
+        if result.ok:
+            added = tuple(
+                item for item in preview.items
+                if item.id not in existing_ids
+            )
+            if added:
+                self._notify_changes("migration_committed", added)
+        return result
 
     @_synchronized
     def migrate_v1_history(self, source_path: str | Path, *, imported_at: str) -> MigrationResult:
@@ -521,7 +564,13 @@ class RecordingLibraryService:
             )
             for item in scan.items:
                 item.imported_at = imported_at
-            return save_library(self.library_path, scan.items)
+            result = save_library(self.library_path, scan.items)
+            if result.ok and scan.items:
+                self._notify_changes(
+                    "scan_committed",
+                    tuple(scan.items),
+                )
+            return result
         existing_paths = {normalize_windows_path(item.file_path) for item in loaded.items}
         added: list[MaterialItem] = []
         for item in scan.items:
@@ -530,12 +579,15 @@ class RecordingLibraryService:
             item.imported_at = imported_at
             existing_paths.add(normalize_windows_path(item.file_path))
             added.append(item)
-        return save_library(
+        result = save_library(
             self.library_path,
             [*added, *loaded.items],
             migration_sources=loaded.migration_sources,
             extensions=loaded.extensions,
         )
+        if result.ok and added:
+            self._notify_changes("scan_committed", tuple(added))
+        return result
 
     def find_relink_candidates(self, scanned_items: list[MaterialItem]) -> list[RelinkCandidate]:
         loaded = self.load()
@@ -578,6 +630,25 @@ class RecordingLibraryService:
                     )
                 )
         return candidates
+
+    def _notify_changes(
+        self,
+        reason: str,
+        items: tuple[MaterialItem, ...],
+    ) -> None:
+        listeners = list(self._change_listeners)
+        if not listeners:
+            return
+        event = MaterialLibraryChangeEvent(reason, items)
+        for listener in listeners:
+            try:
+                listener(event)
+            except Exception as exc:
+                logger.warning(
+                    "material change listener failed: reason=%s error=%s",
+                    reason,
+                    exc,
+                )
 
 
 def _created_at_from_quickrec_name(path: Path) -> str | None:

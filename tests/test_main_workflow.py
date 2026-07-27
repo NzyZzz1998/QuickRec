@@ -298,6 +298,21 @@ class FakeProjectPage:
 
 
 class TestQuickRecAppWorkflow(unittest.TestCase):
+    def test_open_folder_selects_unicode_path_with_separate_explorer_arguments(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._toolbar = None
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video = Path(temp_dir) / "中文 空格" / "候选包样本.mp4"
+            video.parent.mkdir()
+            video.write_bytes(b"video")
+
+            with patch("subprocess.run") as run:
+                app._on_open_folder(str(video))
+
+        run.assert_called_once_with(
+            ["explorer.exe", "/select,", str(video)]
+        )
+
     class _ReadinessBox:
         AcceptRole = 1
         ActionRole = 2

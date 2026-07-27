@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PyQt5.QtCore import QRect, Qt
@@ -288,4 +289,108 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         window.set_current_page(WorkbenchPage.MATERIALS)
 
         assert app._material_library_dialog._query_session.visible_count == 100
+        app._thumbnail_coordinator.shutdown(wait=True)
         window.close()
+
+
+def test_project_material_navigation_round_trip_uses_stable_ids():
+    class IdleWorkflow:
+        @staticmethod
+        def get_state():
+            return main.RecorderState.IDLE
+
+    class FakeWorkbench:
+        def __init__(self) -> None:
+            self.pages: list[WorkbenchPage] = []
+
+        def open(self, page):
+            self.pages.append(page)
+            return SimpleNamespace(current_page=page)
+
+    class FakeLibrary:
+        def __init__(self) -> None:
+            self.focused = None
+
+        def reload(self) -> None:
+            return
+
+        def focus_material(self, material_id, **context):
+            self.focused = (material_id, context)
+            return True
+
+    class FakeProjectPage:
+        def __init__(self) -> None:
+            self.focused = None
+
+        def reload(self) -> None:
+            return
+
+        def focus_project_material(self, project_id, material_id):
+            self.focused = (project_id, material_id)
+            return True
+
+    app = main.QuickRecApp.__new__(main.QuickRecApp)
+    app._workbench = FakeWorkbench()
+    app._workflow = IdleWorkflow()
+    app._material_library_dialog = FakeLibrary()
+    app._project_page = FakeProjectPage()
+    app._recording_page = None
+    app._project_service = SimpleNamespace(
+        get_project=lambda _project_id: SimpleNamespace(
+            ok=True,
+            project=SimpleNamespace(name="项目 A"),
+        )
+    )
+
+    app._show_project_material_in_library("project-1", "material-1")
+    app._return_to_project_material("project-1", "material-1")
+
+    assert app._workbench.pages == [
+        WorkbenchPage.MATERIALS,
+        WorkbenchPage.PROJECTS,
+    ]
+    assert app._material_library_dialog.focused == (
+        "material-1",
+        {
+            "source_project_id": "project-1",
+            "source_project_name": "项目 A",
+        },
+    )
+    assert app._project_page.focused == ("project-1", "material-1")
+
+
+def test_workbench_hide_does_not_cancel_preview_and_recording_pauses_new_work():
+    class FakeThumbnailCoordinator:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def set_execution_paused(self, paused, *, reason=""):
+            self.calls.append((paused, reason))
+
+    class FakeWorkbench:
+        def __init__(self) -> None:
+            self.hidden = 0
+
+        def hide(self) -> None:
+            self.hidden += 1
+
+    app = main.QuickRecApp.__new__(main.QuickRecApp)
+    app._thumbnail_coordinator = FakeThumbnailCoordinator()
+    app._workbench = FakeWorkbench()
+    app._recording_page = None
+    app._recording_source = None
+    app._recording_mode = ""
+    app._active_project_recording_id = None
+
+    app._workbench.hide()
+
+    assert app._thumbnail_coordinator.calls == []
+
+    app._begin_recording_request("workbench", "fullscreen")
+    app._finish_recording_request(restore_workbench=False)
+
+    assert app._workbench.hidden == 2
+    assert app._thumbnail_coordinator.calls == [
+        (True, "recording_request_fullscreen"),
+        (False, "recording_request_finished"),
+    ]

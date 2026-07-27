@@ -15,7 +15,7 @@ import subprocess
 
 import pystray
 from PIL import Image, ImageDraw
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 logger = logging.getLogger("QuickRec")
@@ -248,7 +248,7 @@ class TrayIcon:
     def _handle_exit(self):
         if "exit" in self._callbacks:
             self._callbacks["exit"]()
-        QTimer.singleShot(0, self._stop_icon)
+        self._stop_icon()
         QApplication.quit()
 
     def _stop_icon(self):

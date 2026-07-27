@@ -3,16 +3,60 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.9。
+- 当前公开正式版本：v1.9.1。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.9`。
+- 当前发布标签：`v1.9.1`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前阶段：v1.9 已完成 D8 GUI 验收并正式发布。
+- 当前阶段：v1.9.1 已完成 D8 GUI 验收并正式发布。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
-## v1.9 发布状态
+## v1.9.1 发布状态
+
+v1.9.1 在 v1.9 项目工作区基础上补齐静态首帧预览和基础素材使用闭环：
+
+- 项目素材列表和详情区提供静态首帧。
+- 支持刷新单条预览和批量重建。
+- 支持项目页打开视频、定位所在目录，以及跳转并选中全局素材库记录。
+- 文件缺失时保留历史预览并显示缺失状态。
+- 缓存独立保存于 `%LOCALAPPDATA%\QuickRec\ThumbnailCache\v1`，默认上限 500 MiB。
+- 项目、项目索引和中央素材索引不写入预览路径或任务状态。
+
+当前门禁：
+
+- D8 GUI 验收：通过。
+- 全量测试：`714 passed, 26 deselected, 52 subtests passed`。
+- 总体覆盖率：`85.89%`。
+- Packaging：`14 passed, 726 deselected`。
+- Ruff、mypy、compileall、UTF-8、文档链接和 `git diff --check`：通过。
+- 实际首帧、文件打开、中文空格路径定位、DPI 布局和托盘退出：通过。
+- QuickRec Lite：未修改。
+
+正式发布资产：
+
+```text
+目录: E:\QRtest\QuickRec-v1.9.1-rc6-dist\QuickRec
+EXE: E:\QRtest\QuickRec-v1.9.1-rc6-dist\QuickRec\QuickRec.exe
+EXE SHA256: 33B7DB1EB96007D75BF933D5600EE813A03ED42390CAE3A93EAD0960B9C6C7D9
+FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9.1-win-x64.zip
+ZIP SHA256: FD859E4EA0065119BE06C382BCE3FA2C76774DB23711C21023F0A95A1F61F588
+```
+
+## v1.9.1 当前文档
+
+- PRD：[releases/v1.9.1/prd.md](releases/v1.9.1/prd.md)
+- 实施计划：[releases/v1.9.1/dev_plan.md](releases/v1.9.1/dev_plan.md)
+- 进度：[releases/v1.9.1/progress.md](releases/v1.9.1/progress.md)
+- 自动化验证：[releases/v1.9.1/verification.md](releases/v1.9.1/verification.md)
+- GUI 验收：[releases/v1.9.1/manual-verification.md](releases/v1.9.1/manual-verification.md)
+- 缺陷记录：[releases/v1.9.1/bugfix-log.md](releases/v1.9.1/bugfix-log.md)
+- 发布说明：[releases/v1.9.1/release-notes.md](releases/v1.9.1/release-notes.md)
+- 变更日志：[releases/v1.9.1/changelog.md](releases/v1.9.1/changelog.md)
+
+## v1.9 历史发布状态
 
 v1.9 的唯一产品主线是本地项目工作区基础：
 
@@ -45,7 +89,7 @@ ZIP: E:\QRtest\QuickRec-v1.9-win-x64.zip
 ZIP SHA256: B683D051D8D0442B3503F8C5AD9FAE96F8D5538510E890E98F48EB3A1562F446
 ```
 
-## v1.9 当前文档
+## v1.9 历史文档
 
 - PRD：[releases/v1.9/prd.md](releases/v1.9/prd.md)
 - 实施计划：[releases/v1.9/dev_plan.md](releases/v1.9/dev_plan.md)
@@ -106,7 +150,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.9：当前公开正式版。
+- v1.9.1：当前公开正式版。
+- v1.9：历史稳定版，也是 v1.9.1 的直接回滚点。
 - v1.8：历史稳定版，也是 v1.9 的直接回滚点。
 - v1.7：历史稳定版，也是 v1.8 的直接回滚点。
 - v1.6.1：待入库恢复补丁。
@@ -129,3 +174,11 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 3. 保留 `%APPDATA%\QuickRec\projects.json`、所有 `project.qrproj`、`.bak`、中央素材索引和视频。
 4. v1.8 会忽略 v1.9 项目数据，不需要删除或迁移。
 5. 不移动或重写 `v1.8` 及更早 tag。
+
+## v1.9.1 回滚
+
+1. 退出 QuickRec。
+2. 使用 `v1.9` tag 或 v1.9 GitHub Release 发布包。
+3. 保留首帧缓存也可安全回滚；v1.9 会忽略该缓存。
+4. 保留项目文件、项目索引、中央素材索引和所有视频。
+5. 不移动或重写 `v1.9` 及更早 tag。

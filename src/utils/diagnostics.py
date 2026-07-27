@@ -15,6 +15,7 @@ SECTION_DEFAULT_KEYS = {
     "ffmpeg": ("path", "exists", "frozen"),
     "audio": ("requested_source", "final_source", "degraded", "reason"),
     "window": ("hwnd", "title", "mode", "stage", "reason", "rect", "foreground_result"),
+    "thumbnail": ("paused", "active_count", "worker_count", "recent"),
 }
 
 
@@ -40,6 +41,7 @@ class DiagnosticSnapshot:
     ffmpeg: dict[str, Any] = field(default_factory=dict)
     audio: dict[str, Any] = field(default_factory=dict)
     window: dict[str, Any] = field(default_factory=dict)
+    thumbnail: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     recent_logs: list[str] = field(default_factory=list)
 
@@ -140,7 +142,7 @@ def initialize_file_logging(
         return DiagnosticDirectoryResult(False, result.path, str(exc))
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    file_handler._quickrec_diagnostic_handler = True
+    setattr(file_handler, "_quickrec_diagnostic_handler", True)
     logger.addHandler(file_handler)
     if used_fallback:
         logger.warning(f"diagnostic directory fallback: {result.path}")
@@ -172,6 +174,7 @@ def format_snapshot_text(snapshot: DiagnosticSnapshot) -> str:
         ("ffmpeg", snapshot.ffmpeg),
         ("audio", snapshot.audio),
         ("window", snapshot.window),
+        ("thumbnail", snapshot.thumbnail),
     ]
     for title, values in sections:
         lines.extend(_format_section(title, values))

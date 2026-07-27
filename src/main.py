@@ -45,8 +45,11 @@ from services.material_ingestion import (
 )
 from services.pending_recordings import PendingRecordingService
 from services.project_library import ProjectLibraryService
+from services.project_materials import ProjectMaterialQueryService
 from services.project_recording import ProjectRecordingCoordinator
 from services.recording_library import MigrationResult, RecordingLibraryService
+from services.thumbnail_coordinator import ThumbnailCoordinator
+from services.thumbnail_service import ThumbnailService
 from ui.area_selector import AreaSelector
 from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
@@ -74,6 +77,7 @@ from utils.media_metadata import resolve_ffmpeg_path
 from utils.pending_recording_store import resolve_pending_file
 from utils.project_store import resolve_project_index
 from utils.recording_library_store import resolve_library_file
+from utils.thumbnail_cache import ThumbnailCacheStore, resolve_thumbnail_cache_root
 from version import APP_VERSION
 
 logging.basicConfig(
@@ -171,6 +175,7 @@ class QuickRecApp:
             self._project_service,
             self._library_service,
         )
+        self._ensure_thumbnail_runtime()
         self._pending_ids_by_output: dict[str, str] = {}
         self._material_library_dialog = None
         self._project_page = None
@@ -265,7 +270,35 @@ class QuickRecApp:
         self._setup_hotkeys()
         self._hotkey.start_listening()
 
+    def _ensure_thumbnail_runtime(self) -> None:
+        if getattr(self, "_thumbnail_coordinator", None) is not None:
+            return
+        cache_root = (
+            resolve_thumbnail_cache_root()
+            if hasattr(self, "_app")
+            else Path(self._config.config_path).parent
+            / "ThumbnailCache"
+            / "v1"
+        )
+        self._thumbnail_cache = ThumbnailCacheStore(
+            cache_root
+        )
+        self._thumbnail_service = ThumbnailService(self._thumbnail_cache)
+        self._thumbnail_coordinator = ThumbnailCoordinator(
+            self._thumbnail_service,
+            max_workers=2,
+            max_retries=1,
+        )
+        self._project_material_query = ProjectMaterialQueryService(
+            self._thumbnail_cache,
+            coordinator=self._thumbnail_coordinator,
+        )
+        prune = self._thumbnail_cache.prune()
+        if not prune.ok:
+            logger.warning("thumbnail cache prune failed: %s", prune.error)
+
     def _create_workbench_window(self) -> WorkbenchWindow:
+        self._ensure_thumbnail_runtime()
         self._recording_page = RecordingPage(self._config)
         self._material_library_dialog = MaterialLibraryDialog(
             self._library_service,
@@ -277,6 +310,8 @@ class QuickRecApp:
         self._project_page = ProjectPage(
             self._project_service,
             self._library_service,
+            material_query=self._project_material_query,
+            thumbnail_coordinator=self._thumbnail_coordinator,
         )
         self._settings_page = SettingsDialog(
             self._config,
@@ -326,6 +361,16 @@ class QuickRecApp:
         )
         self._project_page.open_diagnostics_requested.connect(
             lambda: self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+        )
+        self._project_page.open_material_requested.connect(self._on_open_file)
+        self._project_page.open_material_folder_requested.connect(
+            self._on_open_folder
+        )
+        self._project_page.show_material_in_library_requested.connect(
+            self._show_project_material_in_library
+        )
+        self._material_library_dialog.return_to_project_requested.connect(
+            self._return_to_project_material
         )
 
         self._settings_page.config_saved.connect(self._on_workbench_config_saved)
@@ -453,6 +498,44 @@ class QuickRecApp:
                 linked.error,
             )
 
+    def _show_project_material_in_library(
+        self,
+        project_id: str,
+        material_id: str,
+    ) -> None:
+        loaded = self._project_service.get_project(project_id)
+        project_name = (
+            loaded.project.name
+            if loaded.ok and loaded.project is not None
+            else project_id
+        )
+        self._show_workbench(WorkbenchPage.MATERIALS)
+        if self._material_library_dialog is not None:
+            found = self._material_library_dialog.focus_material(
+                material_id,
+                source_project_id=project_id,
+                source_project_name=project_name,
+            )
+            if not found:
+                logger.warning(
+                    "project material not found in global library: "
+                    "project_id=%s material_id=%s",
+                    project_id,
+                    material_id,
+                )
+
+    def _return_to_project_material(
+        self,
+        project_id: str,
+        material_id: str,
+    ) -> None:
+        self._show_workbench(WorkbenchPage.PROJECTS)
+        if self._project_page is not None:
+            self._project_page.focus_project_material(
+                project_id,
+                material_id,
+            )
+
     def _on_start_project_recording(self, project_id: str, mode: str) -> None:
         if mode not in {"fullscreen", "region", "window"}:
             QMessageBox.warning(
@@ -498,6 +581,20 @@ class QuickRecApp:
             RecorderState.PAUSED: "paused",
             RecorderState.SAVING: "saving",
         }.get(state, "idle")
+        thumbnail_coordinator = getattr(
+            self,
+            "_thumbnail_coordinator",
+            None,
+        )
+        if thumbnail_coordinator is not None:
+            preview_pause_required = (
+                state != RecorderState.IDLE
+                or getattr(self, "_recording_source", None) is not None
+            )
+            thumbnail_coordinator.set_execution_paused(
+                preview_pause_required,
+                reason=f"recorder_{state_name}",
+            )
         mode = getattr(getattr(self, "_recorder", None), "get_mode", lambda: "")()
         page.set_recording_state(
             state_name,
@@ -518,6 +615,16 @@ class QuickRecApp:
     def _begin_recording_request(self, source: str, mode: str) -> None:
         self._recording_source = source
         self._recording_mode = mode
+        thumbnail_coordinator = getattr(
+            self,
+            "_thumbnail_coordinator",
+            None,
+        )
+        if thumbnail_coordinator is not None:
+            thumbnail_coordinator.set_execution_paused(
+                True,
+                reason=f"recording_request_{mode}",
+            )
         page = getattr(self, "_recording_page", None)
         if page is not None:
             page.clear_result()
@@ -544,6 +651,16 @@ class QuickRecApp:
         source = getattr(self, "_recording_source", None)
         self._recording_source = None
         self._recording_mode = ""
+        thumbnail_coordinator = getattr(
+            self,
+            "_thumbnail_coordinator",
+            None,
+        )
+        if thumbnail_coordinator is not None:
+            thumbnail_coordinator.set_execution_paused(
+                False,
+                reason="recording_request_finished",
+            )
         if restore_workbench and source in {"workbench", "project"}:
             target_page = (
                 WorkbenchPage.PROJECTS
@@ -1050,7 +1167,7 @@ class QuickRecApp:
             path = os.path.normpath(output_path or toolbar_path)
             try:
                 if os.path.exists(path):
-                    subprocess.run(["explorer.exe", f"/select,{path}"])
+                    subprocess.run(["explorer.exe", "/select,", path])
                 else:
                     os.startfile(os.path.dirname(path))
             except Exception:
@@ -1356,6 +1473,16 @@ class QuickRecApp:
             config_context["capture_120"] = capability_runtime.diagnostic_context()
         recorder_context = context.get("recorder", {})
         failure = recorder_context.get("last_failure_reason", "")
+        thumbnail_coordinator = getattr(
+            self,
+            "_thumbnail_coordinator",
+            None,
+        )
+        thumbnail_context = (
+            thumbnail_coordinator.diagnostic_summary(limit=10)
+            if thumbnail_coordinator is not None
+            else {}
+        )
         snapshot = DiagnosticSnapshot(
             app={
                 "version": APP_VERSION,
@@ -1368,6 +1495,7 @@ class QuickRecApp:
             ffmpeg=context.get("ffmpeg", {}),
             audio=context.get("audio", {}),
             window=context.get("window", {}),
+            thumbnail=thumbnail_context,
             errors=[failure] if failure else [],
             recent_logs=read_recent_log_lines(directory / "quickrec.log", max_lines=100),
         )
@@ -1440,6 +1568,13 @@ class QuickRecApp:
         self._hide_toolbar()
         if hasattr(self, "_workbench"):
             self._workbench.hide()
+        thumbnail_coordinator = getattr(
+            self,
+            "_thumbnail_coordinator",
+            None,
+        )
+        if thumbnail_coordinator is not None:
+            thumbnail_coordinator.shutdown(cancel_pending=True, wait=True)
         self._hotkey.stop_listening()
         self._tray.hide()
         self._app.quit()

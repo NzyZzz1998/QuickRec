@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -107,6 +108,24 @@ class TestTrayIcon(unittest.TestCase):
         tray._handle_diagnostics()
 
         self.assertEqual(calls, ["recording", "settings", "materials", "diagnostics"])
+
+    def test_exit_stops_pystray_before_quitting_qapplication(self):
+        calls = []
+
+        class FakeIcon:
+            def stop(self):
+                calls.append("stop")
+
+        tray = TrayIcon(callbacks={"exit": lambda: calls.append("callback")})
+        tray._icon = FakeIcon()
+
+        with patch(
+            "ui.tray_icon.QApplication.quit",
+            side_effect=lambda: calls.append("quit"),
+        ):
+            tray._handle_exit()
+
+        self.assertEqual(calls, ["callback", "stop", "quit"])
 
 
 if __name__ == "__main__":
