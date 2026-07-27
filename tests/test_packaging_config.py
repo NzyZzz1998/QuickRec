@@ -6,6 +6,7 @@ pytestmark = pytest.mark.packaging
 
 
 SPEC_TEXT = Path("build_std.spec").read_text(encoding="utf-8")
+CI_TEXT = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 
 
 def test_pyinstaller_spec_includes_ffmpeg_binary():
@@ -104,3 +105,18 @@ def test_pyinstaller_spec_builds_quickrec_onedir_app():
     assert "COLLECT(" in SPEC_TEXT
     assert "console=True" in SPEC_TEXT
     assert "upx=True" in SPEC_TEXT
+
+
+def test_ci_stages_real_ffmpeg_tools_before_pyinstaller_build():
+    stage_marker = "- name: Stage FFmpeg tools"
+    build_marker = "- name: Build onedir package"
+
+    assert stage_marker in CI_TEXT
+    assert build_marker in CI_TEXT
+    assert CI_TEXT.index(stage_marker) < CI_TEXT.index(build_marker)
+    assert "choco install ffmpeg" in CI_TEXT
+    assert "ffmpeg\\ffmpeg.exe" in CI_TEXT
+    assert "ffmpeg\\ffprobe.exe" in CI_TEXT
+    assert "Get-Item -LiteralPath $path" in CI_TEXT
+    assert "& \"ffmpeg\\ffmpeg.exe\" -version" in CI_TEXT
+    assert "& \"ffmpeg\\ffprobe.exe\" -version" in CI_TEXT
