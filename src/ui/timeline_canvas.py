@@ -1,0 +1,725 @@
+"""多轨时间线的坐标换算、吸附、绘制与拖动候选。"""
+
+from __future__ import annotations
+
+import copy
+import json
+from dataclasses import dataclass, replace
+
+from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen
+from PyQt5.QtWidgets import QWidget
+
+from utils.timeline_model import Timeline, TimelineClip, TimelineTrack
+from utils.timeline_view import (
+    DEFAULT_TIMELINE_PIXELS_PER_SECOND,
+    normalize_timeline_zoom,
+)
+
+
+@dataclass(frozen=True)
+class TimelineScale:
+    pixels_per_second: float = DEFAULT_TIMELINE_PIXELS_PER_SECOND
+    origin_us: int = 0
+    track_header_width: int = 148
+
+    def normalized(self) -> TimelineScale:
+        return replace(
+            self,
+            pixels_per_second=(
+                DEFAULT_TIMELINE_PIXELS_PER_SECOND
+                * normalize_timeline_zoom(
+                    float(self.pixels_per_second)
+                    / DEFAULT_TIMELINE_PIXELS_PER_SECOND
+                )
+            ),
+            origin_us=max(0, int(self.origin_us)),
+            track_header_width=max(96, int(self.track_header_width)),
+        )
+
+    def time_to_x(self, time_us: int) -> float:
+        return self.track_header_width + (
+            (int(time_us) - self.origin_us)
+            / 1_000_000
+            * self.pixels_per_second
+        )
+
+    def x_to_time(self, x: float) -> int:
+        return max(
+            0,
+            round(
+                self.origin_us
+                + (float(x) - self.track_header_width)
+                / self.pixels_per_second
+                * 1_000_000
+            ),
+        )
+
+    def zoom_at(self, x: float, factor: float) -> TimelineScale:
+        anchor_us = self.x_to_time(x)
+        new_pixels = (
+            DEFAULT_TIMELINE_PIXELS_PER_SECOND
+            * normalize_timeline_zoom(
+                self.pixels_per_second
+                * float(factor)
+                / DEFAULT_TIMELINE_PIXELS_PER_SECOND
+            )
+        )
+        origin = round(
+            anchor_us
+            - (float(x) - self.track_header_width)
+            / new_pixels
+            * 1_000_000
+        )
+        return TimelineScale(
+            new_pixels,
+            max(0, origin),
+            self.track_header_width,
+        )
+
+
+def snap_time_us(
+    value_us: int,
+    *,
+    candidates: list[int] | tuple[int, ...],
+    grid_us: int,
+    tolerance_us: int,
+    enabled: bool = True,
+) -> int:
+    value = max(0, int(value_us))
+    if not enabled:
+        return value
+    options = [max(0, int(item)) for item in candidates]
+    if grid_us > 0:
+        options.append(round(value / grid_us) * grid_us)
+    nearest = min(options, key=lambda item: abs(item - value), default=value)
+    return nearest if abs(nearest - value) <= max(0, tolerance_us) else value
+
+
+class TimelineCanvas(QWidget):
+    """轻量自绘轨道画布；拖动期间不修改业务模型。"""
+
+    MATERIAL_MIME_TYPE = "application/x-quickrec-timeline-material"
+
+    clip_selected = pyqtSignal(str, str)
+    track_selected = pyqtSignal(str)
+    playhead_requested = pyqtSignal(int)
+    clip_move_requested = pyqtSignal(str, int, str)
+    material_drop_requested = pyqtSignal(str, bool, int, str)
+    invalid_drop = pyqtSignal(str)
+    zoom_changed = pyqtSignal(float, int)
+
+    ruler_height = 32
+    track_height = 54
+    track_header_width = 148
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("timelineCanvas")
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAcceptDrops(True)
+        self._timeline = Timeline("empty", [])
+        self._scale = TimelineScale(
+            track_header_width=self.track_header_width
+        )
+        self._playhead_us = 0
+        self._selected_clip_id: str | None = None
+        self._selected_track_id: str | None = None
+        self._drag_clip_id: str | None = None
+        self._drag_offset_us = 0
+        self._drag_candidate: tuple[int, str, bool, str] | None = None
+        self._material_drop_candidate: tuple[
+            int,
+            str,
+            bool,
+            str,
+        ] | None = None
+        self._editing_enabled = True
+        self._refresh_size()
+
+    @property
+    def track_count(self) -> int:
+        return len(self._timeline.tracks)
+
+    @property
+    def clip_count(self) -> int:
+        return len(self._timeline.clips)
+
+    @property
+    def scale(self) -> TimelineScale:
+        return self._scale
+
+    def set_timeline(self, timeline: Timeline) -> None:
+        self._timeline = copy.deepcopy(timeline)
+        valid_clip_ids = {item.clip_id for item in timeline.clips}
+        valid_track_ids = {item.track_id for item in timeline.tracks}
+        if self._selected_clip_id not in valid_clip_ids:
+            self._selected_clip_id = None
+        if self._selected_track_id not in valid_track_ids:
+            self._selected_track_id = (
+                self._ordered_tracks()[0].track_id
+                if timeline.tracks
+                else None
+            )
+        self._refresh_size()
+        self.update()
+
+    def set_playhead(self, value_us: int) -> None:
+        self._playhead_us = max(0, int(value_us))
+        self.update()
+
+    def set_editing_enabled(self, enabled: bool) -> None:
+        self._editing_enabled = bool(enabled)
+        if not self._editing_enabled:
+            self._drag_clip_id = None
+            self._drag_candidate = None
+            self._material_drop_candidate = None
+        self.update()
+
+    def set_zoom(self, zoom: float, *, anchor_x: float | None = None) -> None:
+        target = normalize_timeline_zoom(zoom)
+        current = (
+            self._scale.pixels_per_second
+            / DEFAULT_TIMELINE_PIXELS_PER_SECOND
+        )
+        if current <= 0:
+            current = 1.0
+        x = (
+            float(anchor_x)
+            if anchor_x is not None
+            else self.track_header_width + max(0, self.width() - self.track_header_width) / 2
+        )
+        self._scale = self._scale.zoom_at(x, target / current)
+        self._refresh_size()
+        self.zoom_changed.emit(target, self._scale.origin_us)
+        self.update()
+
+    def set_origin(self, origin_us: int) -> None:
+        self._scale = replace(
+            self._scale,
+            origin_us=max(0, int(origin_us)),
+        )
+        self.update()
+
+    def select_clip(self, clip_id: str | None) -> None:
+        self._selected_clip_id = clip_id
+        clip = self._clip_by_id(clip_id)
+        if clip is not None:
+            self._selected_track_id = clip.track_id
+        self.update()
+
+    def select_track(self, track_id: str | None) -> None:
+        self._selected_track_id = track_id
+        self.update()
+
+    def selected_track_id(self) -> str | None:
+        return self._selected_track_id
+
+    def selected_clip_id(self) -> str | None:
+        return self._selected_clip_id
+
+    def clip_rects(self) -> dict[str, QRectF]:
+        tracks = {
+            track.track_id: index
+            for index, track in enumerate(self._ordered_tracks())
+        }
+        rects: dict[str, QRectF] = {}
+        for clip in self._timeline.clips:
+            row = tracks.get(clip.track_id)
+            if row is None:
+                continue
+            x = self._scale.time_to_x(clip.timeline_start_us)
+            width = max(
+                8.0,
+                clip.timeline_duration_us
+                / 1_000_000
+                * self._scale.pixels_per_second,
+            )
+            rects[clip.clip_id] = QRectF(
+                x,
+                self.ruler_height + row * self.track_height + 7,
+                width,
+                self.track_height - 14,
+            )
+        return rects
+
+    def fit_timeline(self, viewport_width: int) -> float:
+        end_us = max(
+            (clip.timeline_end_us for clip in self._timeline.clips),
+            default=10_000_000,
+        )
+        available = max(100, int(viewport_width) - self.track_header_width - 24)
+        zoom = normalize_timeline_zoom(
+            available
+            / (end_us / 1_000_000)
+            / DEFAULT_TIMELINE_PIXELS_PER_SECOND
+        )
+        pixels = zoom * DEFAULT_TIMELINE_PIXELS_PER_SECOND
+        self._scale = TimelineScale(
+            pixels,
+            0,
+            self.track_header_width,
+        )
+        self._refresh_size()
+        self.zoom_changed.emit(zoom, 0)
+        self.update()
+        return zoom
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor("#F8FAFC"))
+        self._draw_ruler(painter)
+        self._draw_tracks(painter)
+        self._draw_clips(painter)
+        self._draw_material_drop_candidate(painter)
+        self._draw_playhead(painter)
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() != Qt.LeftButton:
+            super().mousePressEvent(event)
+            return
+        point = event.localPos()
+        clip = self._clip_at(point)
+        if clip is not None:
+            self._selected_clip_id = clip.clip_id
+            self._selected_track_id = clip.track_id
+            if self._editing_enabled:
+                self._drag_clip_id = clip.clip_id
+                self._drag_offset_us = max(
+                    0,
+                    self._scale.x_to_time(point.x()) - clip.timeline_start_us,
+                )
+            self.clip_selected.emit(clip.clip_id, clip.track_id)
+            self.update()
+            event.accept()
+            return
+        track = self._track_at(point.y())
+        if track is not None:
+            self._selected_track_id = track.track_id
+            self.track_selected.emit(track.track_id)
+        if point.x() >= self.track_header_width:
+            requested = self._scale.x_to_time(point.x())
+            self._playhead_us = requested
+            self.playhead_requested.emit(requested)
+        self.update()
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._drag_clip_id is None:
+            super().mouseMoveEvent(event)
+            return
+        clip = self._clip_by_id(self._drag_clip_id)
+        target_track = self._track_at(event.localPos().y())
+        if clip is None or target_track is None:
+            self._drag_candidate = None
+            self.update()
+            return
+        source_track = self._track_by_id(clip.track_id)
+        if source_track is None or source_track.kind != target_track.kind:
+            self._drag_candidate = (
+                clip.timeline_start_us,
+                target_track.track_id,
+                False,
+                "视频片段和音频片段只能在同类轨道之间移动",
+            )
+            self.update()
+            return
+        raw_start = max(
+            0,
+            self._scale.x_to_time(event.localPos().x()) - self._drag_offset_us,
+        )
+        candidates = [self._playhead_us]
+        for other in self._timeline.clips:
+            if other.clip_id == clip.clip_id:
+                continue
+            candidates.extend(
+                [other.timeline_start_us, other.timeline_end_us]
+            )
+        grid = self._grid_us()
+        tolerance = round(8 / self._scale.pixels_per_second * 1_000_000)
+        start = snap_time_us(
+            raw_start,
+            candidates=candidates,
+            grid_us=grid,
+            tolerance_us=tolerance,
+            enabled=not bool(event.modifiers() & Qt.AltModifier),
+        )
+        valid = not self._would_overlap(
+            clip,
+            target_track.track_id,
+            start,
+        )
+        self._drag_candidate = (
+            start,
+            target_track.track_id,
+            valid,
+            "" if valid else "目标位置与同轨道现有片段重叠",
+        )
+        self.update()
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() != Qt.LeftButton or self._drag_clip_id is None:
+            super().mouseReleaseEvent(event)
+            return
+        clip_id = self._drag_clip_id
+        candidate = self._drag_candidate
+        self._drag_clip_id = None
+        self._drag_candidate = None
+        if candidate is None:
+            self.update()
+            return
+        start, track_id, valid, reason = candidate
+        if valid:
+            self.clip_move_requested.emit(clip_id, start, track_id)
+        else:
+            self.invalid_drop.emit(reason)
+        self.update()
+        event.accept()
+
+    def wheelEvent(self, event) -> None:
+        if event.modifiers() & Qt.ControlModifier:
+            factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+            current_zoom = (
+                self._scale.pixels_per_second
+                / DEFAULT_TIMELINE_PIXELS_PER_SECOND
+            )
+            self.set_zoom(
+                current_zoom * factor,
+                anchor_x=event.pos().x(),
+            )
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def material_drop_target(
+        self,
+        x: float,
+        y: float,
+        *,
+        has_audio: bool,
+    ) -> tuple[int, str, bool, str]:
+        """计算素材拖入候选，不修改模型。"""
+        track = self._track_at(y)
+        start_us = self._scale.x_to_time(x)
+        if not self._editing_enabled:
+            return start_us, "", False, "当前项目为只读状态"
+        if track is None or x < self.track_header_width:
+            return start_us, "", False, "请把素材拖到视频轨或兼容音频轨"
+        if track.kind == "audio" and not has_audio:
+            return (
+                start_us,
+                track.track_id,
+                False,
+                "该素材没有可加入音频轨的音频流",
+            )
+        return start_us, track.track_id, True, ""
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasFormat(self.MATERIAL_MIME_TYPE):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:
+        payload = self._decode_material_payload(event.mimeData())
+        if payload is None:
+            event.ignore()
+            return
+        self._material_drop_candidate = self.material_drop_target(
+            event.pos().x(),
+            event.pos().y(),
+            has_audio=bool(payload.get("has_audio", False)),
+        )
+        if self._material_drop_candidate[2]:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+        self.update()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._material_drop_candidate = None
+        self.update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        payload = self._decode_material_payload(event.mimeData())
+        candidate = self._material_drop_candidate
+        self._material_drop_candidate = None
+        if payload is None or candidate is None:
+            event.ignore()
+            self.update()
+            return
+        start_us, track_id, valid, reason = candidate
+        if not valid:
+            self.invalid_drop.emit(reason)
+            event.ignore()
+            self.update()
+            return
+        self.material_drop_requested.emit(
+            str(payload["material_id"]),
+            bool(payload.get("has_audio", False)),
+            start_us,
+            track_id,
+        )
+        event.acceptProposedAction()
+        self.update()
+
+    def _draw_ruler(self, painter: QPainter) -> None:
+        painter.fillRect(
+            QRectF(0, 0, self.width(), self.ruler_height),
+            QColor("#EEF2F7"),
+        )
+        painter.setPen(QPen(QColor("#C7D0DE"), 1))
+        painter.drawLine(
+            QPointF(0, self.ruler_height - 1),
+            QPointF(self.width(), self.ruler_height - 1),
+        )
+        grid = self._grid_us()
+        start = (self._scale.origin_us // grid) * grid
+        end = self._scale.x_to_time(self.width())
+        font = QFont()
+        font.setPointSize(8)
+        painter.setFont(font)
+        current = start
+        while current <= end + grid:
+            x = self._scale.time_to_x(current)
+            painter.drawLine(
+                QPointF(x, self.ruler_height - 8),
+                QPointF(x, self.ruler_height),
+            )
+            painter.drawText(
+                QRectF(x + 3, 2, 70, self.ruler_height - 6),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                _format_ruler_time(current),
+            )
+            current += grid
+
+    def _draw_tracks(self, painter: QPainter) -> None:
+        for row, track in enumerate(self._ordered_tracks()):
+            y = self.ruler_height + row * self.track_height
+            selected = track.track_id == self._selected_track_id
+            painter.fillRect(
+                QRectF(0, y, self.width(), self.track_height),
+                QColor("#F7FAFF" if selected else "#FFFFFF"),
+            )
+            painter.fillRect(
+                QRectF(0, y, self.track_header_width, self.track_height),
+                QColor("#EAF1FC" if selected else "#F1F4F8"),
+            )
+            painter.setPen(QPen(QColor("#D8DEE8"), 1))
+            painter.drawLine(
+                QPointF(0, y + self.track_height - 1),
+                QPointF(self.width(), y + self.track_height - 1),
+            )
+            painter.drawLine(
+                QPointF(self.track_header_width, y),
+                QPointF(self.track_header_width, y + self.track_height),
+            )
+            painter.setPen(QColor("#172033"))
+            kind = "视频" if track.kind == "video" else "音频"
+            painter.drawText(
+                QRectF(12, y + 5, self.track_header_width - 20, 22),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                track.name,
+            )
+            painter.setPen(QColor("#7B8799"))
+            painter.drawText(
+                QRectF(12, y + 27, self.track_header_width - 20, 18),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                kind,
+            )
+
+    def _draw_clips(self, painter: QPainter) -> None:
+        candidate_clip = self._clip_by_id(self._drag_clip_id)
+        for clip in self._timeline.clips:
+            rect = self.clip_rects().get(clip.clip_id)
+            if rect is None:
+                continue
+            track = self._track_by_id(clip.track_id)
+            base = "#DCE8FF" if track and track.kind == "video" else "#DDF4E8"
+            border = "#2563EB" if track and track.kind == "video" else "#168653"
+            if clip.clip_id == self._selected_clip_id:
+                painter.setPen(QPen(QColor("#1457D9"), 2))
+            else:
+                painter.setPen(QPen(QColor(border), 1))
+            painter.setBrush(QColor(base))
+            painter.drawRoundedRect(rect, 5, 5)
+            painter.setPen(QColor("#172033"))
+            painter.drawText(
+                rect.adjusted(8, 4, -6, -4),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                clip.material_id,
+            )
+            if clip.link_group_id:
+                painter.setPen(QColor("#526077"))
+                painter.drawText(
+                    rect.adjusted(8, 20, -6, -2),
+                    Qt.AlignLeft | Qt.AlignBottom,
+                    "关联",
+                )
+        if candidate_clip is not None and self._drag_candidate is not None:
+            start, track_id, valid, _reason = self._drag_candidate
+            track_rows = {
+                track.track_id: index
+                for index, track in enumerate(self._ordered_tracks())
+            }
+            row = track_rows.get(track_id)
+            if row is not None:
+                rect = QRectF(
+                    self._scale.time_to_x(start),
+                    self.ruler_height + row * self.track_height + 7,
+                    max(
+                        8.0,
+                        candidate_clip.timeline_duration_us
+                        / 1_000_000
+                        * self._scale.pixels_per_second,
+                    ),
+                    self.track_height - 14,
+                )
+                painter.setPen(
+                    QPen(QColor("#168653" if valid else "#C73A35"), 2, Qt.DashLine)
+                )
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(rect, 5, 5)
+
+    def _draw_playhead(self, painter: QPainter) -> None:
+        x = self._scale.time_to_x(self._playhead_us)
+        painter.setPen(QPen(QColor("#E13B32"), 2))
+        painter.drawLine(
+            QPointF(x, self.ruler_height - 6),
+            QPointF(x, self.height()),
+        )
+
+    def _draw_material_drop_candidate(self, painter: QPainter) -> None:
+        candidate = self._material_drop_candidate
+        if candidate is None:
+            return
+        start_us, track_id, valid, _reason = candidate
+        rows = {
+            track.track_id: index
+            for index, track in enumerate(self._ordered_tracks())
+        }
+        row = rows.get(track_id)
+        if row is None:
+            return
+        x = self._scale.time_to_x(start_us)
+        y = self.ruler_height + row * self.track_height + 5
+        rect = QRectF(x, y, 120, self.track_height - 10)
+        color = QColor("#168653" if valid else "#C73A35")
+        color.setAlpha(55)
+        painter.setBrush(color)
+        painter.setPen(
+            QPen(
+                QColor("#168653" if valid else "#C73A35"),
+                2,
+                Qt.DashLine,
+            )
+        )
+        painter.drawRoundedRect(rect, 5, 5)
+
+    def _refresh_size(self) -> None:
+        total_end = max(
+            (clip.timeline_end_us for clip in self._timeline.clips),
+            default=30_000_000,
+        )
+        width = round(
+            self.track_header_width
+            + total_end / 1_000_000 * self._scale.pixels_per_second
+            + 120
+        )
+        height = self.ruler_height + len(self._timeline.tracks) * self.track_height
+        self.setMinimumSize(max(640, width), max(120, height))
+
+    def _ordered_tracks(self) -> list[TimelineTrack]:
+        videos = sorted(
+            (track for track in self._timeline.tracks if track.kind == "video"),
+            key=lambda item: item.order,
+        )
+        audios = sorted(
+            (track for track in self._timeline.tracks if track.kind == "audio"),
+            key=lambda item: item.order,
+        )
+        return [*videos, *audios]
+
+    def _track_at(self, y: float) -> TimelineTrack | None:
+        row = int((float(y) - self.ruler_height) // self.track_height)
+        tracks = self._ordered_tracks()
+        return tracks[row] if 0 <= row < len(tracks) else None
+
+    def _clip_at(self, point: QPointF) -> TimelineClip | None:
+        rects = self.clip_rects()
+        for clip in reversed(self._timeline.clips):
+            rect = rects.get(clip.clip_id)
+            if rect is not None and rect.contains(point):
+                return clip
+        return None
+
+    def _clip_by_id(self, clip_id: str | None) -> TimelineClip | None:
+        return next(
+            (
+                clip
+                for clip in self._timeline.clips
+                if clip.clip_id == clip_id
+            ),
+            None,
+        )
+
+    @classmethod
+    def _decode_material_payload(cls, mime_data) -> dict[str, object] | None:
+        if not mime_data.hasFormat(cls.MATERIAL_MIME_TYPE):
+            return None
+        try:
+            payload = json.loads(
+                bytes(mime_data.data(cls.MATERIAL_MIME_TYPE)).decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(payload, dict) or not str(
+            payload.get("material_id", "")
+        ).strip():
+            return None
+        return payload
+
+    def _track_by_id(self, track_id: str) -> TimelineTrack | None:
+        return next(
+            (
+                track
+                for track in self._timeline.tracks
+                if track.track_id == track_id
+            ),
+            None,
+        )
+
+    def _would_overlap(
+        self,
+        clip: TimelineClip,
+        track_id: str,
+        start_us: int,
+    ) -> bool:
+        end_us = start_us + clip.timeline_duration_us
+        for other in self._timeline.clips:
+            if other.clip_id == clip.clip_id or other.track_id != track_id:
+                continue
+            if start_us < other.timeline_end_us and end_us > other.timeline_start_us:
+                return True
+        return False
+
+    def _grid_us(self) -> int:
+        pixels = self._scale.pixels_per_second
+        if pixels >= 400:
+            return 250_000
+        if pixels >= 160:
+            return 500_000
+        if pixels >= 70:
+            return 1_000_000
+        return 5_000_000
+
+
+def _format_ruler_time(value_us: int) -> str:
+    total_seconds = max(0, int(value_us)) // 1_000_000
+    minutes, seconds = divmod(total_seconds, 60)
+    return f"{minutes:02d}:{seconds:02d}"

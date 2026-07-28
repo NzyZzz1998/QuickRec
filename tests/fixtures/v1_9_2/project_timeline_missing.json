@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "project_id": "project-timeline-missing",
+  "name": "v1.9.1 无时间线项目",
+  "description": "验证旧项目只读查看时不写入时间线",
+  "created_at": "2026-07-28T10:00:00+08:00",
+  "updated_at": "2026-07-28T10:00:00+08:00",
+  "archived_at": null,
+  "materials": [
+    {
+      "material_id": "material-a",
+      "last_known_path": "E:\\QRtest\\sample-a.mp4",
+      "file_name": "sample-a.mp4",
+      "added_at": "2026-07-28T10:01:00+08:00",
+      "metadata_snapshot": {
+        "duration_sec": 1.0
+      },
+      "extensions": {}
+    }
+  ],
+  "extensions": {
+    "future.project": {
+      "preserve": true
+    }
+  }
+}

@@ -230,6 +230,15 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         def get_mode():
             return main.RecordMode.FULLSCREEN
 
+    class TimelineEditor:
+        @staticmethod
+        def refresh_project(_project_id):
+            return None
+
+        @staticmethod
+        def set_recording_active(_active):
+            return None
+
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         config = ConfigManager.__new__(ConfigManager)
@@ -257,6 +266,7 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         app._project_page = None
         app._settings_page = None
         app._diagnostic_page = None
+        app._timeline_editor = TimelineEditor()
 
         with patch("ui.settings_dialog.is_autostart_enabled", return_value=False):
             window = app._create_workbench_window()

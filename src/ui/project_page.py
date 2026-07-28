@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -40,6 +41,7 @@ from services.project_materials import (
 )
 from services.project_query import ProjectQueryCriteria, ProjectQueryEngine
 from services.recording_library import RecordingLibraryService
+from services.timeline_commands import TimelineCommandService
 from ui.design_system import set_button_icon
 from ui.project_dialogs import (
     MaterialPickerDialog,
@@ -83,6 +85,8 @@ class ProjectPage(QWidget):
     open_material_requested = pyqtSignal(str)
     open_material_folder_requested = pyqtSignal(str)
     show_material_in_library_requested = pyqtSignal(str, str)
+    open_timeline_requested = pyqtSignal(str)
+    project_content_changed = pyqtSignal(str)
     delete_finished = pyqtSignal(object)
 
     PROJECT_ID_ROLE = Qt.UserRole
@@ -96,6 +100,9 @@ class ProjectPage(QWidget):
         *,
         material_query: ProjectMaterialQueryService | None = None,
         thumbnail_coordinator=None,
+        timeline_command_provider: (
+            Callable[[str], TimelineCommandService] | None
+        ) = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("projectPage")
@@ -103,6 +110,7 @@ class ProjectPage(QWidget):
         self._material_service = material_service
         self._material_query = material_query
         self._thumbnail_coordinator = thumbnail_coordinator
+        self._timeline_command_provider = timeline_command_provider
         self._query = ProjectQueryEngine()
         self._deletion = (
             ProjectDeletionCoordinator(project_service, material_service)
@@ -136,6 +144,11 @@ class ProjectPage(QWidget):
     def selected_project_id(self) -> str | None:
         item = self._project_list.currentItem()
         return str(item.data(self.PROJECT_ID_ROLE)) if item is not None else None
+
+    def focus_project(self, project_id: str) -> bool:
+        """公开的项目定位接口，供应用协调器恢复项目上下文。"""
+        self.reload()
+        return self._select_project(project_id)
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -225,6 +238,18 @@ class ProjectPage(QWidget):
         self._btn_delete.setToolTip("项目和可选独占视频只会移入 Windows 回收站")
         set_button_icon(self._btn_delete, "trash")
         header.addWidget(self._btn_delete)
+        self._btn_enter_timeline = QPushButton("进入剪辑")
+        self._btn_enter_timeline.setProperty("role", "primary")
+        self._btn_enter_timeline.setToolTip(
+            "在独立剪辑工作台打开当前项目；主工作台继续保留"
+        )
+        self._btn_enter_timeline.clicked.connect(self._on_enter_timeline)
+        set_button_icon(
+            self._btn_enter_timeline,
+            "play",
+            color="#FFFFFF",
+        )
+        header.addWidget(self._btn_enter_timeline)
         layout.addLayout(header)
 
         form = QFormLayout()
@@ -698,6 +723,11 @@ class ProjectPage(QWidget):
             self._current_project is not None
             and self._deletion is not None
             and self._current_health == "available"
+        )
+        self._btn_enter_timeline.setEnabled(
+            self._current_project is not None
+            and bool(self._current_project.materials)
+            and self._current_health in {"available", "read_only"}
         )
         self._sync_material_action()
 
@@ -1472,6 +1502,8 @@ class ProjectPage(QWidget):
         if self.selected_project_id == target_id:
             self.reload()
             self._select_project(target_id)
+        if not result.duplicate:
+            self.project_content_changed.emit(target_id)
         self._status_label.setText(
             "素材已在项目中" if result.duplicate else "素材已加入项目"
         )
@@ -1545,26 +1577,62 @@ class ProjectPage(QWidget):
         item = self._material_table.item(row, 0)
         assert item is not None
         material_id = str(item.data(self.MATERIAL_ID_ROLE))
+        commands = (
+            self._timeline_command_provider(project_id)
+            if self._timeline_command_provider is not None
+            else TimelineCommandService(self._service, project_id)
+        )
+        affected_clip_ids = commands.material_clip_ids(material_id)
+        if affected_clip_ids:
+            prompt = (
+                f"该素材正被 {len(affected_clip_ids)} 个时间线片段使用。\n\n"
+                "继续将同时从项目移除素材引用和这些时间线片段；"
+                "原视频与全局素材记录都会保留。是否继续？"
+            )
+        else:
+            prompt = (
+                "只移除当前项目中的引用，原视频和全局素材记录都会保留。"
+                "继续吗？"
+            )
         if QMessageBox.question(
             self,
             "从项目移除素材",
-            "只移除当前项目中的引用，原视频和全局素材记录都会保留。继续吗？",
+            prompt,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         ) != QMessageBox.Yes:
             return
-        result = self._service.remove_material(project_id, material_id)
+        result = commands.remove_project_material(
+            material_id,
+            confirmed=True,
+        )
         if not result.ok:
             self._show_error("移除失败", result.error)
             return
         self.reload()
         self._select_project(project_id)
-        self._status_label.setText("已从项目移除；原视频保持不变")
+        self.project_content_changed.emit(project_id)
+        if affected_clip_ids:
+            self._status_label.setText(
+                f"已移除素材引用和 {len(affected_clip_ids)} 个时间线片段；"
+                "原视频保持不变"
+            )
+        else:
+            self._status_label.setText("已从项目移除；原视频保持不变")
 
     def _emit_recording(self, mode: str) -> None:
         project_id = self.selected_project_id
         if project_id is not None:
             self.start_recording_requested.emit(project_id, mode)
+
+    def _on_enter_timeline(self) -> None:
+        project_id = self.selected_project_id
+        if (
+            project_id is not None
+            and self._current_project is not None
+            and bool(self._current_project.materials)
+        ):
+            self.open_timeline_requested.emit(project_id)
 
     def _show_error(self, title: str, message: str) -> None:
         self._status_label.setText(f"{title}：{message}")

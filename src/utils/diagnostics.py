@@ -16,6 +16,16 @@ SECTION_DEFAULT_KEYS = {
     "audio": ("requested_source", "final_source", "degraded", "reason"),
     "window": ("hwnd", "title", "mode", "stage", "reason", "rect", "foreground_result"),
     "thumbnail": ("paused", "active_count", "worker_count", "recent"),
+    "playback": (
+        "backend",
+        "backend_version",
+        "state",
+        "timeline_schema",
+        "video_tracks",
+        "audio_tracks",
+        "clips",
+        "last_error_kind",
+    ),
 }
 
 
@@ -42,6 +52,7 @@ class DiagnosticSnapshot:
     audio: dict[str, Any] = field(default_factory=dict)
     window: dict[str, Any] = field(default_factory=dict)
     thumbnail: dict[str, Any] = field(default_factory=dict)
+    playback: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     recent_logs: list[str] = field(default_factory=list)
 
@@ -175,6 +186,7 @@ def format_snapshot_text(snapshot: DiagnosticSnapshot) -> str:
         ("audio", snapshot.audio),
         ("window", snapshot.window),
         ("thumbnail", snapshot.thumbnail),
+        ("playback", snapshot.playback),
     ]
     for title, values in sections:
         lines.extend(_format_section(title, values))

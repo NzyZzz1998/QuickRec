@@ -173,6 +173,31 @@ class TestProjectLibraryService(unittest.TestCase):
         self.assertEqual(result.stage, "project")
         self.assertEqual(before, after)
 
+    def test_index_failure_rolls_back_project_candidate_exactly(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service, project_path = self._created_service(temp_dir)
+            before = project_path.read_bytes()
+            loaded = service.get_project("project-1")
+            self.assertTrue(loaded.ok)
+            candidate = loaded.project
+            candidate.name = "不能留下"
+
+            with patch(
+                "services.project_library.save_project_index",
+                side_effect=OSError("index denied"),
+            ):
+                result = service.commit_project_candidate(
+                    "project-1",
+                    candidate,
+                )
+
+            after = project_path.read_bytes()
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.stage, "index")
+        self.assertTrue(result.rolled_back)
+        self.assertEqual(after, before)
+
     def test_external_modification_blocks_silent_overwrite(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             service, project_path = self._created_service(temp_dir)

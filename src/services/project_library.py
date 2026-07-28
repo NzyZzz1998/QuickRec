@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import os
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -38,6 +40,8 @@ class ProjectOperationResult:
     project_written: bool = False
     index_written: bool = False
     duplicate: bool = False
+    rolled_back: bool = False
+    rollback_error: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +57,13 @@ class _WritableProject:
     entry: ProjectIndexEntry
     project: ProjectFile
     path: Path
+
+
+@dataclass(frozen=True)
+class _ProjectSnapshot:
+    payload: bytes
+    accessed_ns: int
+    modified_ns: int
 
 
 class ProjectLibraryService:
@@ -84,6 +95,47 @@ class ProjectLibraryService:
                 error="project is not registered",
             )
         return load_project(entry.file_path)
+
+    def get_entry(self, project_id: str) -> ProjectIndexEntry | None:
+        """返回中央索引中的当前项目条目副本。"""
+        entry = self._find_entry(project_id)
+        return copy.deepcopy(entry) if entry is not None else None
+
+    def commit_project_candidate(
+        self,
+        project_id: str,
+        candidate: ProjectFile,
+        *,
+        expected_modified_ns: int | None = None,
+    ) -> ProjectOperationResult:
+        """在外部冲突检查后提交完整候选，并保持项目与索引一致。"""
+        with self._lock:
+            prepared, error = self._prepare_write(project_id)
+            if error is not None:
+                return error
+            assert prepared is not None
+            if candidate.project_id != project_id:
+                return ProjectOperationResult(
+                    False,
+                    "validate",
+                    prepared.path,
+                    prepared.project,
+                    prepared.entry,
+                    "candidate project_id does not match",
+                )
+            if (
+                expected_modified_ns is not None
+                and prepared.entry.file_modified_ns != expected_modified_ns
+            ):
+                return ProjectOperationResult(
+                    False,
+                    "external_conflict",
+                    prepared.path,
+                    prepared.project,
+                    prepared.entry,
+                    "project changed after the editing session was opened",
+                )
+            return self._commit(prepared, copy.deepcopy(candidate))
 
     def create_project(
         self,
@@ -684,6 +736,22 @@ class ProjectLibraryService:
         candidate: ProjectFile,
     ) -> ProjectOperationResult:
         try:
+            stat = prepared.path.stat()
+            snapshot = _ProjectSnapshot(
+                prepared.path.read_bytes(),
+                stat.st_atime_ns,
+                stat.st_mtime_ns,
+            )
+        except Exception as exc:
+            return ProjectOperationResult(
+                False,
+                "project",
+                prepared.path,
+                prepared.project,
+                prepared.entry,
+                f"project snapshot failed: {exc}",
+            )
+        try:
             written = save_project(prepared.path, candidate)
         except Exception as exc:
             return ProjectOperationResult(
@@ -710,20 +778,40 @@ class ProjectLibraryService:
             for item in prepared.index.entries
             if item.project_id != candidate.project_id
         ]
-        indexed = save_project_index(
-            self.index_path,
-            [entry, *remaining],
-            extensions=prepared.index.extensions,
-        )
-        if not indexed.ok:
+        try:
+            indexed = save_project_index(
+                self.index_path,
+                [entry, *remaining],
+                extensions=prepared.index.extensions,
+            )
+            index_error = "" if indexed.ok else indexed.error
+        except Exception as exc:
+            indexed = None
+            index_error = str(exc)
+        if indexed is None or not indexed.ok:
+            try:
+                _restore_project_snapshot(prepared.path, snapshot)
+            except Exception as rollback_exc:
+                return ProjectOperationResult(
+                    False,
+                    "rollback",
+                    prepared.path,
+                    candidate,
+                    entry,
+                    f"index write failed: {index_error}; "
+                    f"project rollback failed: {rollback_exc}",
+                    project_written=True,
+                    rollback_error=str(rollback_exc),
+                )
             return ProjectOperationResult(
                 False,
                 "index",
                 prepared.path,
-                candidate,
-                entry,
-                indexed.error,
+                prepared.project,
+                prepared.entry,
+                index_error,
                 project_written=True,
+                rolled_back=True,
             )
         return ProjectOperationResult(
             True,
@@ -769,3 +857,27 @@ def _restore(project: ProjectFile, now: str) -> None:
 
 def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _restore_project_snapshot(path: Path, snapshot: _ProjectSnapshot) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}-rollback-",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(snapshot.payload)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, path)
+        os.utime(
+            path,
+            ns=(snapshot.accessed_ns, snapshot.modified_ns),
+        )
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)

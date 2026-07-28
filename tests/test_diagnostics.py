@@ -90,6 +90,15 @@ class TestDiagnostics(unittest.TestCase):
                     }
                 ],
             },
+            playback={
+                "backend": "PyAV",
+                "backend_version": "18.0.0",
+                "state": "paused",
+                "timeline_schema": 1,
+                "video_tracks": 2,
+                "audio_tracks": 2,
+                "clips": 4,
+            },
             errors=[],
             recent_logs=[],
         )
@@ -101,6 +110,9 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIn("state: unknown", text)
         self.assertIn("[thumbnail]", text)
         self.assertIn("ffmpeg_timeout", text)
+        self.assertIn("[playback]", text)
+        self.assertIn("backend: PyAV", text)
+        self.assertIn("timeline_schema: 1", text)
 
     def test_export_diagnostic_file_writes_utf8_named_file(self):
         target = self.base_path / "diagnostics"

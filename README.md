@@ -1,34 +1,65 @@
 # QuickRec Full
 
-> 面向 Windows 的本地屏幕录制与素材管理工具。支持全屏、区域和窗口录制，
-> 四类音频模式、中央素材库、诊断导出，以及统一工作台与单显示器
-> 1080p120 全屏录制能力。
+> 面向 Windows 的本地屏幕录制、素材管理与项目创作工具。支持全屏、区域和
+> 窗口录制，四类音频模式、中央素材库、项目工作区、可播放多轨时间线、
+> 诊断导出，以及单显示器 1080p120 全屏录制能力。
 
-[![正式版本](https://img.shields.io/badge/正式版本-v1.9.1-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.1)
+[![正式版本](https://img.shields.io/badge/正式版本-v1.9.2-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.2)
 ![发布状态](https://img.shields.io/badge/状态-正式发布-16A34A)
 ![平台](https://img.shields.io/badge/平台-Windows-111827)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB)
-![测试](https://img.shields.io/badge/v1.9.1_tests-714%20passed-16A34A)
-![覆盖率](https://img.shields.io/badge/v1.9.1_coverage-85.89%25-16A34A)
+![测试](https://img.shields.io/badge/v1.9.2_tests-867%20passed-16A34A)
+![覆盖率](https://img.shields.io/badge/v1.9.2_coverage-83.56%25-16A34A)
 
 ## 版本状态
 
 | 产品线 | 状态 | 分支 / 标签 | 说明 |
 | --- | --- | --- | --- |
-| QuickRec Full v1.9.1 | **当前正式版** | `master` / `v1.9.1` | 项目素材预览与基础使用闭环 |
+| QuickRec Full v1.9.2 | **当前正式版** | `master` / `v1.9.2` | 可播放多轨时间线 |
+| QuickRec Full v1.9.1 | 历史稳定版 | `v1.9.1` | 项目素材预览与基础使用闭环 |
 | QuickRec Full v1.9 | 历史稳定版 | `v1.9` | 项目工作区基础 |
 | QuickRec Full v1.8 | 历史稳定版 | `v1.8` | 统一工作台、视觉改版和 1080p120 |
-| QuickRec Full v1.7 | 历史稳定版 | `v1.7` | v1.8 的直接回滚点 |
 | QuickRec Lite | 独立维护 | `E:\codex\QuickRec-Lite` | 轻量产品线，不属于本工作区 |
 
-v1.9.1 已完成开发、自动化门禁、D8 GUI 验收和正式发布。v1.9 是当前直接回滚点。
+v1.9.2 已完成开发、自动化门禁、D10 GUI 与真实媒体验收和正式发布。
+v1.9.1 是当前直接回滚点。
 
-- [下载 QuickRec Full v1.9.1](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.1)
+- [下载 QuickRec Full v1.9.2](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.2)
 - [查看当前事实入口](doc/current.md)
-- [查看 v1.9.1 发布进度](doc/releases/v1.9.1/progress.md)
-- [查看 v1.9.1 验收记录](doc/releases/v1.9.1/manual-verification.md)
-- [查看 v1.8 进度](doc/releases/v1.8/progress.md)
-- [查看 v1.8 验收记录](doc/releases/v1.8/manual-verification.md)
+- [查看 v1.9.2 发布进度](doc/releases/v1.9.2/progress.md)
+- [查看 v1.9.2 验收记录](doc/releases/v1.9.2/manual-verification.md)
+
+## v1.9.2 正式版本
+
+v1.9.2 将项目素材扩展为可保存、可恢复、可播放的多轨时间线：
+
+- 项目页通过“进入剪辑”打开独立、默认最大化的剪辑工作台。
+- 默认一条视频轨和一条音频轨，两类轨道分别最多 8 条。
+- 支持素材加入、原生拖入、片段拖动、吸附、轨道管理和同素材多次使用。
+- 每个离散操作自动保存，支持最多 50 步撤销和重做。
+- 使用 PyAV 提供播放、暂停、随机跳转、固定视频覆盖和固定音频混合。
+- 支持素材缺失、重新定位、只读、损坏恢复和外部修改冲突保护。
+- 通过 8+8 轨、100 片段、30 分钟和四路音频实际听音验收。
+
+正式发布包：
+
+```text
+EXE: E:\QRtest\QuickRec-v1.9.2-release-dist\QuickRec\QuickRec.exe
+EXE SHA256: 5383A34E50F963E224AF67D299B58B3903FDBC84F4A5CAA3B955B9C4AE75A5FA
+ZIP: E:\QRtest\QuickRec-v1.9.2-win-x64.zip
+ZIP SHA256: AA4D234F0AA4E3B8342B29A5AABD7CD9A76E45BCF140696748A1A9A490848BA1
+状态: D10 通过，正式发布
+```
+
+详细资料：
+
+- [v1.9.2 PRD](doc/releases/v1.9.2/prd.md)
+- [v1.9.2 实施计划](doc/releases/v1.9.2/dev_plan.md)
+- [v1.9.2 进度看板](doc/releases/v1.9.2/progress.md)
+- [v1.9.2 自动验证](doc/releases/v1.9.2/verification.md)
+- [v1.9.2 GUI 验收](doc/releases/v1.9.2/manual-verification.md)
+- [v1.9.2 发布说明](doc/releases/v1.9.2/release-notes.md)
+- [v1.9.2 变更日志](doc/releases/v1.9.2/changelog.md)
 
 ## v1.9.1 正式版本
 
@@ -125,7 +156,7 @@ v1.8 高保真交互原型与逐页面实现核对：
 - 支持复制路径、仅移除索引，以及将受控视频移入 Windows 回收站。
 - 索引写入失败不会改写“视频已保存”的事实，可通过待入库机制重试。
 
-### 项目工作区（v1.9-v1.9.1）
+### 项目工作区与时间线（v1.9-v1.9.2）
 
 - 使用 `%APPDATA%\QuickRec\projects.json` 维护中央项目发现索引。
 - 每个项目使用独立 `project.qrproj` 保存详情和素材稳定 ID 引用。
@@ -135,6 +166,9 @@ v1.8 高保真交互原型与逐页面实现核对：
 - 项目文件和选择的独占视频只进入 Windows 回收站，不提供永久删除路径。
 - 项目素材提供静态首帧、状态反馈、刷新和批量重建。
 - 支持打开文件、定位目录和项目与素材库之间的上下文跳转。
+- 支持独立剪辑工作台、视频轨/音频轨、片段编排、自动保存和 50 步撤销重做。
+- 支持播放、暂停、随机跳转、固定视频覆盖、固定音频混合和资源受控释放。
+- 支持 8+8 轨、100 片段和 30 分钟时间线。
 
 ### 设置与诊断
 
@@ -157,6 +191,8 @@ flowchart LR
     I --> J["打开 / 定位 / 整理"]
     H --> L["项目工作区"]
     L --> M["项目引用 / 项目录制 / 静态预览"]
+    M --> N["多轨时间线"]
+    N --> O["播放 / 暂停 / 跳转"]
     F -. "失败上下文" .-> K["本地诊断导出"]
 ```
 
@@ -214,11 +250,13 @@ python -m mypy
 python -m compileall -q src scripts
 ```
 
-当前 v1.9.1 的最终验证结果：
+当前 v1.9.2 的最终验证结果：
 
-- 全量测试：`714 passed, 26 deselected, 52 subtests passed`
-- Packaging：`14 passed`
-- 总体覆盖率：`85.89%`
+- 全量测试：`867 passed, 27 deselected, 56 subtests passed`
+- Packaging：`15 passed`
+- 总体覆盖率：`83.56%`
+- 时间线核心增量覆盖率：`86.44%`
+- 播放与页面协调增量覆盖率：`82.23%`
 - Ruff、mypy、compileall、UTF-8 和 `git diff --check`：通过
 - 100%、125%、150% DPI：通过
 - 音画最大绝对偏移：`18.229 ms`，门槛 `40 ms`
@@ -257,7 +295,8 @@ doc/
 │   ├── v1.7/                  # 历史稳定版本
 │   ├── v1.8/                  # 历史稳定版本
 │   ├── v1.9/                  # 历史稳定版本
-│   └── v1.9.1/                # 当前正式版本
+│   ├── v1.9.1/                # 历史稳定版本
+│   └── v1.9.2/                # 当前正式版本
 ├── technical/
 ├── verification/
 ├── prototypes/
@@ -275,13 +314,13 @@ v1.8 的主要文档：
 - [发布说明](doc/releases/v1.8/release-notes.md)
 - [变更日志](doc/releases/v1.8/changelog.md)
 
-v1.9.1 当前文档入口见 [doc/releases/v1.9.1/progress.md](doc/releases/v1.9.1/progress.md)。
+v1.9.2 当前文档入口见 [doc/releases/v1.9.2/progress.md](doc/releases/v1.9.2/progress.md)。
 
 ## 发布与回滚
 
-- 当前正式 Release：[QuickRec Full v1.9.1](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.1)
-- v1.9.1 ZIP SHA256：`FD859E4EA0065119BE06C382BCE3FA2C76774DB23711C21023F0A95A1F61F588`
-- v1.9.1 直接代码和发布包回滚点：`v1.9`
+- 当前正式 Release：[QuickRec Full v1.9.2](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.2)
+- v1.9.2 ZIP SHA256：`AA4D234F0AA4E3B8342B29A5AABD7CD9A76E45BCF140696748A1A9A490848BA1`
+- v1.9.2 直接代码和发布包回滚点：`v1.9.1`
 - 从 v1.8 回滚至 v1.7 前，如配置中 `fps=120`，应先改为 `60`；视频和素材索引无需删除。
 - `v1.4.1` tag 固定指向诊断导出发布提交 `16c7dce`，未被移动或重写。
 

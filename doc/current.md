@@ -3,16 +3,62 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.9.1。
+- 当前公开正式版本：v1.9.2。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.9.1`。
+- 当前发布标签：`v1.9.2`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前阶段：v1.9.1 已完成 D8 GUI 验收并正式发布。
+- 当前阶段：v1.9.2 已完成 D10 GUI 与真实媒体验收并正式发布。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
-## v1.9.1 发布状态
+## v1.9.2 发布状态
+
+v1.9.2 在项目素材预览基础上交付可持久化、可恢复、可播放的多轨时间线：
+
+- 项目页通过“进入剪辑”打开独立、默认最大化的剪辑工作台。
+- 默认一条视频轨和一条音频轨，两类轨道分别最多 8 条。
+- 支持素材加入、片段拖动、吸附、轨道管理、自动保存和 50 步撤销重做。
+- 使用 PyAV 提供播放、暂停、随机跳转、固定视频覆盖和固定音频混合。
+- 支持缺失素材重新定位、归档只读、损坏恢复和外部修改冲突保护。
+- 通过 8+8 轨、100 片段、30 分钟、三档 DPI 和四路音频实际听音验收。
+
+当前门禁：
+
+- D10 GUI 与真实媒体验收：通过。
+- 全量测试：`867 passed, 27 deselected, 56 subtests passed`。
+- 总体覆盖率：`83.56%`。
+- 时间线核心增量覆盖率：`86.44%`。
+- 播放与页面协调增量覆盖率：`82.23%`。
+- Packaging：`15 passed, 879 deselected`。
+- Ruff、Mypy、Compileall、UTF-8、文档链接和 `git diff --check`：通过。
+- QuickRec Lite：未修改。
+
+正式发布资产：
+
+```text
+目录: E:\QRtest\QuickRec-v1.9.2-release-dist\QuickRec
+EXE: E:\QRtest\QuickRec-v1.9.2-release-dist\QuickRec\QuickRec.exe
+EXE SHA256: 5383A34E50F963E224AF67D299B58B3903FDBC84F4A5CAA3B955B9C4AE75A5FA
+FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9.2-win-x64.zip
+ZIP SHA256: AA4D234F0AA4E3B8342B29A5AABD7CD9A76E45BCF140696748A1A9A490848BA1
+```
+
+## v1.9.2 当前文档
+
+- PRD：[releases/v1.9.2/prd.md](releases/v1.9.2/prd.md)
+- 实施计划：[releases/v1.9.2/dev_plan.md](releases/v1.9.2/dev_plan.md)
+- 进度：[releases/v1.9.2/progress.md](releases/v1.9.2/progress.md)
+- 自动化验证：[releases/v1.9.2/verification.md](releases/v1.9.2/verification.md)
+- GUI 验收：[releases/v1.9.2/manual-verification.md](releases/v1.9.2/manual-verification.md)
+- 缺陷记录：[releases/v1.9.2/bugfix-log.md](releases/v1.9.2/bugfix-log.md)
+- 发布说明：[releases/v1.9.2/release-notes.md](releases/v1.9.2/release-notes.md)
+- 变更日志：[releases/v1.9.2/changelog.md](releases/v1.9.2/changelog.md)
+- 高保真原型：[releases/v1.9.2/prototype/index.html](releases/v1.9.2/prototype/index.html)
+
+## v1.9.1 历史发布状态
 
 v1.9.1 在 v1.9 项目工作区基础上补齐静态首帧预览和基础素材使用闭环：
 
@@ -45,7 +91,7 @@ ZIP: E:\QRtest\QuickRec-v1.9.1-win-x64.zip
 ZIP SHA256: FD859E4EA0065119BE06C382BCE3FA2C76774DB23711C21023F0A95A1F61F588
 ```
 
-## v1.9.1 当前文档
+## v1.9.1 历史文档
 
 - PRD：[releases/v1.9.1/prd.md](releases/v1.9.1/prd.md)
 - 实施计划：[releases/v1.9.1/dev_plan.md](releases/v1.9.1/dev_plan.md)
@@ -150,7 +196,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.9.1：当前公开正式版。
+- v1.9.2：当前公开正式版。
+- v1.9.1：历史稳定版，也是 v1.9.2 的直接回滚点。
 - v1.9：历史稳定版，也是 v1.9.1 的直接回滚点。
 - v1.8：历史稳定版，也是 v1.9 的直接回滚点。
 - v1.7：历史稳定版，也是 v1.8 的直接回滚点。
@@ -182,3 +229,11 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 3. 保留首帧缓存也可安全回滚；v1.9 会忽略该缓存。
 4. 保留项目文件、项目索引、中央素材索引和所有视频。
 5. 不移动或重写 `v1.9` 及更早 tag。
+
+## v1.9.2 回滚
+
+1. 退出 QuickRec。
+2. 使用 `v1.9.1` tag 或 v1.9.1 GitHub Release 发布包。
+3. 保留项目文件、项目索引、中央素材索引、首帧缓存和所有视频。
+4. v1.9.1 会安全忽略项目 `extensions` 中的时间线数据。
+5. 不移动或重写 `v1.9.1` 及更早 tag。

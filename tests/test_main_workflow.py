@@ -297,6 +297,27 @@ class FakeProjectPage:
         self.reload_count += 1
 
 
+class FakeTimelineEditorCoordinator:
+    def __init__(self):
+        self.opened_projects = []
+        self.suspended = 0
+        self.shutdown_count = 0
+        self.recording_states = []
+
+    def open(self, project_id):
+        self.opened_projects.append(project_id)
+        return object()
+
+    def suspend(self):
+        self.suspended += 1
+
+    def shutdown(self):
+        self.shutdown_count += 1
+
+    def set_recording_active(self, active):
+        self.recording_states.append(active)
+
+
 class TestQuickRecAppWorkflow(unittest.TestCase):
     def test_open_folder_selects_unicode_path_with_separate_explorer_arguments(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
@@ -452,6 +473,79 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
         self.assertIs(result, app._workbench.result)
         self.assertEqual(app._workbench.pages, [main.WorkbenchPage.MATERIALS])
+
+    def test_show_timeline_editor_routes_to_single_coordinator(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._timeline_editor = FakeTimelineEditorCoordinator()
+
+        result = app._show_timeline_editor("project-1")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(app._timeline_editor.opened_projects, ["project-1"])
+
+    def test_timeline_diagnostics_request_routes_to_diagnostics_page(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+
+        with patch.object(app, "_show_workbench") as show_workbench:
+            app._open_diagnostics_from_timeline_editor("project-1")
+
+        show_workbench.assert_called_once_with(
+            main.WorkbenchPage.DIAGNOSTICS
+        )
+
+    def test_timeline_recording_request_reuses_three_existing_entry_points(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._project_service = object()
+        app._active_project_recording_id = None
+
+        with patch.object(
+            app,
+            "_validate_project_recording_target",
+            return_value=True,
+        ), patch.object(app, "_on_start_fullscreen") as fullscreen, patch.object(
+            app,
+            "_on_start_region",
+        ) as region, patch.object(app, "_on_start_window") as window:
+            app._on_start_timeline_recording("project-1", "fullscreen")
+            app._on_start_timeline_recording("project-1", "region")
+            app._on_start_timeline_recording("project-1", "window")
+
+        fullscreen.assert_called_once_with(source="timeline")
+        region.assert_called_once_with(source="timeline")
+        window.assert_called_once_with(source="timeline")
+
+    def test_timeline_recording_hides_both_workbenches_and_restores_editor(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench = FakeWorkbenchCoordinator()
+        app._timeline_editor = FakeTimelineEditorCoordinator()
+        app._recording_page = FakeRecordingPage()
+        app._settings_page = None
+        app._recording_source = None
+        app._recording_mode = ""
+        app._active_project_recording_id = "project-1"
+
+        app._begin_recording_request("timeline", "fullscreen")
+        app._set_recording_request_state("recording")
+        app._finish_recording_request(restore_workbench=True)
+
+        self.assertEqual(app._workbench.hidden, 1)
+        self.assertEqual(app._timeline_editor.suspended, 1)
+        self.assertEqual(app._timeline_editor.opened_projects, ["project-1"])
+        self.assertEqual(app._timeline_editor.recording_states, [True, False])
+        self.assertIsNone(app._active_project_recording_id)
+
+    def test_recording_request_state_propagates_to_timeline_sessions(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._recording_page = FakeRecordingPage()
+        app._recording_mode = "fullscreen"
+        app._workbench = FakeWorkbenchCoordinator()
+        app._settings_page = None
+        app._timeline_editor = FakeTimelineEditorCoordinator()
+
+        app._set_recording_request_state("recording")
+        app._set_recording_request_state("idle")
+
+        self.assertEqual(app._timeline_editor.recording_states, [True, False])
 
     def test_tray_open_workbench_preserves_same_process_page_memory(self):
         with patch("main.QApplication", FakeQApplication), \

@@ -50,6 +50,7 @@ from services.project_recording import ProjectRecordingCoordinator
 from services.recording_library import MigrationResult, RecordingLibraryService
 from services.thumbnail_coordinator import ThumbnailCoordinator
 from services.thumbnail_service import ThumbnailService
+from services.timeline_session import TimelineSession, TimelineSessionRegistry
 from ui.area_selector import AreaSelector
 from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
@@ -57,6 +58,10 @@ from ui.material_library_dialog import MaterialLibraryDialog
 from ui.project_page import ProjectPage
 from ui.qt_localization import install_qt_zh_cn
 from ui.settings_dialog import SettingsDialog
+from ui.timeline_editor_window import (
+    TimelineEditorCoordinator,
+    TimelineEditorWindow,
+)
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
@@ -187,6 +192,16 @@ class QuickRecApp:
         self._active_project_recording_id: str | None = None
         self._last_save_path = str(self._config.get("save_path", ""))
         self._workbench = WorkbenchCoordinator(self._create_workbench_window)
+        self._timeline_sessions = TimelineSessionRegistry(
+            lambda project_id: TimelineSession(
+                self._project_service,
+                project_id,
+            )
+        )
+        self._timeline_editor = TimelineEditorCoordinator(
+            self._create_timeline_editor_window,
+            self._timeline_sessions,
+        )
         self._initial_migration_result: MigrationResult | None = None
         self._migration_thread: threading.Thread | None = None
         self._pending_retry_thread: threading.Thread | None = None
@@ -312,6 +327,9 @@ class QuickRecApp:
             self._library_service,
             material_query=self._project_material_query,
             thumbnail_coordinator=self._thumbnail_coordinator,
+            timeline_command_provider=lambda project_id: (
+                self._timeline_sessions.get(project_id).commands
+            ),
         )
         self._settings_page = SettingsDialog(
             self._config,
@@ -369,8 +387,17 @@ class QuickRecApp:
         self._project_page.show_material_in_library_requested.connect(
             self._show_project_material_in_library
         )
+        self._project_page.open_timeline_requested.connect(
+            self._show_timeline_editor
+        )
+        self._project_page.project_content_changed.connect(
+            self._timeline_editor.refresh_project
+        )
         self._material_library_dialog.return_to_project_requested.connect(
             self._return_to_project_material
+        )
+        self._material_library_dialog.material_relinked.connect(
+            self._on_material_relinked
         )
 
         self._settings_page.config_saved.connect(self._on_workbench_config_saved)
@@ -407,6 +434,30 @@ class QuickRecApp:
         self._sync_workbench_recording_state()
         return window
 
+    def _create_timeline_editor_window(self) -> TimelineEditorWindow:
+        window = TimelineEditorWindow(
+            material_provider=self._describe_timeline_materials,
+        )
+        window.return_to_project_requested.connect(
+            self._return_from_timeline_editor
+        )
+        window.open_material_workspace_requested.connect(
+            self._open_materials_from_timeline_editor
+        )
+        window.open_diagnostics_requested.connect(
+            self._open_diagnostics_from_timeline_editor
+        )
+        window.start_recording_requested.connect(
+            self._on_start_timeline_recording
+        )
+        window.hidden_requested.connect(self._timeline_sessions.close_current)
+        return window
+
+    def _describe_timeline_materials(self, project):
+        loaded = self._library_service.load()
+        library_items = loaded.items if loaded.ok else []
+        return self._project_material_query.describe(project, library_items)
+
     def _save_workbench_geometry(self, geometry: dict[str, object]) -> None:
         candidate = self._config.snapshot()
         candidate["workbench_geometry"] = dict(geometry)
@@ -434,6 +485,38 @@ class QuickRecApp:
         if callable(refresh_summary):
             refresh_summary()
         return window
+
+    def _show_timeline_editor(self, project_id: str):
+        return self._timeline_editor.open(project_id)
+
+    def _return_from_timeline_editor(self, project_id: str) -> None:
+        self._show_workbench(WorkbenchPage.PROJECTS)
+        project_page = getattr(self, "_project_page", None)
+        focus = getattr(project_page, "focus_project", None)
+        if callable(focus):
+            focus(project_id)
+
+    def _open_materials_from_timeline_editor(self, _project_id: str) -> None:
+        self._show_workbench(WorkbenchPage.MATERIALS)
+
+    def _open_diagnostics_from_timeline_editor(
+        self,
+        _project_id: str,
+    ) -> None:
+        self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+
+    def _on_material_relinked(self, material_id: str) -> None:
+        project_page = getattr(self, "_project_page", None)
+        if project_page is not None:
+            project_page.reload()
+        session = self._timeline_sessions.current_session
+        if session is None:
+            return
+        if any(
+            item.material_id == material_id
+            for item in session.project.materials
+        ):
+            self._timeline_editor.refresh_project(session.project_id)
 
     def _on_workbench_page_changed(self, page: WorkbenchPage) -> None:
         if page == WorkbenchPage.MATERIALS and self._material_library_dialog is not None:
@@ -544,6 +627,17 @@ class QuickRecApp:
                 "不支持当前录制模式，请重新选择。",
             )
             return
+        if not self._validate_project_recording_target(project_id):
+            return
+        self._active_project_recording_id = project_id
+        if mode == "fullscreen":
+            self._on_start_fullscreen(source="project")
+        elif mode == "region":
+            self._on_start_region(source="project")
+        elif mode == "window":
+            self._on_start_window(source="project")
+
+    def _validate_project_recording_target(self, project_id: str) -> bool:
         loaded = self._project_service.get_project(project_id)
         if (
             not loaded.ok
@@ -556,19 +650,29 @@ class QuickRecApp:
                 "无法开始项目录制",
                 "项目当前不可写，请刷新项目状态后重试。",
             )
+            return False
+        return True
+
+    def _on_start_timeline_recording(self, project_id: str, mode: str) -> None:
+        if mode not in {"fullscreen", "region", "window"}:
+            QMessageBox.warning(
+                None,
+                "无法开始项目录制",
+                "不支持当前录制模式，请重新选择。",
+            )
+            return
+        if not self._validate_project_recording_target(project_id):
             return
         self._active_project_recording_id = project_id
         if mode == "fullscreen":
-            self._on_start_fullscreen(source="project")
+            self._on_start_fullscreen(source="timeline")
         elif mode == "region":
-            self._on_start_region(source="project")
+            self._on_start_region(source="timeline")
         elif mode == "window":
-            self._on_start_window(source="project")
+            self._on_start_window(source="timeline")
 
     def _sync_workbench_recording_state(self) -> None:
         page = getattr(self, "_recording_page", None)
-        if page is None:
-            return
         workflow = getattr(self, "_workflow", None)
         state = (
             workflow.get_state()
@@ -596,14 +700,15 @@ class QuickRecApp:
                 reason=f"recorder_{state_name}",
             )
         mode = getattr(getattr(self, "_recorder", None), "get_mode", lambda: "")()
-        page.set_recording_state(
-            state_name,
-            mode=(
-                ""
-                if state == RecorderState.IDLE
-                else getattr(mode, "value", str(mode or ""))
-            ),
-        )
+        if page is not None:
+            page.set_recording_state(
+                state_name,
+                mode=(
+                    ""
+                    if state == RecorderState.IDLE
+                    else getattr(mode, "value", str(mode or ""))
+                ),
+            )
         workbench = getattr(self, "_workbench", None)
         window = getattr(workbench, "window", None)
         if window is not None:
@@ -611,6 +716,9 @@ class QuickRecApp:
         settings = getattr(self, "_settings_page", None)
         if settings is not None:
             settings.set_recording_active(state != RecorderState.IDLE)
+        timeline_editor = getattr(self, "_timeline_editor", None)
+        if timeline_editor is not None:
+            timeline_editor.set_recording_active(state != RecorderState.IDLE)
 
     def _begin_recording_request(self, source: str, mode: str) -> None:
         self._recording_source = source
@@ -632,8 +740,10 @@ class QuickRecApp:
                 "selecting" if mode in {"region", "window"} else "starting",
                 mode=mode,
             )
-        if source in {"workbench", "project"}:
+        if source in {"workbench", "project", "timeline"}:
             self._workbench.hide()
+        if source == "timeline":
+            self._timeline_editor.suspend()
 
     def _set_recording_request_state(self, state: str) -> None:
         page = getattr(self, "_recording_page", None)
@@ -646,6 +756,9 @@ class QuickRecApp:
         settings = getattr(self, "_settings_page", None)
         if settings is not None:
             settings.set_recording_active(state != "idle")
+        timeline_editor = getattr(self, "_timeline_editor", None)
+        if timeline_editor is not None:
+            timeline_editor.set_recording_active(state != "idle")
 
     def _finish_recording_request(self, *, restore_workbench: bool) -> None:
         source = getattr(self, "_recording_source", None)
@@ -661,7 +774,18 @@ class QuickRecApp:
                 False,
                 reason="recording_request_finished",
             )
-        if restore_workbench and source in {"workbench", "project"}:
+        if restore_workbench and source in {"workbench", "project", "timeline"}:
+            if source == "timeline":
+                project_id = getattr(
+                    self,
+                    "_active_project_recording_id",
+                    None,
+                )
+                self._set_recording_request_state("idle")
+                if project_id is not None:
+                    self._timeline_editor.open(project_id)
+                self._active_project_recording_id = None
+                return
             target_page = (
                 WorkbenchPage.PROJECTS
                 if source == "project"
@@ -670,7 +794,7 @@ class QuickRecApp:
             self._show_workbench(target_page)
         else:
             self._set_recording_request_state("idle")
-        if source == "project":
+        if source in {"project", "timeline"}:
             self._active_project_recording_id = None
 
     def run(self):
@@ -1202,7 +1326,7 @@ class QuickRecApp:
         source = getattr(self, "_recording_source", None)
         project_id = (
             getattr(self, "_active_project_recording_id", None)
-            if source == "project"
+            if source in {"project", "timeline"}
             else None
         )
         if output_path:
@@ -1276,7 +1400,7 @@ class QuickRecApp:
             )
 
             # v1.1: 工具栏显示结果条
-            if source == "project" and project_id and self._project_page is not None:
+            if source in {"project", "timeline"} and project_id and self._project_page is not None:
                 self._hide_toolbar()
                 self._finish_recording_request(restore_workbench=True)
                 self._project_page.show_recording_result(
@@ -1305,7 +1429,7 @@ class QuickRecApp:
             logger.error("编码保存失败")
             self._tray.show_notification("保存失败")
             self._hide_toolbar()
-            if source == "project" and project_id and self._project_page is not None:
+            if source in {"project", "timeline"} and project_id and self._project_page is not None:
                 self._finish_recording_request(restore_workbench=True)
                 self._project_page.show_recording_result(
                     project_id,
@@ -1483,6 +1607,12 @@ class QuickRecApp:
             if thumbnail_coordinator is not None
             else {}
         )
+        timeline_editor = getattr(self, "_timeline_editor", None)
+        playback_context = (
+            timeline_editor.diagnostic_summary()
+            if timeline_editor is not None
+            else {"state": "not_initialized"}
+        )
         snapshot = DiagnosticSnapshot(
             app={
                 "version": APP_VERSION,
@@ -1496,6 +1626,7 @@ class QuickRecApp:
             audio=context.get("audio", {}),
             window=context.get("window", {}),
             thumbnail=thumbnail_context,
+            playback=playback_context,
             errors=[failure] if failure else [],
             recent_logs=read_recent_log_lines(directory / "quickrec.log", max_lines=100),
         )
@@ -1568,6 +1699,9 @@ class QuickRecApp:
         self._hide_toolbar()
         if hasattr(self, "_workbench"):
             self._workbench.hide()
+        timeline_editor = getattr(self, "_timeline_editor", None)
+        if timeline_editor is not None:
+            timeline_editor.shutdown()
         thumbnail_coordinator = getattr(
             self,
             "_thumbnail_coordinator",

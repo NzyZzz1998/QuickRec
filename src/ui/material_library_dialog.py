@@ -70,6 +70,7 @@ class _LibraryTask(QThread):
 class MaterialLibraryDialog(QDialog):
     PAGE_SIZE = 50
     add_to_project_requested = pyqtSignal(object)
+    material_relinked = pyqtSignal(str)
     pending_retry_succeeded = pyqtSignal(object)
     return_to_project_requested = pyqtSignal(str, str)
 
@@ -790,6 +791,8 @@ class MaterialLibraryDialog(QDialog):
         self._status_label.setText("素材已重新定位" if result.ok else f"重新定位失败：{result.error}")
         if result.ok:
             self.reload()
+            if isinstance(item, MaterialItem):
+                self.material_relinked.emit(item.id)
 
     def _on_retry_pending(self) -> None:
         entry = self._selected_entry()

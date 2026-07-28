@@ -19,6 +19,7 @@ from services.project_library import (
     ProjectOperationResult,  # noqa: E402
 )
 from services.recording_library import RecordingLibraryService  # noqa: E402
+from services.timeline_commands import TimelineCommandService  # noqa: E402
 from ui.project_dialogs import MaterialPickerDialog  # noqa: E402
 from ui.project_page import ProjectPage  # noqa: E402
 from utils.project_store import (  # noqa: E402
@@ -310,6 +311,57 @@ def test_recording_mode_buttons_emit_selected_project_context():
         ]
 
 
+def test_enter_timeline_emits_selected_non_empty_project_context():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "projects",
+        )
+        created = service.create_project(
+            name="剪辑项目",
+            project_id="project-1",
+        )
+        assert created.ok
+        project = service.get_project("project-1").project
+        assert project is not None
+        project.materials.append(
+            ProjectMaterialRef(
+                material_id="material-1",
+                last_known_path=str(base / "素材.mp4"),
+                file_name="素材.mp4",
+                added_at="2026-07-28T10:00:00+08:00",
+                metadata_snapshot={"duration_sec": 3.0},
+            )
+        )
+        assert service.commit_project_candidate("project-1", project).ok
+        page = ProjectPage(service)
+        page._select_project("project-1")
+        emitted: list[str] = []
+        page.open_timeline_requested.connect(emitted.append)
+
+        page._btn_enter_timeline.click()
+
+        assert emitted == ["project-1"]
+
+
+def test_enter_timeline_is_disabled_for_empty_or_unavailable_project():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "projects",
+        )
+        assert service.create_project(
+            name="空项目",
+            project_id="project-1",
+        ).ok
+        page = ProjectPage(service)
+        page._select_project("project-1")
+
+        assert not page._btn_enter_timeline.isEnabled()
+
+
 def test_add_and_remove_material_reference_does_not_touch_video():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -340,6 +392,83 @@ def test_add_and_remove_material_reference_does_not_touch_video():
         assert material.file_path
         assert Path(material.file_path).is_file()
         assert project_service.get_project("project-1").project.materials == []
+
+
+def test_add_material_emits_content_change_only_for_new_reference():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        project_service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "projects",
+        )
+        material_service = RecordingLibraryService(base / "recordings.json")
+        assert project_service.create_project(
+            name="素材同步项目",
+            project_id="project-1",
+        ).ok
+        material = _material(base)
+        assert material_service.add(material).ok
+        page = ProjectPage(project_service, material_service)
+        page._select_project("project-1")
+        changed: list[str] = []
+        page.project_content_changed.connect(changed.append)
+
+        assert page.add_material_to_project(material, project_id="project-1")
+        assert page.add_material_to_project(material, project_id="project-1")
+
+        assert changed == ["project-1"]
+
+
+def test_remove_timeline_referenced_material_requires_explicit_group_confirmation():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        project_service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "projects",
+        )
+        material_service = RecordingLibraryService(base / "recordings.json")
+        assert project_service.create_project(
+            name="时间线项目",
+            project_id="project-1",
+        ).ok
+        material = _material(base)
+        assert material_service.add(material).ok
+        command_service = TimelineCommandService(
+            project_service,
+            "project-1",
+        )
+        page = ProjectPage(
+            project_service,
+            material_service,
+            timeline_command_provider=lambda _project_id: command_service,
+        )
+        page._select_project("project-1")
+        assert page.add_material_to_project(material, project_id="project-1")
+        command_service.reload()
+        added = command_service.add_material(material.id, has_audio=False)
+        assert added.ok
+        page.reload()
+        page._select_project("project-1")
+        page._material_table.selectRow(0)
+        changed: list[str] = []
+        page.project_content_changed.connect(changed.append)
+
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.Yes,
+        ) as question:
+            page._on_remove_material()
+
+        assert "1 个时间线片段" in question.call_args.args[2]
+        assert command_service.timeline.clips == []
+        assert command_service.project.materials == []
+        assert changed == ["project-1"]
+        assert Path(material.file_path).is_file()
+        assert any(
+            item.id == material.id
+            for item in material_service.list_items()
+        )
 
 
 def test_add_material_to_archived_project_is_rejected_without_mutation():

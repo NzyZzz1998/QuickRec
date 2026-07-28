@@ -36,6 +36,8 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "ui.qt_localization",
         "ui.workbench_pages",
         "ui.workbench_window",
+        "ui.timeline_canvas",
+        "ui.timeline_editor_window",
         "hotkey.hotkey_manager",
         "pynput.keyboard._win32",
         "pynput.mouse._win32",
@@ -52,12 +54,20 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "services.project_library",
         "services.project_query",
         "services.project_recording",
+        "services.timeline_commands",
+        "services.timeline_query",
+        "services.timeline_session",
+        "services.playback_backend",
+        "services.playback_runtime",
+        "services.pyav_playback_backend",
+        "utils.timeline_model",
         "utils.recording_library_store",
         "utils.pending_recording_store",
         "utils.media_metadata",
         "utils.project_store",
         "utils.recycle_bin",
         "send2trash",
+        "av",
     ]
 
     for module_name in required_hiddenimports:
@@ -120,3 +130,9 @@ def test_ci_stages_real_ffmpeg_tools_before_pyinstaller_build():
     assert "Get-Item -LiteralPath $path" in CI_TEXT
     assert "& \"ffmpeg\\ffmpeg.exe\" -version" in CI_TEXT
     assert "& \"ffmpeg\\ffprobe.exe\" -version" in CI_TEXT
+
+
+def test_ci_verifies_pyav_runtime_files_in_package():
+    assert "ci-dist\\QuickRec\\_internal\\av\\_core.pyd" in CI_TEXT
+    assert "ci-dist\\QuickRec\\_internal\\av.libs" in CI_TEXT
+    assert "avcodec-*.dll" in CI_TEXT

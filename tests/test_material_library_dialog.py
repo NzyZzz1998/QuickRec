@@ -50,6 +50,27 @@ class TestMaterialLibraryDialog(unittest.TestCase):
         self.assertEqual(dialog._table.rowCount(), 0)
         self.assertEqual(dialog._status_label.text(), "暂无素材")
 
+    def test_successful_relink_emits_material_id_for_open_editors(self):
+        item = self._item(1)
+        self.assertTrue(self.service.replace([item]).ok)
+        dialog = MaterialLibraryDialog(self.service)
+        dialog._table.selectRow(0)
+        emitted = []
+        dialog.material_relinked.connect(emitted.append)
+        candidate = self.base_path / "重新定位 素材.mp4"
+
+        with patch(
+            "ui.material_library_dialog.QFileDialog.getOpenFileName",
+            return_value=(str(candidate), ""),
+        ), patch.object(
+            self.service,
+            "relink",
+            return_value=SimpleNamespace(ok=True, error=""),
+        ):
+            dialog._on_relink()
+
+        self.assertEqual(emitted, [item.id])
+
     def test_embedded_mode_uses_widget_surface_and_hides_close_action(self):
         parent = QWidget()
         dialog = MaterialLibraryDialog(self.service, parent=parent, embedded=True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -214,7 +215,6 @@ class ProjectMaterialQueryService:
             preview_position_sec=position,
             preview_error=error,
         )
-
     def _preview_state(
         self,
         material_id: str,
@@ -287,6 +287,35 @@ class ProjectMaterialQueryService:
         if not file_exists:
             return "missing"
         return "available"
+
+
+def resolve_project_media_sources(
+    project: ProjectFile,
+    descriptors: Iterable[ProjectMaterialDescriptor],
+) -> ProjectFile:
+    """为播放创建中央素材事实覆盖后的只读项目快照。"""
+    resolved = copy.deepcopy(project)
+    central = {item.material_id: item for item in descriptors}
+    for reference in resolved.materials:
+        descriptor = central.get(reference.material_id)
+        if descriptor is None or not descriptor.file_path:
+            continue
+        reference.last_known_path = descriptor.file_path
+        reference.file_name = descriptor.file_name or reference.file_name
+        snapshot = dict(reference.metadata_snapshot)
+        for key, value in (
+            ("duration_sec", descriptor.duration_sec),
+            ("width", descriptor.width),
+            ("height", descriptor.height),
+            ("fps", descriptor.fps),
+            ("mode", descriptor.mode),
+            ("audio_source", descriptor.audio_source),
+            ("file_size_bytes", descriptor.file_size_bytes),
+        ):
+            if value is not None and value != "":
+                snapshot[key] = value
+        reference.metadata_snapshot = snapshot
+    return resolved
 
 
 def _position(result) -> float | None:

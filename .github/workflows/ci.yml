@@ -38,7 +38,12 @@ jobs:
         run: python -m mypy
 
       - name: Pytest with coverage
-        run: python -m pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+        run: >-
+          python -m pytest --cov=src --cov-report=term-missing
+          --cov-report=json:build/coverage.json --cov-fail-under=80
+
+      - name: Incremental coverage gates
+        run: python scripts/check_incremental_coverage.py build/coverage.json
 
   packaging:
     name: Windows packaging smoke
@@ -113,5 +118,13 @@ jobs:
             if (-not (Test-Path -LiteralPath $path)) {
               throw "Missing packaging artifact: $path"
             }
+          }
+          if (-not (Test-Path -LiteralPath "ci-dist\QuickRec\_internal\av\_core.pyd")) {
+            throw "Missing PyAV runtime extension: ci-dist\QuickRec\_internal\av\_core.pyd"
+          }
+          $avCodec = Get-ChildItem -LiteralPath "ci-dist\QuickRec\_internal\av.libs" -File -Filter "avcodec-*.dll" |
+            Select-Object -First 1
+          if ($null -eq $avCodec) {
+            throw "Missing PyAV codec runtime in ci-dist\QuickRec\_internal\av.libs"
           }
           & "ci-dist\QuickRec\_internal\ffmpeg\ffprobe.exe" -version
