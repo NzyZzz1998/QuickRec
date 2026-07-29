@@ -23,6 +23,7 @@
 - 非零源入点播放、连续分割接缝和长时音画同步使用真实媒体门禁。
 - 静止桌面录制复用有效首帧，避免输出 0 帧视频。
 - 源码与 frozen 环境统一媒体探测、CLI 合同和证据身份。
+- CI 基线测试在真实媒体测试前准备 FFmpeg 与 FFprobe，避免环境依赖缺失。
 
 ### 修复
 
@@ -35,8 +36,8 @@
 
 ### 验证
 
-- 标准全量：1031 passed，29 deselected，62 subtests passed。
-- Packaging：17 passed。
+- 标准全量：1031 passed，30 deselected，62 subtests passed。
+- Packaging：18 passed。
 - 总体覆盖率：83.56%。
 - 剪辑核心增量覆盖率：87.65%。
 - 剪辑 UI 协调增量覆盖率：80.16%。

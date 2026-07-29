@@ -291,8 +291,8 @@ python -m compileall -q src scripts
 
 当前 v1.9.3 的最终验证结果：
 
-- 全量测试：`1031 passed, 29 deselected, 62 subtests passed`
-- Packaging：`17 passed`
+- 全量测试：`1031 passed, 30 deselected, 62 subtests passed`
+- Packaging：`18 passed`
 - 总体覆盖率：`83.56%`
 - 剪辑核心增量覆盖率：`87.65%`
 - 剪辑 UI 协调增量覆盖率：`80.16%`

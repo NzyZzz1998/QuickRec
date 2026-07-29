@@ -54,8 +54,8 @@ v1.9.3 在 v1.9.2 可播放多轨时间线上交付基础剪辑闭环。用户�
 
 ## 验证状态
 
-- 标准全量测试：`1031 passed, 29 deselected, 62 subtests passed`。
-- Packaging：`17 passed`。
+- 标准全量测试：`1031 passed, 30 deselected, 62 subtests passed`。
+- Packaging：`18 passed`。
 - 总体覆盖率：`83.56%`。
 - 剪辑核心增量覆盖率：`87.65%`。
 - 剪辑 UI 协调增量覆盖率：`80.16%`。

@@ -86,7 +86,7 @@ E:\QRtest\QuickRec-v1.9.3-rc3-win-x64.zip
 ### 4.2 全量非硬件回归
 
 ```text
-1031 passed, 29 deselected, 62 subtests passed
+1031 passed, 30 deselected, 62 subtests passed
 ```
 
 被标记为 `hardware` 或 `packaging` 的项目未混入该结果。
@@ -94,11 +94,11 @@ E:\QRtest\QuickRec-v1.9.3-rc3-win-x64.zip
 ### 4.3 Packaging
 
 ```text
-17 passed, 1043 deselected
+18 passed, 1043 deselected
 ```
 
-覆盖双入口 spec、CI 打包协议、媒体工具、PyAV 文件及历史 packaging
-合同。
+覆盖双入口 spec、CI 基线媒体依赖准备、打包协议、媒体工具、PyAV 文件及
+历史 packaging 合同。
 
 ## 5. 覆盖率
 

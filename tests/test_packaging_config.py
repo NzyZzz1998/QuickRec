@@ -152,6 +152,16 @@ def test_ci_stages_real_ffmpeg_tools_before_pyinstaller_build():
     assert "& \"ffmpeg\\ffprobe.exe\" -version" in CI_TEXT
 
 
+def test_ci_stages_real_ffmpeg_tools_before_baseline_pytest():
+    test_job = CI_TEXT.split("\n  packaging:", 1)[0]
+    stage_marker = "- name: Stage FFmpeg tools"
+    pytest_marker = "- name: Pytest with coverage"
+
+    assert stage_marker in test_job
+    assert pytest_marker in test_job
+    assert test_job.index(stage_marker) < test_job.index(pytest_marker)
+
+
 def test_ci_verifies_pyav_runtime_files_in_package():
     assert "ci-dist\\QuickRec\\_internal\\av\\_core.pyd" in CI_TEXT
     assert "ci-dist\\QuickRec\\_internal\\av.libs" in CI_TEXT
