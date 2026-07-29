@@ -1,0 +1,10 @@
+{
+  "schema_version": 99,
+  "time_unit": "microseconds",
+  "timeline_id": "timeline-v99",
+  "tracks": [],
+  "clips": [],
+  "extensions": {
+    "future": "必须原样保留"
+  }
+}

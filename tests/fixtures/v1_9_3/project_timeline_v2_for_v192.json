@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "project_id": "project-v2-compat",
+  "name": "v1.9.2 回滚只读兼容",
+  "description": "项目主体可读，timeline schema v2 必须只读保留",
+  "created_at": "2026-07-29T00:00:00+08:00",
+  "updated_at": "2026-07-29T00:00:00+08:00",
+  "archived_at": null,
+  "materials": [],
+  "extensions": {
+    "future.project": {
+      "preserve": true
+    },
+    "quickrec.timeline": {
+      "schema_version": 2,
+      "time_unit": "microseconds",
+      "timeline_id": "timeline-v2-compat",
+      "tracks": [
+        {
+          "track_id": "video-1",
+          "kind": "video",
+          "name": "视频 1",
+          "order": 0,
+          "locked": true,
+          "extensions": {}
+        },
+        {
+          "track_id": "audio-1",
+          "kind": "audio",
+          "name": "音频 1",
+          "order": 0,
+          "locked": false,
+          "extensions": {}
+        }
+      ],
+      "clips": [],
+      "extensions": {
+        "v193": "preserve"
+      }
+    }
+  }
+}

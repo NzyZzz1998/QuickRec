@@ -111,6 +111,7 @@ jobs:
         run: |
           $required = @(
             "ci-dist\QuickRec\QuickRec.exe",
+            "ci-dist\QuickRec\QuickRecCLI.exe",
             "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe",
             "ci-dist\QuickRec\_internal\ffmpeg\ffprobe.exe"
           )
@@ -128,3 +129,53 @@ jobs:
             throw "Missing PyAV codec runtime in ci-dist\QuickRec\_internal\av.libs"
           }
           & "ci-dist\QuickRec\_internal\ffmpeg\ffprobe.exe" -version
+
+      - name: Verify frozen CLI
+        shell: pwsh
+        run: |
+          $cli = "ci-dist\QuickRec\QuickRecCLI.exe"
+          $doctorJson = & $cli doctor --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI doctor failed with exit code $LASTEXITCODE"
+          }
+          $doctor = $doctorJson | ConvertFrom-Json
+          if ($doctor.schema_version -ne 1 -or
+              $doctor.status -ne "success" -or
+              $doctor.identity.frozen -ne $true) {
+            throw "QuickRecCLI doctor returned an invalid JSON contract"
+          }
+
+          New-Item -ItemType Directory -Path "ci-cli\media" -Force | Out-Null
+          & "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe" `
+            -y -f lavfi -i "testsrc2=size=640x360:rate=30" `
+            -t 1 -c:v libx264 -pix_fmt yuv420p "ci-cli\media\sample.mp4"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create controlled CLI media"
+          }
+
+          $probeJson = & $cli probe "ci-cli\media\sample.mp4" --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI probe failed with exit code $LASTEXITCODE"
+          }
+          $probe = $probeJson | ConvertFrom-Json
+          if ($probe.result.width -ne 640 -or $probe.result.height -ne 360) {
+            throw "QuickRecCLI probe returned unexpected metadata"
+          }
+
+          $smokeJson = & $cli smoke --suite editing `
+            --workspace "ci-cli\workspace" `
+            --evidence-dir "ci-cli\evidence" --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI editing smoke failed with exit code $LASTEXITCODE"
+          }
+          $smoke = $smokeJson | ConvertFrom-Json
+          if ($smoke.result.timeline_schema -ne 2 -or
+              $smoke.result.input_unchanged -ne $true) {
+            throw "QuickRecCLI editing smoke returned unexpected results"
+          }
+
+          $timelineJson = & $cli timeline validate `
+            "ci-cli\evidence\editing-smoke-project.qrproj" --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI timeline validate failed with exit code $LASTEXITCODE"
+          }

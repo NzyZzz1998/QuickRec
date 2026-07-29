@@ -10,8 +10,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
 from services.project_library import ProjectLibraryService
+from services.project_save_coordinator import (
+    ProjectSaveCoordinator,
+    ProjectSaveSnapshot,
+)
+from services.timeline_edit_service import (
+    TimelineEditCandidate,
+    TimelineEditConflict,
+    TimelineEditImpact,
+    TimelineEditService,
+    timeline_edit_fingerprint,
+)
+from services.timeline_history import (
+    TimelineHistoryEntry,
+    build_timeline_history_entry,
+)
 from utils.project_store import ProjectFile, load_project, save_project
 from utils.timeline_model import (
     MAX_TRACKS_PER_KIND,
@@ -24,6 +40,7 @@ from utils.timeline_model import (
     new_link_group_id,
     new_track_id,
     seconds_to_microseconds,
+    upgrade_timeline_for_v2_edit,
     validate_timeline,
     with_project_timeline,
 )
@@ -57,27 +74,6 @@ class _Mutation:
 
 
 @dataclass(frozen=True)
-class _HistoryEntry:
-    command: str
-    before: Timeline
-    after: Timeline
-    before_project: ProjectFile
-    after_project: ProjectFile
-
-
-def _rebase_history_project(
-    entry: _HistoryEntry,
-    fresh_project: ProjectFile,
-) -> _HistoryEntry:
-    """让时间线历史继承最新项目素材等非时间线字段。"""
-    return replace(
-        entry,
-        before_project=with_project_timeline(fresh_project, entry.before),
-        after_project=with_project_timeline(fresh_project, entry.after),
-    )
-
-
-@dataclass(frozen=True)
 class _PendingSave:
     command: str
     before: Timeline
@@ -85,8 +81,9 @@ class _PendingSave:
     before_project: ProjectFile
     candidate_project: ProjectFile
     mutation: _Mutation
+    save_revision: int
     mode: str = "push"
-    history_entry: _HistoryEntry | None = None
+    history_entry: TimelineHistoryEntry | None = None
     failure_stage: str = ""
 
 
@@ -97,6 +94,8 @@ class TimelineCommandService:
         self,
         project_service: ProjectLibraryService,
         project_id: str,
+        *,
+        save_coordinator: ProjectSaveCoordinator | None = None,
     ) -> None:
         self.project_service = project_service
         self.project_id = project_id
@@ -107,9 +106,27 @@ class TimelineCommandService:
         self._expected_modified_ns: int | None = None
         self._read_only = False
         self._runtime_read_only_reason = ""
-        self._undo: list[_HistoryEntry] = []
-        self._redo: list[_HistoryEntry] = []
+        self._undo: list[TimelineHistoryEntry] = []
+        self._redo: list[TimelineHistoryEntry] = []
         self._pending_save: _PendingSave | None = None
+        self._edit_service = TimelineEditService()
+        self._save_coordinator = (
+            save_coordinator
+            or ProjectSaveCoordinator(project_service, project_id)
+        )
+        self._last_command = ""
+        self._last_stage = ""
+        self._last_result = "not_run"
+        self._last_edit_operation = ""
+        self._last_conflict_codes: tuple[str, ...] = ()
+        self._last_ripple_track_count = 0
+        self._last_ripple_clip_count = 0
+        self._last_save_result = "not_run"
+        self._last_undo_result = "not_run"
+        self._last_redo_result = "not_run"
+        self._last_migration_source: int | None = None
+        self._last_migration_target: int | None = None
+        self._last_migration_result = "not_run"
         self.reload()
 
     @property
@@ -131,6 +148,120 @@ class TimelineCommandService:
             "timeline runtime write lock changed: project_id=%s active=%s",
             self.project_id,
             bool(active),
+        )
+
+    def preview_trim_clip(
+        self,
+        clip_id: str,
+        *,
+        source_start_us: int,
+        source_end_us: int,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("trim")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.trim(
+            self._timeline,
+            self._project,
+            clip_id,
+            source_start_us=source_start_us,
+            source_end_us=source_end_us,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def preview_split_clip(
+        self,
+        clip_id: str,
+        *,
+        playhead_us: int,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("split")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.split(
+            self._timeline,
+            self._project,
+            clip_id,
+            playhead_us=playhead_us,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def preview_ripple_delete(
+        self,
+        clip_id: str,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("ripple_delete")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.ripple_delete(
+            self._timeline,
+            self._project,
+            clip_id,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def commit_edit_candidate(
+        self,
+        candidate: TimelineEditCandidate,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        commands = {
+            "trim": "trim_clip",
+            "split": "split_clip",
+            "ripple_delete": "ripple_delete_clip",
+        }
+        command = commands.get(candidate.operation)
+        if command is None:
+            return self._failure(
+                "edit_candidate",
+                "validate",
+                f"unsupported edit operation: {candidate.operation}",
+            )
+        if self._pending_save is not None:
+            return self._pending_save_block(command)
+        if not self.ready:
+            return self._unavailable(command)
+        if self.read_only:
+            return self._failure(
+                command,
+                "read_only",
+                self._read_only_error(),
+            )
+        if not candidate.valid or candidate.timeline is None:
+            detail = "; ".join(
+                conflict.message for conflict in candidate.conflicts
+            )
+            return self._failure(
+                command,
+                "invalid_candidate",
+                detail or "edit candidate is not valid",
+            )
+        assert self._timeline is not None
+        assert self._project is not None
+        current_fingerprint = timeline_edit_fingerprint(
+            self._timeline,
+            self._project,
+        )
+        if candidate.source_fingerprint != current_fingerprint:
+            return self._failure(
+                command,
+                "stale_candidate",
+                "timeline changed after the edit preview was created",
+            )
+        return self._execute_edit_candidate(
+            command,
+            candidate,
+            now=now,
         )
 
     def _read_only_error(self) -> str:
@@ -170,6 +301,44 @@ class TimelineCommandService:
         return pending.failure_stage if pending is not None else ""
 
     @property
+    def save_snapshot(self) -> ProjectSaveSnapshot:
+        return self._save_coordinator.snapshot
+
+    def diagnostic_summary(self) -> dict[str, object]:
+        timeline = self._timeline
+        return {
+            "timeline_schema": (
+                timeline.schema_version if timeline is not None else "unavailable"
+            ),
+            "timeline_status": self.status,
+            "timeline_read_only": self.read_only,
+            "last_edit_command": self._last_edit_operation or self._last_command,
+            "last_edit_stage": self._last_stage or "not_run",
+            "last_edit_result": self._last_result,
+            "last_edit_conflicts": list(self._last_conflict_codes),
+            "last_ripple_track_count": self._last_ripple_track_count,
+            "last_ripple_clip_count": self._last_ripple_clip_count,
+            "last_save_result": self._last_save_result,
+            "last_undo_result": self._last_undo_result,
+            "last_redo_result": self._last_redo_result,
+            "undo_depth": len(self._undo),
+            "redo_depth": len(self._redo),
+            "save_pending": self._pending_save is not None,
+            "save_pending_stage": self.pending_save_stage or "none",
+            "migration_source_schema": (
+                self._last_migration_source
+                if self._last_migration_source is not None
+                else "none"
+            ),
+            "migration_target_schema": (
+                self._last_migration_target
+                if self._last_migration_target is not None
+                else "none"
+            ),
+            "migration_result": self._last_migration_result,
+        }
+
+    @property
     def timeline_backup_available(self) -> bool:
         entry = self.project_service.get_entry(self.project_id)
         if entry is None:
@@ -188,6 +357,7 @@ class TimelineCommandService:
 
     def reload(self) -> None:
         self._pending_save = None
+        self._save_coordinator.reset()
         loaded = self.project_service.get_project(self.project_id)
         entry = self.project_service.get_entry(self.project_id)
         self._undo.clear()
@@ -364,6 +534,20 @@ class TimelineCommandService:
                 f"clip does not exist: {clip_id}",
             )
         affected = _linked_clip_ids(timeline, clip)
+        affected_tracks = {
+            item.track_id
+            for item in timeline.clips
+            if item.clip_id in affected
+        }
+        if any(
+            _find_track(timeline, track_id).locked
+            for track_id in affected_tracks
+        ):
+            return self._failure(
+                "delete_clip",
+                "validate",
+                "locked track clips cannot be deleted",
+            )
         if len(affected) > 1 and not confirmed:
             return self._confirmation(
                 "delete_clip",
@@ -452,6 +636,9 @@ class TimelineCommandService:
                 str(exc),
             )
 
+        save_revision = self._save_coordinator.begin_change(
+            "remove_project_material"
+        )
         pending = _PendingSave(
             "remove_project_material",
             before_timeline,
@@ -459,12 +646,14 @@ class TimelineCommandService:
             before_project,
             copy.deepcopy(candidate_project),
             _Mutation(affected_clip_ids=affected_clip_ids),
+            save_revision,
         )
         result = self._commit_project_snapshot(
             "remove_project_material",
             candidate_project,
             candidate_timeline,
             now=now,
+            save_revision=save_revision,
         )
         if not result.ok:
             return self._remember_pending_failure(pending, result)
@@ -493,6 +682,7 @@ class TimelineCommandService:
             copy.deepcopy(pending.candidate_project),
             copy.deepcopy(pending.candidate),
             now=now,
+            save_revision=pending.save_revision,
         )
         if not result.ok:
             return self._remember_pending_failure(pending, result)
@@ -511,6 +701,7 @@ class TimelineCommandService:
                 "empty",
                 "there is no pending timeline save",
             )
+        self._save_coordinator.discard(pending.save_revision)
         self._pending_save = None
         logger.info(
             "timeline pending save discarded: project_id=%s command=%s",
@@ -593,11 +784,11 @@ class TimelineCommandService:
         fresh_project = copy.deepcopy(loaded.project)
         try:
             rebased_undo = [
-                _rebase_history_project(entry_item, fresh_project)
+                entry_item.rebase_project(fresh_project)
                 for entry_item in self._undo
             ]
             rebased_redo = [
-                _rebase_history_project(entry_item, fresh_project)
+                entry_item.rebase_project(fresh_project)
                 for entry_item in self._redo
             ]
         except Exception as exc:
@@ -724,6 +915,19 @@ class TimelineCommandService:
             )
             if target_track.kind != source_track.kind:
                 raise ValueError("clip can only move to a track of the same kind")
+            if source_track.locked or target_track.locked:
+                raise ValueError("locked track clips cannot be moved")
+            linked_ids = _linked_clip_ids(timeline, clip)
+            linked_track_ids = {
+                item.track_id
+                for item in timeline.clips
+                if item.clip_id in linked_ids
+            }
+            if any(
+                _find_track(timeline, item).locked
+                for item in linked_track_ids
+            ):
+                raise ValueError("linked clips include a locked track")
         except ValueError as exc:
             return self._failure("move_clip", "validate", str(exc))
         affected = _linked_clip_ids(timeline, clip)
@@ -822,6 +1026,44 @@ class TimelineCommandService:
 
         return self._execute("rename_track", mutate, now=now)
 
+    def set_track_locked(
+        self,
+        track_id: str,
+        locked: bool,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        if not isinstance(locked, bool):
+            return self._failure(
+                "set_track_locked",
+                "validate",
+                "locked must be a boolean",
+            )
+        timeline = self._require_timeline()
+        if timeline is None:
+            return self._unavailable("set_track_locked")
+        try:
+            track = _find_track(timeline, track_id)
+        except ValueError as exc:
+            return self._failure("set_track_locked", "validate", str(exc))
+        logger.info(
+            "timeline track lock requested: project_id=%s kind=%s target=%s",
+            self.project_id,
+            track.kind,
+            locked,
+        )
+
+        def mutate(candidate: Timeline) -> _Mutation:
+            _find_track(candidate, track_id).locked = locked
+            return _Mutation(affected_track_ids=(track_id,))
+
+        return self._execute(
+            "set_track_locked",
+            mutate,
+            now=now,
+            requires_v2=True,
+        )
+
     def reorder_track(
         self,
         track_id: str,
@@ -885,6 +1127,12 @@ class TimelineCommandService:
             track = _find_track(timeline, track_id)
         except ValueError as exc:
             return self._failure("delete_track", "validate", str(exc))
+        if track.locked:
+            return self._failure(
+                "delete_track",
+                "validate",
+                "locked track cannot be deleted",
+            )
         peers = [item for item in timeline.tracks if item.kind == track.kind]
         if len(peers) <= 1:
             return self._failure(
@@ -935,21 +1183,28 @@ class TimelineCommandService:
         entry = self._undo[-1]
         assert self._timeline is not None
         assert self._project is not None
+        candidate_project, candidate_timeline = entry.undo(
+            self._project,
+            self._timeline,
+        )
+        save_revision = self._save_coordinator.begin_change("undo")
         pending = _PendingSave(
             "undo",
             copy.deepcopy(self._timeline),
-            copy.deepcopy(entry.before),
+            copy.deepcopy(candidate_timeline),
             copy.deepcopy(self._project),
-            copy.deepcopy(entry.before_project),
+            copy.deepcopy(candidate_project),
             _Mutation(),
+            save_revision,
             mode="undo",
             history_entry=entry,
         )
         result = self._commit_project_snapshot(
             "undo",
-            copy.deepcopy(entry.before_project),
-            copy.deepcopy(entry.before),
+            copy.deepcopy(candidate_project),
+            copy.deepcopy(candidate_timeline),
             now=now,
+            save_revision=save_revision,
         )
         if not result.ok:
             return self._remember_pending_failure(pending, result)
@@ -963,21 +1218,28 @@ class TimelineCommandService:
         entry = self._redo[-1]
         assert self._timeline is not None
         assert self._project is not None
+        candidate_project, candidate_timeline = entry.redo(
+            self._project,
+            self._timeline,
+        )
+        save_revision = self._save_coordinator.begin_change("redo")
         pending = _PendingSave(
             "redo",
             copy.deepcopy(self._timeline),
-            copy.deepcopy(entry.after),
+            copy.deepcopy(candidate_timeline),
             copy.deepcopy(self._project),
-            copy.deepcopy(entry.after_project),
+            copy.deepcopy(candidate_project),
             _Mutation(),
+            save_revision,
             mode="redo",
             history_entry=entry,
         )
         result = self._commit_project_snapshot(
             "redo",
-            copy.deepcopy(entry.after_project),
-            copy.deepcopy(entry.after),
+            copy.deepcopy(candidate_project),
+            copy.deepcopy(candidate_timeline),
             now=now,
+            save_revision=save_revision,
         )
         if not result.ok:
             return self._remember_pending_failure(pending, result)
@@ -1109,6 +1371,7 @@ class TimelineCommandService:
         mutate: Callable[[Timeline], _Mutation],
         *,
         now: str | None,
+        requires_v2: bool = False,
     ) -> TimelineCommandResult:
         if self._pending_save is not None:
             return self._pending_save_block(command)
@@ -1124,8 +1387,15 @@ class TimelineCommandService:
         assert self._project is not None
         before = copy.deepcopy(self._timeline)
         before_project = copy.deepcopy(self._project)
-        candidate = copy.deepcopy(self._timeline)
         try:
+            candidate = (
+                upgrade_timeline_for_v2_edit(
+                    self._timeline,
+                    self._project,
+                )
+                if requires_v2
+                else copy.deepcopy(self._timeline)
+            )
             mutation = mutate(candidate)
             validate_timeline(candidate, self._project)
         except Exception as exc:
@@ -1141,6 +1411,7 @@ class TimelineCommandService:
                 redo_depth=len(self._redo),
             )
         candidate_project = with_project_timeline(before_project, candidate)
+        save_revision = self._save_coordinator.begin_change(command)
         pending = _PendingSave(
             command,
             before,
@@ -1148,12 +1419,66 @@ class TimelineCommandService:
             before_project,
             copy.deepcopy(candidate_project),
             mutation,
+            save_revision,
         )
         result = self._commit_project_snapshot(
             command,
             candidate_project,
             candidate,
             now=now,
+            save_revision=save_revision,
+        )
+        if not result.ok:
+            return self._remember_pending_failure(pending, result)
+        return self._complete_pending_save(pending, result)
+
+    def _execute_edit_candidate(
+        self,
+        command: str,
+        edit_candidate: TimelineEditCandidate,
+        *,
+        now: str | None,
+    ) -> TimelineCommandResult:
+        assert self._timeline is not None
+        assert self._project is not None
+        assert edit_candidate.timeline is not None
+        before = copy.deepcopy(self._timeline)
+        before_project = copy.deepcopy(self._project)
+        candidate = copy.deepcopy(edit_candidate.timeline)
+        try:
+            validate_timeline(candidate, self._project)
+        except Exception as exc:
+            return self._failure(command, "validate", str(exc))
+        if candidate == before:
+            return TimelineCommandResult(
+                True,
+                command,
+                "noop",
+                copy.deepcopy(self._timeline),
+                changed=False,
+                undo_depth=len(self._undo),
+                redo_depth=len(self._redo),
+            )
+        candidate_project = with_project_timeline(before_project, candidate)
+        save_revision = self._save_coordinator.begin_change(command)
+        pending = _PendingSave(
+            command,
+            before,
+            copy.deepcopy(candidate),
+            before_project,
+            copy.deepcopy(candidate_project),
+            _Mutation(
+                affected_track_ids=edit_candidate.impact.affected_track_ids,
+                affected_clip_ids=edit_candidate.impact.affected_clip_ids,
+            ),
+            save_revision,
+        )
+        result = self._commit_project_snapshot(
+            command,
+            candidate_project,
+            candidate,
+            now=now,
+            save_revision=save_revision,
         )
         if not result.ok:
             return self._remember_pending_failure(pending, result)
@@ -1189,6 +1514,7 @@ class TimelineCommandService:
         candidate_timeline: Timeline,
         *,
         now: str | None,
+        save_revision: int | None = None,
     ) -> TimelineCommandResult:
         if not self.ready:
             return self._unavailable(command)
@@ -1203,11 +1529,18 @@ class TimelineCommandService:
             candidate_timeline,
         )
         candidate_project.updated_at = now or _now()
-        committed = self.project_service.commit_project_candidate(
-            self.project_id,
+        revision = (
+            save_revision
+            if save_revision is not None
+            else self._save_coordinator.begin_change(command)
+        )
+        started = perf_counter()
+        committed = self._save_coordinator.save(
+            revision,
             candidate_project,
             expected_modified_ns=self._expected_modified_ns,
         )
+        elapsed_ms = round((perf_counter() - started) * 1000, 3)
         if not committed.ok:
             logger.warning(
                 "timeline save failed: project_id=%s command=%s "
@@ -1216,6 +1549,18 @@ class TimelineCommandService:
                 command,
                 committed.stage,
                 committed.rolled_back,
+            )
+            self._remember_command_result(
+                command,
+                committed.stage,
+                ok=False,
+            )
+            logger.info(
+                "timeline save completed: project_id=%s command=%s "
+                "elapsed_ms=%.3f result=failed",
+                self.project_id,
+                command,
+                elapsed_ms,
             )
             return TimelineCommandResult(
                 False,
@@ -1240,12 +1585,14 @@ class TimelineCommandService:
         self.error = ""
         logger.info(
             "timeline command saved: project_id=%s command=%s "
-            "tracks=%d clips=%d result=ok",
+            "tracks=%d clips=%d elapsed_ms=%.3f result=ok",
             self.project_id,
             command,
             len(candidate_timeline.tracks),
             len(candidate_timeline.clips),
+            elapsed_ms,
         )
+        self._remember_command_result(command, "complete", ok=True)
         return TimelineCommandResult(
             True,
             command,
@@ -1257,7 +1604,7 @@ class TimelineCommandService:
             redo_depth=len(self._redo),
         )
 
-    def _push_history(self, entry: _HistoryEntry) -> None:
+    def _push_history(self, entry: TimelineHistoryEntry) -> None:
         self._undo.append(entry)
         if len(self._undo) > MAX_COMMAND_HISTORY:
             del self._undo[: len(self._undo) - MAX_COMMAND_HISTORY]
@@ -1286,12 +1633,12 @@ class TimelineCommandService:
         assert self._project is not None
         if pending.mode == "push":
             self._push_history(
-                _HistoryEntry(
+                build_timeline_history_entry(
                     pending.command,
-                    copy.deepcopy(pending.before),
-                    copy.deepcopy(pending.candidate),
-                    copy.deepcopy(pending.before_project),
-                    copy.deepcopy(self._project),
+                    pending.before,
+                    pending.candidate,
+                    pending.before_project,
+                    self._project,
                 )
             )
         elif pending.mode == "undo":
@@ -1307,6 +1654,21 @@ class TimelineCommandService:
         else:
             raise RuntimeError(f"unknown pending save mode: {pending.mode}")
         self._pending_save = None
+        if (
+            pending.before.schema_version
+            != pending.candidate.schema_version
+        ):
+            self._last_migration_source = pending.before.schema_version
+            self._last_migration_target = pending.candidate.schema_version
+            self._last_migration_result = "complete"
+            logger.info(
+                "timeline migration completed: project_id=%s source=%d "
+                "target=%d trigger=%s result=ok",
+                self.project_id,
+                pending.before.schema_version,
+                pending.candidate.schema_version,
+                pending.command,
+            )
         logger.info(
             "timeline history changed: project_id=%s command=%s "
             "undo_depth=%d redo_depth=%d result=ok",
@@ -1315,6 +1677,35 @@ class TimelineCommandService:
             len(self._undo),
             len(self._redo),
         )
+        if pending.command in {
+            "trim_clip",
+            "split_clip",
+            "ripple_delete_clip",
+        }:
+            logger.info(
+                "timeline edit committed: project_id=%s command=%s "
+                "affected_tracks=%d affected_clips=%d result=ok",
+                self.project_id,
+                pending.command,
+                len(pending.mutation.affected_track_ids),
+                len(pending.mutation.affected_clip_ids),
+            )
+        elif pending.command in {"undo", "redo"}:
+            history_command = (
+                pending.history_entry.command
+                if pending.history_entry is not None
+                else "unknown"
+            )
+            logger.info(
+                "timeline history command completed: project_id=%s "
+                "operation=%s target=%s undo_depth=%d redo_depth=%d "
+                "result=ok",
+                self.project_id,
+                pending.command,
+                history_command,
+                len(self._undo),
+                len(self._redo),
+            )
         return replace(
             result,
             affected_track_ids=pending.mutation.affected_track_ids,
@@ -1345,6 +1736,101 @@ class TimelineCommandService:
             "resolve the previous timeline save failure before editing again",
         )
 
+    def _edit_preview_block(
+        self,
+        operation: str,
+    ) -> TimelineEditCandidate | None:
+        code = ""
+        message = ""
+        if self._pending_save is not None:
+            code = "pending_save"
+            message = (
+                "resolve the previous timeline save failure before editing again"
+            )
+        elif not self.ready:
+            code = self.status or "unavailable"
+            message = self.error or "timeline session is not ready"
+        elif self.read_only:
+            code = "read_only"
+            message = self._read_only_error()
+        if not code:
+            return None
+        fingerprint = ""
+        if self._timeline is not None and self._project is not None:
+            fingerprint = timeline_edit_fingerprint(
+                self._timeline,
+                self._project,
+            )
+        candidate = TimelineEditCandidate(
+            operation,
+            False,
+            fingerprint,
+            None,
+            TimelineEditImpact(operation),
+            (TimelineEditConflict(code, message),),
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def _remember_edit_preview(
+        self,
+        candidate: TimelineEditCandidate,
+    ) -> None:
+        self._last_edit_operation = candidate.operation
+        self._last_stage = "preview"
+        self._last_result = "ok" if candidate.valid else "blocked"
+        self._last_conflict_codes = tuple(
+            item.code for item in candidate.conflicts
+        )
+        self._last_ripple_track_count = len(
+            candidate.impact.affected_track_ids
+        )
+        self._last_ripple_clip_count = len(
+            candidate.impact.ripple_clip_ids
+        )
+        if (
+            self._timeline is not None
+            and self._timeline.schema_version == 1
+            and candidate.timeline is not None
+            and candidate.timeline.schema_version == 2
+        ):
+            self._last_migration_source = 1
+            self._last_migration_target = 2
+            self._last_migration_result = "candidate_ready"
+        logger.info(
+            "timeline edit preview: project_id=%s operation=%s "
+            "associated_clips=%d ripple_tracks=%d ripple_clips=%d "
+            "range_start_us=%s range_end_us=%s split_us=%s "
+            "valid=%s conflicts=%s",
+            self.project_id,
+            candidate.operation,
+            candidate.impact.associated_clip_count,
+            self._last_ripple_track_count,
+            self._last_ripple_clip_count,
+            candidate.impact.range_start_us,
+            candidate.impact.range_end_us,
+            candidate.normalized_playhead_us,
+            candidate.valid,
+            ",".join(self._last_conflict_codes) or "none",
+        )
+
+    def _remember_command_result(
+        self,
+        command: str,
+        stage: str,
+        *,
+        ok: bool,
+    ) -> None:
+        self._last_command = command
+        self._last_stage = stage
+        self._last_result = "ok" if ok else "failed"
+        if command == "undo":
+            self._last_undo_result = self._last_result
+        elif command == "redo":
+            self._last_redo_result = self._last_result
+        if stage not in {"preview", "read_only", "pending_save"}:
+            self._last_save_result = self._last_result
+
     def _require_project(self) -> ProjectFile | None:
         return self._project
 
@@ -1370,6 +1856,7 @@ class TimelineCommandService:
             command,
             stage,
         )
+        self._remember_command_result(command, stage, ok=False)
         return TimelineCommandResult(
             False,
             command,
@@ -1407,17 +1894,23 @@ def _resolve_track(
 ) -> TimelineTrack:
     if track_id is None:
         tracks = sorted(
-            (track for track in timeline.tracks if track.kind == expected_kind),
+            (
+                track
+                for track in timeline.tracks
+                if track.kind == expected_kind and not track.locked
+            ),
             key=lambda item: item.order,
         )
         if not tracks:
-            raise ValueError(f"no {expected_kind} track is available")
+            raise ValueError(f"no unlocked {expected_kind} track is available")
         return tracks[0]
     track = _find_track(timeline, track_id)
     if track.kind != expected_kind:
         raise ValueError(
             f"track {track_id} is not a {expected_kind} track"
         )
+    if track.locked:
+        raise ValueError(f"track {track_id} is locked")
     return track
 
 

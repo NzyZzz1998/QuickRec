@@ -16,21 +16,35 @@ class CoverageGroup:
 
 GROUPS = (
     CoverageGroup(
-        "timeline-core",
+        "timeline-editing-core",
         (
             "src/utils/timeline_model.py",
             "src/services/timeline_commands.py",
-            "src/services/timeline_session.py",
+            "src/services/timeline_edit_service.py",
+            "src/services/timeline_history.py",
         ),
         85.0,
     ),
     CoverageGroup(
-        "timeline-playback-coordination",
+        "timeline-editing-ui-coordination",
         (
+            "src/ui/timeline_canvas.py",
+            "src/ui/timeline_trim_interaction.py",
+            "src/ui/clip_inspector_widget.py",
+            "src/ui/timeline_edit_dialogs.py",
             "src/ui/timeline_editor_window.py",
-            "src/services/playback_runtime.py",
         ),
         80.0,
+    ),
+    CoverageGroup(
+        "quickrec-cli-core",
+        (
+            "src/cli/contracts.py",
+            "src/cli/isolation.py",
+            "src/cli/commands.py",
+            "src/cli/main.py",
+        ),
+        85.0,
     ),
 )
 
@@ -88,7 +102,7 @@ def check_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Check v1.9.2 incremental statement coverage gates."
+        description="Check v1.9.3 incremental statement coverage gates."
     )
     parser.add_argument("report", type=Path)
     args = parser.parse_args()

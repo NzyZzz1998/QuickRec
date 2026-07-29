@@ -9,6 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import main
+from recorder.events import RecordingEvent
 from services.material_ingestion import MaterialIngestionCoordinator
 from services.pending_recordings import PendingRecordingService
 from services.project_library import ProjectLibraryService
@@ -169,6 +170,10 @@ class FakeWorkflow:
         self.wait_until_idle_result = True
         self.start_fullscreen_called = False
         self.start_fullscreen_result = True
+        self.subscribers = []
+
+    def subscribe(self, callback):
+        self.subscribers.append(callback)
 
     def handle_event(self, event):
         self.events.append(event)
@@ -441,6 +446,8 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
             app = main.QuickRecApp()
 
         self.assertIs(app._workflow.manager, app._recorder)
+        self.assertIsNone(app._recorder.on_saved)
+        self.assertEqual(app._workflow.subscribers, [app._on_recording_event])
         self.assertIs(app._recorder.event_handler.__self__, app._workflow)
         self.assertIs(app._recorder.event_handler.__func__, app._workflow.handle_event.__func__)
         self.assertTrue(app._recorder.window_lost_connected)
@@ -455,6 +462,18 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIsInstance(app._workbench, main.WorkbenchCoordinator)
         self.assertIsInstance(app._pending_service, PendingRecordingService)
         self.assertIsInstance(app._ingestion_coordinator, MaterialIngestionCoordinator)
+
+    def test_recording_event_is_forwarded_once_through_saved_bridge(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        saved = FakeSignal()
+        received = []
+        saved.connect(received.append)
+        app._saved_bridge = SimpleNamespace(saved=saved)
+
+        app._on_recording_event(RecordingEvent.saved("E:/Videos/out.mp4"))
+        app._on_recording_event(RecordingEvent.failed("boom"))
+
+        self.assertEqual(received, ["E:/Videos/out.mp4", ""])
 
     def test_show_workbench_routes_to_requested_page(self):
         class Coordinator:
@@ -473,6 +492,44 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
 
         self.assertIs(result, app._workbench.result)
         self.assertEqual(app._workbench.pages, [main.WorkbenchPage.MATERIALS])
+
+    def test_instance_activation_request_opens_existing_workbench(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._instance_guard = SimpleNamespace(
+            consume_activation_request=lambda: True
+        )
+
+        with patch.object(app, "_show_workbench") as show_workbench:
+            app._poll_instance_activation()
+
+        show_workbench.assert_called_once_with()
+
+    def test_instance_activation_poll_does_nothing_without_request(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._instance_guard = SimpleNamespace(
+            consume_activation_request=lambda: False
+        )
+
+        with patch.object(app, "_show_workbench") as show_workbench:
+            app._poll_instance_activation()
+
+        show_workbench.assert_not_called()
+
+    def test_secondary_instance_exits_before_qapplication_is_created(self):
+        guard = SimpleNamespace(
+            acquire=lambda: False,
+            activation_signal_sent=True,
+            close=lambda: None,
+        )
+
+        with patch("main.SingleInstanceGuard", return_value=guard) as guard_type, \
+                patch("main.QuickRecApp") as app_type, \
+                patch("main._enable_dpi_awareness") as enable_dpi:
+            main.main()
+
+        guard_type.assert_called_once_with(main.FULL_PRODUCT_ID)
+        app_type.assert_not_called()
+        enable_dpi.assert_not_called()
 
     def test_show_timeline_editor_routes_to_single_coordinator(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)

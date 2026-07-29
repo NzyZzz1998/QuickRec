@@ -113,6 +113,21 @@ class TestRecordingWorkflow(unittest.TestCase):
 
         self.assertEqual(events, [])
 
+    def test_failing_event_subscriber_does_not_block_later_subscriber(self):
+        manager = FakeManager()
+        workflow = RecordingWorkflow(manager)
+        events = []
+
+        def fail(_event):
+            raise RuntimeError("boom")
+
+        workflow.subscribe(fail)
+        workflow.subscribe(events.append)
+
+        workflow.handle_event(RecordingEvent.saved("D:/Videos/out.mp4"))
+
+        self.assertEqual(len(events), 1)
+
     def test_wait_until_idle_delegates_timeout(self):
         manager = FakeManager()
         workflow = RecordingWorkflow(manager)

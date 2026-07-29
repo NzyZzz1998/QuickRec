@@ -388,3 +388,97 @@ def test_fatal_playback_error_exposes_retry_and_diagnostics_actions() -> None:
         assert window._btn_play.text() == "暂停"
         assert backend.calls.count("prepare") == 2
         window.shutdown()
+
+
+def test_edit_commit_rebuilds_playback_and_clamps_playhead_to_new_duration(
+) -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir), duration_sec=3.0)
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        runtime = window._playback_runtime
+        assert runtime is not None
+        window._render_playback_snapshot(runtime.prepare())
+        window._render_playback_snapshot(runtime.seek(2_500_000))
+        clip = session.timeline.clips[0]
+        candidate = session.commands.preview_trim_clip(
+            clip.clip_id,
+            source_start_us=0,
+            source_end_us=1_000_000,
+        )
+
+        window._commit_edit_candidate(
+            candidate,
+            success_text="裁剪完成",
+        )
+
+        snapshot = runtime.snapshot()
+        assert snapshot.state == PlaybackState.PAUSED
+        assert snapshot.duration_us == 1_000_000
+        assert snapshot.position_us == 1_000_000
+        assert session.view_state.playhead_us == 1_000_000
+        assert backend.calls.count("prepare") == 2
+        window.shutdown()
+
+
+def test_trim_preview_does_not_replace_playback_until_commit() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir), duration_sec=3.0)
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        clip = session.timeline.clips[0]
+        window._timeline_canvas.select_clip(clip.clip_id)
+        window._on_clip_selected(clip.clip_id, clip.track_id)
+        calls_before = list(backend.calls)
+
+        window._on_inspector_preview_requested(500_000, 2_500_000)
+
+        assert backend.calls == calls_before
+        assert session.timeline.clips[0].source_start_us == 0
+        assert session.timeline.clips[0].source_duration_us == 3_000_000
+        window.shutdown()
+
+
+def test_undo_and_redo_replace_the_playback_plan_without_autoplay() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir), duration_sec=3.0)
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        runtime = window._playback_runtime
+        assert runtime is not None
+        clip = session.timeline.clips[0]
+        candidate = session.commands.preview_split_clip(
+            clip.clip_id,
+            playhead_us=1_000_000,
+        )
+        window._commit_edit_candidate(candidate, success_text="分割完成")
+        prepare_after_split = backend.calls.count("prepare")
+
+        window._on_undo()
+        window._on_redo()
+
+        assert backend.calls.count("prepare") == prepare_after_split + 2
+        assert runtime.snapshot().state == PlaybackState.PAUSED
+        assert window._btn_play.text() == "播放"
+        window.shutdown()

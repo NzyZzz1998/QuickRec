@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from services.project_library import ProjectLibraryService
+from services.project_save_coordinator import ProjectSaveState
 from services.timeline_commands import TimelineCommandService
 from utils.project_store import ProjectMaterialRef, load_project, save_project
 from utils.timeline_model import (
@@ -81,6 +82,12 @@ def test_add_material_creates_linked_video_and_audio_and_persists(
     assert video.link_group_id == audio.link_group_id
     assert video.timeline_start_us == audio.timeline_start_us == 0
     assert video.timeline_duration_us == audio.timeline_duration_us == 1_000_000
+    assert timeline_fixture.session.save_snapshot.state == ProjectSaveState.CLEAN
+    assert (
+        timeline_fixture.session.save_snapshot.persisted_revision
+        == timeline_fixture.session.save_snapshot.revision
+        == 1
+    )
 
 
 def test_timeline_load_and_save_logs_are_classified_without_media_path(
@@ -387,11 +394,24 @@ def test_index_failure_restores_exact_project_and_allows_later_retry(
     assert not failed.ok
     assert failed.stage == "index"
     assert failed.rolled_back
+    assert (
+        timeline_fixture.session.save_snapshot.state
+        == ProjectSaveState.FAILED
+    )
+    failed_revision = timeline_fixture.session.save_snapshot.revision
     assert timeline_fixture.project_path.read_bytes() == before
     assert timeline_fixture.session.undo_depth == 0
 
     retried = timeline_fixture.session.retry_pending_save()
     assert retried.ok
+    assert (
+        timeline_fixture.session.save_snapshot.state
+        == ProjectSaveState.CLEAN
+    )
+    assert (
+        timeline_fixture.session.save_snapshot.persisted_revision
+        == failed_revision
+    )
 
 
 def test_failed_save_keeps_exact_candidate_for_retry(
@@ -439,6 +459,10 @@ def test_discard_pending_save_preserves_last_persisted_timeline(
     discarded = timeline_fixture.session.discard_pending_save()
 
     assert discarded.ok
+    assert (
+        timeline_fixture.session.save_snapshot.state
+        == ProjectSaveState.CLEAN
+    )
     assert not timeline_fixture.session.has_pending_save
     assert timeline_fixture.session.timeline == before
     assert timeline_fixture.project_path.read_bytes() == before_file
@@ -460,6 +484,10 @@ def test_external_conflict_can_save_unregistered_recovery_copy(
     assert not failed.ok
     assert failed.stage == "external_conflict"
     assert timeline_fixture.session.has_pending_save
+    assert (
+        timeline_fixture.session.save_snapshot.state
+        == ProjectSaveState.CONFLICT
+    )
 
     recovered = timeline_fixture.session.save_pending_recovery_copy(
         timestamp="20260728_111500",
@@ -612,6 +640,7 @@ def test_corrupt_timeline_can_recover_from_valid_project_backup(
 
     assert session.status == "corrupt"
     assert session.timeline_backup_available
+    assert session.diagnostic_summary()["timeline_status"] == "corrupt"
     result = session.recover_timeline_from_backup()
 
     assert result.ok

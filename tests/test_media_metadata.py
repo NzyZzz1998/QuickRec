@@ -111,6 +111,22 @@ class TestMediaMetadata(unittest.TestCase):
         self.assertEqual(result.error, "invalid media")
 
     @patch("utils.media_metadata.subprocess.run")
+    def test_probe_media_redacts_input_path_from_ffprobe_error(self, run):
+        video_path = Path("E:/Private Workspace/用户素材.mp4")
+        run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=f"{video_path}: Invalid data found when processing input",
+        )
+
+        result = probe_media(video_path, ffprobe_path="ffprobe.exe")
+
+        self.assertFalse(result.ok)
+        self.assertNotIn(str(video_path), result.error)
+        self.assertIn("<media>", result.error)
+
+    @patch("utils.media_metadata.subprocess.run")
     def test_probe_media_rejects_output_without_video_stream(self, run):
         run.return_value = subprocess.CompletedProcess(
             args=[],

@@ -13,11 +13,20 @@ from pathlib import Path
 from typing import Any
 
 from utils.recording_library_store import normalize_windows_path
+from utils.schema_migrations import (
+    SchemaMigrationError,
+    SchemaMigrationRegistry,
+    UnsupportedSchemaVersionError,
+)
 
 PROJECT_FILE_NAME = "project.qrproj"
 PROJECT_INDEX_FILE_NAME = "projects.json"
 PROJECT_SCHEMA_VERSION = 1
 PROJECT_INDEX_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_MIGRATIONS = SchemaMigrationRegistry(
+    label="project",
+    current_version=PROJECT_SCHEMA_VERSION,
+)
 logger = logging.getLogger("QuickRec")
 
 
@@ -67,7 +76,12 @@ class ProjectFile:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProjectFile:
-        _require_schema(data, PROJECT_SCHEMA_VERSION, "project")
+        try:
+            data = PROJECT_SCHEMA_MIGRATIONS.migrate(data).payload
+        except UnsupportedSchemaVersionError as exc:
+            raise UnsupportedSchemaError(str(exc)) from exc
+        except SchemaMigrationError as exc:
+            raise ValueError(str(exc)) from exc
         materials = data.get("materials")
         if not isinstance(materials, list):
             raise ValueError("materials must be an array")

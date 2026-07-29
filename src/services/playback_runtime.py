@@ -66,6 +66,10 @@ class PlaybackRuntime:
         self._needs_audio_decision = False
         self._buffering_started_us: int | None = None
         self._last_degraded_signature: tuple[str, str, str] | None = None
+        self._last_seek_target_us: int | None = None
+        self._last_seek_source_us: int | None = None
+        self._last_seek_elapsed_ms: float | None = None
+        self._last_seek_result = "not_run"
         self._released = False
 
     def prepare(self) -> PlaybackSnapshot:
@@ -186,6 +190,16 @@ class PlaybackRuntime:
         self._buffering_started_us = None
         self._state = PlaybackState.SEEKING
         result = self._backend.seek(self._plan(target))
+        elapsed_ms = (time.monotonic_ns() - started_ns) / 1_000_000
+        self._last_seek_target_us = target
+        seek_plan = self._plan(target)
+        self._last_seek_source_us = (
+            seek_plan.video.source_position_us
+            if seek_plan.video is not None
+            else None
+        )
+        self._last_seek_elapsed_ms = round(elapsed_ms, 3)
+        self._last_seek_result = "failed" if not result.ok else "ok"
         self._frame = result
         if not result.ok:
             self._position_us = previous_position
@@ -194,7 +208,7 @@ class PlaybackRuntime:
                 "elapsed_ms=%.3f kind=%s",
                 previous_position,
                 target,
-                (time.monotonic_ns() - started_ns) / 1_000_000,
+                elapsed_ms,
                 result.error_kind,
             )
             return self._fail(result)
@@ -212,7 +226,7 @@ class PlaybackRuntime:
             "elapsed_ms=%.3f state=%s",
             previous_position,
             target,
-            (time.monotonic_ns() - started_ns) / 1_000_000,
+            elapsed_ms,
             self._state.value,
         )
         return self.snapshot()
@@ -299,6 +313,23 @@ class PlaybackRuntime:
             "muted": self._muted,
             "sync_offset_ms": self._frame.sync_offset_ms,
             "last_error_kind": self._error_kind,
+            "last_seek_target_us": (
+                self._last_seek_target_us
+                if self._last_seek_target_us is not None
+                else "none"
+            ),
+            "last_seek_source_us": (
+                self._last_seek_source_us
+                if self._last_seek_source_us is not None
+                else "none"
+            ),
+            "last_seek_elapsed_ms": (
+                self._last_seek_elapsed_ms
+                if self._last_seek_elapsed_ms is not None
+                else "none"
+            ),
+            "last_seek_result": self._last_seek_result,
+            "resources_released": self._released,
         }
 
     def snapshot(self) -> PlaybackSnapshot:

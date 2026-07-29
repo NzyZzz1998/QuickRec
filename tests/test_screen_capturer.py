@@ -112,6 +112,32 @@ class TestScreenCapturerNonBlocking(unittest.TestCase):
         self.assertTrue(capturer._started)
         self.assertEqual(capturer._last_dxcam_region, (10, 20, 330, 260))
 
+    def test_standard_fps_reuses_prestart_frame_on_static_desktop(self):
+        expected = np.zeros((20, 30, 3), dtype=np.uint8)
+        camera = _FakeCamera([expected])
+        create = Mock(return_value=camera)
+        capturer = ScreenCapturer(target_fps=30)
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.start()
+            frame = capturer.capture_frame()
+
+        self.assertIs(frame, expected)
+
+    def test_start_uses_desktop_fallback_when_dxcam_has_no_initial_frame(self):
+        expected = np.zeros((20, 30, 3), dtype=np.uint8)
+        camera = _FakeCamera()
+        create = Mock(return_value=camera)
+        capturer = ScreenCapturer(target_fps=30)
+        capturer._grab_desktop_fallback = Mock(return_value=expected)
+
+        with patch.dict(sys.modules, {"dxcam": SimpleNamespace(create=create)}):
+            capturer.start()
+            frame = capturer.capture_frame()
+
+        self.assertIs(frame, expected)
+        capturer._grab_desktop_fallback.assert_called_once_with()
+
     def test_invalid_region_is_rejected(self):
         with self.assertRaises(ValueError):
             ScreenCapturer(region=(0, 0, 1, 1))
@@ -267,6 +293,23 @@ class TestScreenCapturerNonBlocking(unittest.TestCase):
             capturer.update_region((10, 20, 320, 240))
 
         self.assertEqual(new_camera.start_calls, [(60, (10, 20, 330, 260), True)])
+
+    def test_region_restart_reuses_prestart_frame_on_static_desktop(self):
+        expected = np.zeros((240, 320, 3), dtype=np.uint8)
+        old_camera = _FakeCamera()
+        new_camera = _FakeCamera([expected])
+        capturer = ScreenCapturer(region=(0, 0, 320, 240), target_fps=60)
+        capturer._camera = old_camera
+        capturer._started = True
+
+        with patch.dict(
+            sys.modules,
+            {"dxcam": SimpleNamespace(create=Mock(return_value=new_camera))},
+        ):
+            capturer.update_region((10, 20, 320, 240))
+            frame = capturer.capture_frame()
+
+        self.assertIs(frame, expected)
 
 
 @pytest.mark.hardware

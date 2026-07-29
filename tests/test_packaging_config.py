@@ -37,7 +37,10 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "ui.workbench_pages",
         "ui.workbench_window",
         "ui.timeline_canvas",
+        "ui.timeline_edit_dialogs",
         "ui.timeline_editor_window",
+        "ui.timeline_trim_interaction",
+        "ui.clip_inspector_widget",
         "hotkey.hotkey_manager",
         "pynput.keyboard._win32",
         "pynput.mouse._win32",
@@ -45,7 +48,10 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "pyaudio",
         "winotify",
         "cv2",
+        "services.application_events",
         "services.recording_library",
+        "services.recording_guard",
+        "services.single_instance",
         "services.pending_recordings",
         "services.material_ingestion",
         "services.material_query",
@@ -54,7 +60,12 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "services.project_library",
         "services.project_query",
         "services.project_recording",
+        "services.project_save_coordinator",
         "services.timeline_commands",
+        "services.timeline_edit_service",
+        "services.timeline_health",
+        "services.timeline_history",
+        "services.timeline_media_runtime",
         "services.timeline_query",
         "services.timeline_session",
         "services.playback_backend",
@@ -63,6 +74,7 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "utils.timeline_model",
         "utils.recording_library_store",
         "utils.pending_recording_store",
+        "utils.schema_migrations",
         "utils.media_metadata",
         "utils.project_store",
         "utils.recycle_bin",
@@ -117,6 +129,14 @@ def test_pyinstaller_spec_builds_quickrec_onedir_app():
     assert "upx=True" in SPEC_TEXT
 
 
+def test_pyinstaller_spec_builds_independent_cli_in_same_onedir_app():
+    assert "['src/cli_entry.py']" in SPEC_TEXT
+    assert "name='QuickRecCLI'" in SPEC_TEXT
+    assert "cli_exe" in SPEC_TEXT
+    assert "cli_analysis.binaries" in SPEC_TEXT
+    assert SPEC_TEXT.count("COLLECT(") == 1
+
+
 def test_ci_stages_real_ffmpeg_tools_before_pyinstaller_build():
     stage_marker = "- name: Stage FFmpeg tools"
     build_marker = "- name: Build onedir package"
@@ -136,3 +156,12 @@ def test_ci_verifies_pyav_runtime_files_in_package():
     assert "ci-dist\\QuickRec\\_internal\\av\\_core.pyd" in CI_TEXT
     assert "ci-dist\\QuickRec\\_internal\\av.libs" in CI_TEXT
     assert "avcodec-*.dll" in CI_TEXT
+
+
+def test_ci_verifies_frozen_cli_contract_and_editing_smoke():
+    assert "ci-dist\\QuickRec\\QuickRecCLI.exe" in CI_TEXT
+    assert '$cli = "ci-dist\\QuickRec\\QuickRecCLI.exe"' in CI_TEXT
+    assert "& $cli doctor --json" in CI_TEXT
+    assert "& $cli smoke --suite editing" in CI_TEXT
+    assert "& $cli probe" in CI_TEXT
+    assert "& $cli timeline validate" in CI_TEXT

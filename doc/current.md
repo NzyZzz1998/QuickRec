@@ -3,16 +3,57 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.9.2。
+- 当前公开正式版本：v1.9.3。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.9.2`。
+- 当前发布标签：`v1.9.3`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前阶段：v1.9.2 已完成 D10 GUI 与真实媒体验收并正式发布。
+- 当前阶段：v1.9.3 已完成 D10 GUI 与真实媒体验收并正式发布。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
-## v1.9.2 发布状态
+## v1.9.3 发布状态
+
+v1.9.3 在 v1.9.2 可播放多轨时间线基础上交付基础剪辑、固定全局波纹和
+内部自动化 CLI：
+
+- 基础剪辑支持关联音视频裁剪、分割、轨道锁和固定全局波纹；
+- timeline schema v2 支持非零源入点，并从 v1 延迟、原子迁移；
+- 剪辑保存、撤销重做、外部冲突、缺失和关联异常具备恢复边界；
+- 新增内部自动化 `QuickRecCLI.exe`，与 GUI 共用生产服务和媒体运行时；
+- 完成应用单实例、保存协调、播放运行时和录制只读守卫的最小职责拆分；
+- D9 自动化、双入口打包和 D10 GUI/真实媒体验收均已通过；
+- 三种录制、四种音频、30/60/120 FPS 和 100%/125%/150% DPI 回归通过；
+- QuickRec Lite 未修改。
+
+正式发布资产：
+
+```text
+目录: E:\QRtest\QuickRec-v1.9.3-rc3-dist\QuickRec
+GUI: E:\QRtest\QuickRec-v1.9.3-rc3-dist\QuickRec\QuickRec.exe
+GUI SHA256: 94F51E274A32E35CC2E47AA9549BF37B41BE4DD034DDBA72A66309C58E1CC986
+CLI: E:\QRtest\QuickRec-v1.9.3-rc3-dist\QuickRec\QuickRecCLI.exe
+CLI SHA256: 8E80AEB199D978944BED049668E0F49A840BE2455AA46CAA7318AE29A9DB0B09
+FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9.3-win-x64.zip
+ZIP SHA256: 87A784FEBA327B60CAC01E0277B7C57320BA4BC663D3DDE58C8DE4F9D09B4F89
+```
+
+当前 v1.9.3 文档：
+
+- PRD：[releases/v1.9.3/prd.md](releases/v1.9.3/prd.md)
+- 实施计划：[releases/v1.9.3/dev_plan.md](releases/v1.9.3/dev_plan.md)
+- 进度：[releases/v1.9.3/progress.md](releases/v1.9.3/progress.md)
+- 自动验证：[releases/v1.9.3/verification.md](releases/v1.9.3/verification.md)
+- GUI 验收：[releases/v1.9.3/manual-verification.md](releases/v1.9.3/manual-verification.md)
+- 缺陷记录：[releases/v1.9.3/bugfix-log.md](releases/v1.9.3/bugfix-log.md)
+- 技术门禁：[releases/v1.9.3/playback-accuracy-spike.md](releases/v1.9.3/playback-accuracy-spike.md)
+- 发布说明：[releases/v1.9.3/release-notes.md](releases/v1.9.3/release-notes.md)
+- 变更日志：[releases/v1.9.3/changelog.md](releases/v1.9.3/changelog.md)
+- 高保真原型：[releases/v1.9.3/prototype/index.html](releases/v1.9.3/prototype/index.html)
+
+## v1.9.2 历史发布状态
 
 v1.9.2 在项目素材预览基础上交付可持久化、可恢复、可播放的多轨时间线：
 
@@ -196,7 +237,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.9.2：当前公开正式版。
+- v1.9.3：当前公开正式版。
+- v1.9.2：历史稳定版，也是 v1.9.3 的直接回滚点。
 - v1.9.1：历史稳定版，也是 v1.9.2 的直接回滚点。
 - v1.9：历史稳定版，也是 v1.9.1 的直接回滚点。
 - v1.8：历史稳定版，也是 v1.9 的直接回滚点。
@@ -237,3 +279,12 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 3. 保留项目文件、项目索引、中央素材索引、首帧缓存和所有视频。
 4. v1.9.1 会安全忽略项目 `extensions` 中的时间线数据。
 5. 不移动或重写 `v1.9.1` 及更早 tag。
+
+## v1.9.3 回滚
+
+1. 退出 QuickRec 和 `QuickRecCLI.exe`。
+2. 使用 `v1.9.2` tag 或 v1.9.2 GitHub Release 发布包。
+3. 保留项目文件、项目索引、中央素材索引、首帧缓存和所有视频。
+4. v1.9.2 遇到 timeline schema v2 时会保留原始数据并只读，不得为了回滚
+   删除或重建项目文件。
+5. 不移动或重写 `v1.9.2` 及更早 tag。

@@ -443,7 +443,7 @@ class _AvVideoDecoder:
             self._seek(target)
         if (
             self._last_image is not None
-            and self._last_start_us <= target <= self._last_end_us
+            and self._last_start_us <= target < self._last_end_us
         ):
             return self._last_image
         for frame in self._frames:
@@ -457,7 +457,7 @@ class _AvVideoDecoder:
             self._last_image = image
             self._last_start_us = start_us
             self._last_end_us = end_us
-            if target <= end_us:
+            if target < end_us:
                 return image
         if self._last_image is not None:
             return self._last_image
@@ -468,6 +468,9 @@ class _AvVideoDecoder:
         if container is not None:
             container.close()
             self._container = None
+        self._frames = None
+        self._stream = None
+        self._last_image = None
         self._released = True
 
     def _seek(self, target_us: int) -> None:
@@ -503,6 +506,7 @@ class _AvAudioDecoder:
             dtype=np.float32,
         )
         self._cursor_us: int | None = None
+        self._discard_before_us: int | None = None
         self._released = False
 
     def samples_at(
@@ -531,6 +535,10 @@ class _AvAudioDecoder:
         if container is not None:
             container.close()
             self._container = None
+        self._frames = None
+        self._resampler = None
+        self._stream = None
+        self._buffer = np.zeros((_AUDIO_CHANNELS, 0), dtype=np.float32)
         self._released = True
 
     def _seek(self, target_us: int) -> None:
@@ -545,6 +553,7 @@ class _AvAudioDecoder:
         )
         self._buffer = np.zeros((_AUDIO_CHANNELS, 0), dtype=np.float32)
         self._cursor_us = target_us
+        self._discard_before_us = target_us
 
     def _fill(self, sample_count: int) -> None:
         if self._frames is None or self._resampler is None:
@@ -571,6 +580,12 @@ class _AvAudioDecoder:
                     array = array.reshape(1, -1)
                 if array.shape[0] == 1:
                     array = np.repeat(array, _AUDIO_CHANNELS, axis=0)
+                array = self._discard_samples_before_target(
+                    converted,
+                    array,
+                )
+                if array.shape[1] == 0:
+                    continue
                 chunks.append(array[:_AUDIO_CHANNELS])
                 buffered += array.shape[1]
                 if buffered >= sample_count:
@@ -580,6 +595,34 @@ class _AvAudioDecoder:
                 [self._buffer, *chunks],
                 axis=1,
             )
+
+    def _discard_samples_before_target(
+        self,
+        frame: Any,
+        array: NDArray[np.float32],
+    ) -> NDArray[np.float32]:
+        target_us = self._discard_before_us
+        if target_us is None:
+            return array
+        if frame.pts is None or frame.time_base is None:
+            raise RuntimeError(
+                "audio seek frame is missing timestamp metadata"
+            )
+        frame_start_us = round(float(frame.pts * frame.time_base) * 1_000_000)
+        frame_end_us = frame_start_us + round(
+            array.shape[1] * 1_000_000 / _AUDIO_RATE
+        )
+        if frame_end_us <= target_us:
+            return array[:, :0]
+        if frame_start_us < target_us:
+            delta_us = target_us - frame_start_us
+            discard = min(
+                array.shape[1],
+                (delta_us * _AUDIO_RATE + 999_999) // 1_000_000,
+            )
+            array = array[:, discard:]
+        self._discard_before_us = None
+        return array
 
 
 class _PyAudioOutput:

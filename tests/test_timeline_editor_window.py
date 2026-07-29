@@ -187,3 +187,41 @@ def test_coordinator_refreshes_visible_matching_project_without_reopening():
         "project-1",
     ]
     assert registry.current_session.refresh_count == 1
+
+
+def test_corrupt_timeline_keeps_project_material_surface_and_recovery_actions():
+    project = _Project(
+        "project-corrupt",
+        "损坏项目",
+        materials=[],
+    )
+    commands = type(
+        "Commands",
+        (),
+        {"timeline_backup_available": True, "has_pending_save": False},
+    )()
+    session = type(
+        "CorruptSession",
+        (),
+        {
+            "project_id": "project-corrupt",
+            "project": project,
+            "ready": False,
+            "read_only": True,
+            "status": "corrupt",
+            "error": "timeline extension is corrupt",
+            "recording_active": False,
+            "commands": commands,
+        },
+    )()
+    window = TimelineEditorWindow()
+
+    window.set_session(session)
+
+    assert window._project_name.text() == "损坏项目"
+    assert window._material_list.isEnabled()
+    assert window._timeline_canvas.clip_count == 0
+    assert not window._btn_restore_timeline.isHidden()
+    assert not window._btn_rebuild_timeline.isHidden()
+    assert "损坏" in window._save_status.text()
+    window.shutdown()

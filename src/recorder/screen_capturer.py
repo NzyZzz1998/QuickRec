@@ -57,8 +57,7 @@ class ScreenCapturer:
         """启动捕获（延迟初始化，应在录制线程中调用）"""
         import dxcam
         self._camera = dxcam.create(output_idx=0, output_color="BGR")
-        if self._target_fps >= 120:
-            self._fallback_frame = self._camera.grab()
+        self._fallback_frame = self._grab_initial_frame()
         if self._dxcam_region:
             logger.info(f"ScreenCapturer region: {self._dxcam_region}")
         self._start_camera()
@@ -93,7 +92,7 @@ class ScreenCapturer:
             import time
             time.sleep(0.01)
             frame = self._camera.grab()
-        if frame is not None and self._target_fps >= 120:
+        if frame is not None:
             self._fallback_frame = frame
         elif frame is None and self._fallback_frame is not None:
             frame = self._fallback_frame
@@ -125,6 +124,7 @@ class ScreenCapturer:
                 self._camera.release()
                 import dxcam
                 self._camera = dxcam.create(output_idx=0, output_color="BGR")
+                self._fallback_frame = self._grab_initial_frame()
                 self._start_camera()
             except Exception as e:
                 logger.error(f"更新捕获区域失败: {e}")
@@ -136,6 +136,40 @@ class ScreenCapturer:
                     pass
                 self._camera = None
                 self._started = False
+
+    def _grab_initial_frame(self):
+        camera = self._camera
+        if camera is None:
+            return None
+        try:
+            frame = camera.grab(
+                region=self._dxcam_region,
+                new_frame_only=False,
+            )
+        except TypeError:
+            # 保持与旧版 dxcam 以及受控测试替身兼容。
+            frame = camera.grab()
+        if frame is not None:
+            return frame
+        return self._grab_desktop_fallback()
+
+    def _grab_desktop_fallback(self):
+        """为完全静态的桌面准备一张首帧，后续实时帧仍由 DXCam 提供。"""
+        try:
+            import numpy as np
+            from PIL import ImageGrab
+
+            image = ImageGrab.grab(
+                bbox=self._dxcam_region,
+                all_screens=self._dxcam_region is not None,
+            ).convert("RGB")
+            return np.asarray(image, dtype=np.uint8)[:, :, ::-1].copy()
+        except Exception as exc:
+            logger.warning(
+                "static desktop fallback capture failed: error_type=%s",
+                type(exc).__name__,
+            )
+            return None
 
     def get_monitor_size(self) -> tuple[int, int]:
         """

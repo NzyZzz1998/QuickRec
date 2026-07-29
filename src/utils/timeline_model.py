@@ -9,11 +9,21 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
 
 from utils.project_store import ProjectFile
+from utils.schema_migrations import (
+    SchemaMigrationError,
+    SchemaMigrationRegistry,
+    UnsupportedSchemaVersionError,
+)
 
 TIMELINE_EXTENSION_KEY = "quickrec.timeline"
-TIMELINE_SCHEMA_VERSION = 1
+TIMELINE_SCHEMA_V1 = 1
+TIMELINE_SCHEMA_VERSION = 2
 TIMELINE_TIME_UNIT = "microseconds"
 MAX_TRACKS_PER_KIND = 8
+TIMELINE_SCHEMA_MIGRATIONS = SchemaMigrationRegistry(
+    label="timeline",
+    current_version=TIMELINE_SCHEMA_VERSION,
+)
 
 TrackKind = Literal["video", "audio"]
 _TRACK_KINDS: tuple[TrackKind, TrackKind] = ("video", "audio")
@@ -34,22 +44,35 @@ class TimelineTrack:
     kind: TrackKind | str
     name: str
     order: int
+    locked: bool = False
     extensions: dict[str, Any] = field(default_factory=dict)
     unknown_fields: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> TimelineTrack:
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        schema_version: int,
+    ) -> TimelineTrack:
         known = {"track_id", "kind", "name", "order", "extensions"}
+        if schema_version >= TIMELINE_SCHEMA_VERSION:
+            known.add("locked")
         return cls(
             track_id=_required_text(data, "track_id"),
             kind=_required_text(data, "kind"),
             name=_required_text(data, "name"),
             order=_required_int(data, "order"),
+            locked=(
+                _optional_bool(data.get("locked"), "track.locked")
+                if schema_version >= TIMELINE_SCHEMA_VERSION
+                else False
+            ),
             extensions=_object(data.get("extensions"), "track.extensions"),
             unknown_fields=_unknown_fields(data, known),
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, schema_version: int) -> dict[str, Any]:
         payload = copy.deepcopy(self.unknown_fields)
         payload.update(
             {
@@ -60,6 +83,8 @@ class TimelineTrack:
                 "extensions": copy.deepcopy(self.extensions),
             }
         )
+        if schema_version >= TIMELINE_SCHEMA_VERSION:
+            payload["locked"] = self.locked
         return payload
 
 
@@ -137,7 +162,15 @@ class Timeline:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Timeline:
         schema_version = _required_int(data, "schema_version")
-        if schema_version != TIMELINE_SCHEMA_VERSION:
+        if schema_version not in (TIMELINE_SCHEMA_V1, TIMELINE_SCHEMA_VERSION):
+            try:
+                data = TIMELINE_SCHEMA_MIGRATIONS.migrate(data).payload
+            except UnsupportedSchemaVersionError as exc:
+                raise UnsupportedTimelineSchemaError(str(exc)) from exc
+            except SchemaMigrationError as exc:
+                raise TimelineValidationError(str(exc)) from exc
+            schema_version = _required_int(data, "schema_version")
+        if schema_version not in (TIMELINE_SCHEMA_V1, TIMELINE_SCHEMA_VERSION):
             raise UnsupportedTimelineSchemaError(
                 f"unsupported timeline schema: {schema_version}"
             )
@@ -154,7 +187,10 @@ class Timeline:
         return cls(
             timeline_id=_required_text(data, "timeline_id"),
             tracks=[
-                TimelineTrack.from_dict(_entry_object(item, "track"))
+                TimelineTrack.from_dict(
+                    _entry_object(item, "track"),
+                    schema_version=schema_version,
+                )
                 for item in raw_tracks
             ],
             clips=[
@@ -174,7 +210,10 @@ class Timeline:
                 "schema_version": self.schema_version,
                 "time_unit": self.time_unit,
                 "timeline_id": self.timeline_id,
-                "tracks": [track.to_dict() for track in self.tracks],
+                "tracks": [
+                    track.to_dict(schema_version=self.schema_version)
+                    for track in self.tracks
+                ],
                 "clips": [clip.to_dict() for clip in self.clips],
                 "extensions": copy.deepcopy(self.extensions),
             }
@@ -254,21 +293,6 @@ def load_project_timeline(project: ProjectFile) -> TimelineLoadResult:
             error="timeline extension must be an object",
         )
     raw = copy.deepcopy(raw_value)
-    schema_version = raw.get("schema_version")
-    if (
-        isinstance(schema_version, int)
-        and not isinstance(schema_version, bool)
-        and schema_version != TIMELINE_SCHEMA_VERSION
-    ):
-        return TimelineLoadResult(
-            False,
-            "unsupported",
-            persisted=True,
-            read_only=True,
-            error=f"unsupported timeline schema: {schema_version}",
-            raw_extension=raw,
-        )
-
     try:
         timeline = Timeline.from_dict(raw)
         validate_timeline(timeline, project)
@@ -314,10 +338,36 @@ def with_project_timeline(project: ProjectFile, timeline: Timeline) -> ProjectFi
     return candidate
 
 
+def upgrade_timeline_for_v2_edit(
+    timeline: Timeline,
+    project: ProjectFile,
+) -> Timeline:
+    """为首次 v2 剪辑构造候选；不修改原时间线或项目。"""
+    validate_timeline(timeline, project)
+    if timeline.schema_version == TIMELINE_SCHEMA_VERSION:
+        return copy.deepcopy(timeline)
+    if timeline.schema_version != TIMELINE_SCHEMA_V1:
+        raise UnsupportedTimelineSchemaError(
+            f"unsupported timeline schema: {timeline.schema_version}"
+        )
+    try:
+        migrated = TIMELINE_SCHEMA_MIGRATIONS.migrate(timeline.to_dict())
+        candidate = Timeline.from_dict(migrated.payload)
+        validate_timeline(candidate, project)
+    except UnsupportedSchemaVersionError as exc:
+        raise UnsupportedTimelineSchemaError(str(exc)) from exc
+    except SchemaMigrationError as exc:
+        raise TimelineValidationError(str(exc)) from exc
+    return candidate
+
+
 def validate_timeline(timeline: Timeline, project: ProjectFile) -> None:
     if not str(timeline.timeline_id or "").strip():
         raise TimelineValidationError("timeline_id is required")
-    if timeline.schema_version != TIMELINE_SCHEMA_VERSION:
+    if timeline.schema_version not in (
+        TIMELINE_SCHEMA_V1,
+        TIMELINE_SCHEMA_VERSION,
+    ):
         raise UnsupportedTimelineSchemaError(
             f"unsupported timeline schema: {timeline.schema_version}"
         )
@@ -326,9 +376,17 @@ def validate_timeline(timeline: Timeline, project: ProjectFile) -> None:
             f"time_unit must be {TIMELINE_TIME_UNIT}"
         )
 
-    tracks_by_id = _validate_tracks(timeline.tracks)
+    tracks_by_id = _validate_tracks(
+        timeline.tracks,
+        schema_version=timeline.schema_version,
+    )
     material_durations = _material_durations(project)
-    _validate_clips(timeline.clips, tracks_by_id, material_durations)
+    _validate_clips(
+        timeline.clips,
+        tracks_by_id,
+        material_durations,
+        schema_version=timeline.schema_version,
+    )
 
 
 def seconds_to_microseconds(value: object) -> int:
@@ -361,6 +419,8 @@ def microseconds_to_display(value: int) -> str:
 
 def _validate_tracks(
     tracks: list[TimelineTrack],
+    *,
+    schema_version: int,
 ) -> dict[str, TimelineTrack]:
     tracks_by_id: dict[str, TimelineTrack] = {}
     by_kind: dict[str, list[TimelineTrack]] = {kind: [] for kind in _TRACK_KINDS}
@@ -377,6 +437,12 @@ def _validate_tracks(
         order = _strict_int(track.order, "track order")
         if order < 0:
             raise TimelineValidationError("track order must be non-negative")
+        if not isinstance(track.locked, bool):
+            raise TimelineValidationError("track.locked must be a boolean")
+        if schema_version == TIMELINE_SCHEMA_V1 and track.locked:
+            raise TimelineValidationError(
+                "track.locked must be false in timeline schema v1"
+            )
         tracks_by_id[track_id] = track
         by_kind[track.kind].append(track)
 
@@ -402,6 +468,8 @@ def _validate_clips(
     clips: list[TimelineClip],
     tracks_by_id: dict[str, TimelineTrack],
     material_durations: dict[str, int],
+    *,
+    schema_version: int,
 ) -> None:
     clips_by_id: dict[str, TimelineClip] = {}
     clips_by_track: dict[str, list[TimelineClip]] = {}
@@ -443,9 +511,9 @@ def _validate_clips(
             raise TimelineValidationError(
                 "timeline_duration_us must be greater than zero"
             )
-        if source_start != 0:
+        if source_start < 0:
             raise TimelineValidationError(
-                "source_start_us must be zero in timeline schema v1"
+                "source_start_us must be non-negative"
             )
         if source_duration <= 0:
             raise TimelineValidationError(
@@ -453,12 +521,22 @@ def _validate_clips(
             )
         if timeline_duration != source_duration:
             raise TimelineValidationError(
-                "timeline duration must match source duration in schema v1"
+                "timeline duration must match source duration"
             )
         material_duration = material_durations[clip.material_id]
-        if source_start + source_duration != material_duration:
+        if schema_version == TIMELINE_SCHEMA_V1:
+            if source_start != 0:
+                raise TimelineValidationError(
+                    "source_start_us must be zero in timeline schema v1"
+                )
+            if source_duration != material_duration:
+                raise TimelineValidationError(
+                    "source duration must match the full material duration "
+                    "in timeline schema v1"
+                )
+        elif source_start + source_duration > material_duration:
             raise TimelineValidationError(
-                "source duration must match the full material duration"
+                "source duration range must stay within material duration"
             )
 
         clips_by_track.setdefault(clip.track_id, []).append(clip)
@@ -548,6 +626,14 @@ def _optional_text(value: Any) -> str | None:
     return text or None
 
 
+def _optional_bool(value: Any, label: str) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise TimelineValidationError(f"{label} must be a boolean")
+    return value
+
+
 def _required_int(data: dict[str, Any], key: str) -> int:
     if key not in data:
         raise TimelineValidationError(f"{key} is required")
@@ -589,3 +675,25 @@ def _unknown_fields(
         for key, value in data.items()
         if key not in known_fields
     }
+
+
+def _migrate_timeline_v1_to_v2(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    migrated = copy.deepcopy(payload)
+    tracks = migrated.get("tracks")
+    if not isinstance(tracks, list):
+        raise SchemaMigrationError("timeline tracks must be an array")
+    for item in tracks:
+        if not isinstance(item, dict):
+            raise SchemaMigrationError("timeline track must be an object")
+        item["locked"] = False
+    migrated["schema_version"] = TIMELINE_SCHEMA_VERSION
+    return migrated
+
+
+TIMELINE_SCHEMA_MIGRATIONS.register(
+    TIMELINE_SCHEMA_V1,
+    TIMELINE_SCHEMA_VERSION,
+    _migrate_timeline_v1_to_v2,
+)

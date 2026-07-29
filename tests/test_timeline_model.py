@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from utils.project_store import ProjectFile, ProjectMaterialRef, load_project, save_project
+from utils.schema_migrations import SchemaMigrationRegistry
 from utils.timeline_model import (
     MAX_TRACKS_PER_KIND,
     TIMELINE_EXTENSION_KEY,
@@ -157,6 +158,36 @@ def test_unknown_timeline_version_is_read_only_and_raw_payload_survives() -> Non
     assert result.timeline is None
     assert result.raw_extension == raw
     assert loaded.project.extensions[TIMELINE_EXTENSION_KEY] == raw
+
+
+def test_registered_timeline_migration_is_in_memory_and_preserves_raw_extension(
+    monkeypatch,
+) -> None:
+    project = _project()
+    timeline = create_empty_timeline(project.project_id)
+    raw = timeline.to_dict()
+    raw["schema_version"] = 0
+    project.extensions[TIMELINE_EXTENSION_KEY] = copy.deepcopy(raw)
+    registry = SchemaMigrationRegistry(
+        label="timeline",
+        current_version=1,
+    )
+    registry.register(
+        0,
+        1,
+        lambda payload: {**payload, "schema_version": 1},
+    )
+    monkeypatch.setattr(
+        "utils.timeline_model.TIMELINE_SCHEMA_MIGRATIONS",
+        registry,
+    )
+
+    result = load_project_timeline(project)
+
+    assert result.ok
+    assert result.timeline is not None
+    assert result.timeline.schema_version == 1
+    assert project.extensions[TIMELINE_EXTENSION_KEY] == raw
 
 
 def test_corrupt_timeline_is_isolated_from_valid_project_materials() -> None:

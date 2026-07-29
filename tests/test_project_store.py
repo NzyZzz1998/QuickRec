@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from utils.project_store import (
     save_project,
     save_project_index,
 )
+from utils.schema_migrations import SchemaMigrationRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "v1_9"
 
@@ -85,6 +87,36 @@ class TestProjectStore(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.status, "unsupported")
         self.assertIn("schema", result.error.lower())
+
+    def test_registered_project_migration_is_in_memory_and_does_not_rewrite(self):
+        registry = SchemaMigrationRegistry(
+            label="project",
+            current_version=1,
+        )
+        registry.register(
+            0,
+            1,
+            lambda payload: {**payload, "schema_version": 1},
+        )
+        payload = self._project().to_dict()
+        payload["schema_version"] = 0
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / PROJECT_FILE_NAME
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            before = path.read_bytes()
+
+            with patch(
+                "utils.project_store.PROJECT_SCHEMA_MIGRATIONS",
+                registry,
+            ):
+                result = load_project(path)
+
+            self.assertTrue(result.ok)
+            self.assertEqual(result.project.project_id, payload["project_id"])
+            self.assertEqual(path.read_bytes(), before)
 
     def test_missing_project_has_distinct_status(self):
         result = load_project(FIXTURES / "not-found.qrproj")

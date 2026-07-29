@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "time_unit": "microseconds",
+  "timeline_id": "timeline-v2",
+  "tracks": [
+    {
+      "track_id": "video-1",
+      "kind": "video",
+      "name": "视频 1",
+      "order": 0,
+      "locked": true,
+      "extensions": {
+        "track_extension": "保留"
+      },
+      "future_track_field": 17
+    },
+    {
+      "track_id": "audio-1",
+      "kind": "audio",
+      "name": "音频 1",
+      "order": 0,
+      "locked": false,
+      "extensions": {}
+    }
+  ],
+  "clips": [
+    {
+      "clip_id": "video-clip-1",
+      "material_id": "material-1",
+      "track_id": "video-1",
+      "timeline_start_us": 1000000,
+      "timeline_duration_us": 4000000,
+      "source_start_us": 2000000,
+      "source_duration_us": 4000000,
+      "link_group_id": "link-1",
+      "extensions": {
+        "clip_extension": "保留"
+      },
+      "future_clip_field": 19
+    },
+    {
+      "clip_id": "audio-clip-1",
+      "material_id": "material-1",
+      "track_id": "audio-1",
+      "timeline_start_us": 1000000,
+      "timeline_duration_us": 4000000,
+      "source_start_us": 2000000,
+      "source_duration_us": 4000000,
+      "link_group_id": "link-1",
+      "extensions": {}
+    }
+  ],
+  "extensions": {
+    "timeline_extension": "保留"
+  },
+  "future_timeline_field": {
+    "preserve": true
+  }
+}

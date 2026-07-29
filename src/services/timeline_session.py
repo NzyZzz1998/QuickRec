@@ -7,7 +7,12 @@ from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from services.project_library import ProjectLibraryService
+from services.recording_guard import RecordingGuard
 from services.timeline_commands import TimelineCommandResult, TimelineCommandService
+from services.timeline_media_runtime import (
+    TimelineMediaRuntime,
+    TimelinePlaybackRuntime,
+)
 from utils.project_store import ProjectFile
 from utils.timeline_model import Timeline
 from utils.timeline_view import normalize_timeline_zoom
@@ -54,6 +59,8 @@ class TimelineSession:
         *,
         command_service: TimelineCommandService | None = None,
         view_state: TimelineViewState | None = None,
+        recording_guard: RecordingGuard | None = None,
+        media_runtime: TimelineMediaRuntime | None = None,
     ) -> None:
         self.project_id = str(project_id)
         self.commands = command_service or TimelineCommandService(
@@ -61,8 +68,13 @@ class TimelineSession:
             self.project_id,
         )
         self._view_state = (view_state or TimelineViewState()).normalized()
-        self._media: Any = None
-        self._recording_active = False
+        self._recording_guard = recording_guard or RecordingGuard()
+        self._media_runtime = media_runtime or TimelineMediaRuntime()
+        guard_state = self._recording_guard.state
+        self.commands.set_runtime_read_only(
+            guard_state.active,
+            reason=guard_state.reason,
+        )
 
     @property
     def ready(self) -> bool:
@@ -94,7 +106,15 @@ class TimelineSession:
 
     @property
     def recording_active(self) -> bool:
-        return self._recording_active
+        return self._recording_guard.state.active
+
+    @property
+    def recording_guard(self) -> RecordingGuard:
+        return self._recording_guard
+
+    @property
+    def media_runtime(self) -> TimelineMediaRuntime:
+        return self._media_runtime
 
     @property
     def timeline_backup_available(self) -> bool:
@@ -171,10 +191,16 @@ class TimelineSession:
         return self._view_state
 
     def set_recording_active(self, active: bool) -> None:
-        self._recording_active = bool(active)
+        if active:
+            self._recording_guard.activate(
+                "recording is active; timeline editing is disabled"
+            )
+        else:
+            self._recording_guard.release()
+        guard_state = self._recording_guard.state
         self.commands.set_runtime_read_only(
-            self._recording_active,
-            reason="recording is active; timeline editing is disabled",
+            guard_state.active,
+            reason=guard_state.reason,
         )
 
     def recover_timeline_from_backup(self):
@@ -186,29 +212,14 @@ class TimelineSession:
     def refresh_project_snapshot(self) -> TimelineCommandResult:
         return self.commands.refresh_project_snapshot()
 
-    def attach_media(self, media: Any) -> None:
-        if media is self._media:
-            return
-        self.release_media()
-        self._media = media
+    def attach_media(self, media: TimelinePlaybackRuntime) -> None:
+        self._media_runtime.attach(media)
 
     def pause_media(self) -> None:
-        media = self._media
-        pause = getattr(media, "pause", None)
-        if callable(pause):
-            pause()
+        self._media_runtime.pause()
 
     def release_media(self) -> None:
-        media = self._media
-        if media is None:
-            return
-        pause = getattr(media, "pause", None)
-        if callable(pause):
-            pause()
-        release = getattr(media, "release", None)
-        if callable(release):
-            release()
-        self._media = None
+        self._media_runtime.release()
 
 
 class TimelineSessionRegistry:

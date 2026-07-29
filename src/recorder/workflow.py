@@ -3,6 +3,7 @@ from typing import Protocol
 
 from recorder.events import RecordingEvent
 from recorder.state_machine import RecordingState
+from services.application_events import ApplicationEventHub, Subscription
 
 
 class RecordingManagerLike(Protocol):
@@ -27,9 +28,15 @@ EventSubscriber = Callable[[RecordingEvent], None]
 
 
 class RecordingWorkflow:
-    def __init__(self, manager: RecordingManagerLike):
+    def __init__(
+        self,
+        manager: RecordingManagerLike,
+        *,
+        event_hub: ApplicationEventHub | None = None,
+    ):
         self._manager = manager
-        self._subscribers: list[EventSubscriber] = []
+        self._event_hub = event_hub or ApplicationEventHub()
+        self._subscriptions: dict[EventSubscriber, Subscription] = {}
 
     def start_fullscreen(self) -> bool:
         return self._manager.start_fullscreen()
@@ -56,13 +63,17 @@ class RecordingWorkflow:
         return self._manager.wait_until_idle(timeout=timeout)
 
     def subscribe(self, callback: EventSubscriber) -> None:
-        if callback not in self._subscribers:
-            self._subscribers.append(callback)
+        if callback in self._subscriptions:
+            return
+        self._subscriptions[callback] = self._event_hub.subscribe(
+            RecordingEvent,
+            callback,
+        )
 
     def unsubscribe(self, callback: EventSubscriber) -> None:
-        if callback in self._subscribers:
-            self._subscribers.remove(callback)
+        subscription = self._subscriptions.pop(callback, None)
+        if subscription is not None:
+            subscription.close()
 
     def handle_event(self, event: RecordingEvent) -> None:
-        for callback in list(self._subscribers):
-            callback(event)
+        self._event_hub.publish(event)

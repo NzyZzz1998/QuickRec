@@ -10,6 +10,8 @@ from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 from PyQt5.QtWidgets import QWidget
 
+from services.timeline_edit_service import TimelineEditCandidate
+from ui.timeline_trim_interaction import TimelineTrimInteraction, TrimEdge
 from utils.timeline_model import Timeline, TimelineClip, TimelineTrack
 from utils.timeline_view import (
     DEFAULT_TIMELINE_PIXELS_PER_SECOND,
@@ -105,6 +107,10 @@ class TimelineCanvas(QWidget):
     track_selected = pyqtSignal(str)
     playhead_requested = pyqtSignal(int)
     clip_move_requested = pyqtSignal(str, int, str)
+    clip_trim_preview_requested = pyqtSignal(str, int, int)
+    clip_trim_commit_requested = pyqtSignal(object)
+    clip_context_requested = pyqtSignal(str, object)
+    track_lock_requested = pyqtSignal(str, bool)
     material_drop_requested = pyqtSignal(str, bool, int, str)
     invalid_drop = pyqtSignal(str)
     zoom_changed = pyqtSignal(float, int)
@@ -135,7 +141,9 @@ class TimelineCanvas(QWidget):
             bool,
             str,
         ] | None = None
+        self._trim_interaction = TimelineTrimInteraction()
         self._editing_enabled = True
+        self._clip_statuses: dict[str, str] = {}
         self._refresh_size()
 
     @property
@@ -150,9 +158,19 @@ class TimelineCanvas(QWidget):
     def scale(self) -> TimelineScale:
         return self._scale
 
+    @property
+    def trim_active(self) -> bool:
+        return self._trim_interaction.active
+
     def set_timeline(self, timeline: Timeline) -> None:
+        self.cancel_trim()
         self._timeline = copy.deepcopy(timeline)
         valid_clip_ids = {item.clip_id for item in timeline.clips}
+        self._clip_statuses = {
+            clip_id: status
+            for clip_id, status in self._clip_statuses.items()
+            if clip_id in valid_clip_ids
+        }
         valid_track_ids = {item.track_id for item in timeline.tracks}
         if self._selected_clip_id not in valid_clip_ids:
             self._selected_clip_id = None
@@ -165,6 +183,24 @@ class TimelineCanvas(QWidget):
         self._refresh_size()
         self.update()
 
+    def set_clip_statuses(self, statuses: dict[str, str]) -> None:
+        valid_ids = {item.clip_id for item in self._timeline.clips}
+        self._clip_statuses = {
+            str(clip_id): str(status)
+            for clip_id, status in statuses.items()
+            if clip_id in valid_ids and status != "available"
+        }
+        if (
+            self._trim_interaction.clip_id is not None
+            and self._clip_statuses.get(self._trim_interaction.clip_id)
+            in {"missing", "link_error"}
+        ):
+            self.cancel_trim()
+        self.update()
+
+    def clip_status(self, clip_id: str) -> str:
+        return self._clip_statuses.get(str(clip_id), "available")
+
     def set_playhead(self, value_us: int) -> None:
         self._playhead_us = max(0, int(value_us))
         self.update()
@@ -175,6 +211,24 @@ class TimelineCanvas(QWidget):
             self._drag_clip_id = None
             self._drag_candidate = None
             self._material_drop_candidate = None
+            self.cancel_trim()
+        self.update()
+
+    def set_trim_candidate(
+        self,
+        candidate: TimelineEditCandidate | None,
+    ) -> None:
+        self._trim_interaction.set_candidate(candidate)
+        self.update()
+
+    def cancel_trim(self) -> None:
+        if (
+            not self._trim_interaction.active
+            and self._trim_interaction.candidate is None
+        ):
+            return
+        self._trim_interaction.cancel()
+        self.unsetCursor()
         self.update()
 
     def set_zoom(self, zoom: float, *, anchor_x: float | None = None) -> None:
@@ -220,12 +274,45 @@ class TimelineCanvas(QWidget):
         return self._selected_clip_id
 
     def clip_rects(self) -> dict[str, QRectF]:
+        return self._clip_rects_for(self._timeline)
+
+    def trim_handle_rects(self) -> dict[str, tuple[QRectF, QRectF]]:
+        if self._selected_clip_id is None:
+            return {}
+        if self.clip_status(self._selected_clip_id) in {
+            "missing",
+            "link_error",
+        }:
+            return {}
+        rect = self.clip_rects().get(self._selected_clip_id)
+        if rect is None:
+            return {}
+        width = 8.0
+        return {
+            self._selected_clip_id: (
+                QRectF(rect.left() - width / 2, rect.top(), width, rect.height()),
+                QRectF(rect.right() - width / 2, rect.top(), width, rect.height()),
+            )
+        }
+
+    def track_lock_rects(self) -> dict[str, QRectF]:
+        return {
+            track.track_id: QRectF(
+                self.track_header_width - 32,
+                self.ruler_height + row * self.track_height + 11,
+                22,
+                22,
+            )
+            for row, track in enumerate(self._ordered_tracks())
+        }
+
+    def _clip_rects_for(self, timeline: Timeline) -> dict[str, QRectF]:
         tracks = {
             track.track_id: index
-            for index, track in enumerate(self._ordered_tracks())
+            for index, track in enumerate(self._ordered_tracks_for(timeline))
         }
         rects: dict[str, QRectF] = {}
-        for clip in self._timeline.clips:
+        for clip in timeline.clips:
             row = tracks.get(clip.track_id)
             if row is None:
                 continue
@@ -273,6 +360,8 @@ class TimelineCanvas(QWidget):
         self._draw_ruler(painter)
         self._draw_tracks(painter)
         self._draw_clips(painter)
+        self._draw_trim_candidate(painter)
+        self._draw_trim_handles(painter)
         self._draw_material_drop_candidate(painter)
         self._draw_playhead(painter)
         painter.end()
@@ -282,11 +371,37 @@ class TimelineCanvas(QWidget):
             super().mousePressEvent(event)
             return
         point = event.localPos()
+        track_lock = self._track_lock_at(point)
+        if track_lock is not None:
+            if self._editing_enabled:
+                self.track_lock_requested.emit(
+                    track_lock.track_id,
+                    not track_lock.locked,
+                )
+            event.accept()
+            return
+        trim_hit = self._trim_handle_at(point)
+        if trim_hit is not None and self._editing_enabled:
+            clip, edge = trim_hit
+            track = self._track_by_id(clip.track_id)
+            if track is not None and not track.locked:
+                self._drag_clip_id = None
+                self._drag_candidate = None
+                self._trim_interaction.begin(clip, edge=edge)
+                self.setCursor(Qt.SizeHorCursor)
+                event.accept()
+                return
         clip = self._clip_at(point)
         if clip is not None:
             self._selected_clip_id = clip.clip_id
             self._selected_track_id = clip.track_id
-            if self._editing_enabled:
+            track = self._track_by_id(clip.track_id)
+            if (
+                self._editing_enabled
+                and track is not None
+                and not track.locked
+                and self.clip_status(clip.clip_id) != "link_error"
+            ):
                 self._drag_clip_id = clip.clip_id
                 self._drag_offset_us = max(
                     0,
@@ -308,7 +423,32 @@ class TimelineCanvas(QWidget):
         event.accept()
 
     def mouseMoveEvent(self, event) -> None:
+        if self._trim_interaction.active:
+            try:
+                source_start_us, source_end_us = (
+                    self._trim_interaction.requested_source_range(
+                        self._scale.x_to_time(event.localPos().x())
+                    )
+                )
+            except RuntimeError:
+                self.cancel_trim()
+                return
+            clip_id = self._trim_interaction.clip_id
+            if clip_id is not None:
+                self.clip_trim_preview_requested.emit(
+                    clip_id,
+                    source_start_us,
+                    source_end_us,
+                )
+            self.setCursor(Qt.SizeHorCursor)
+            self.update()
+            event.accept()
+            return
         if self._drag_clip_id is None:
+            if self._trim_handle_at(event.localPos()) is not None:
+                self.setCursor(Qt.SizeHorCursor)
+            else:
+                self.unsetCursor()
             super().mouseMoveEvent(event)
             return
         clip = self._clip_by_id(self._drag_clip_id)
@@ -318,12 +458,22 @@ class TimelineCanvas(QWidget):
             self.update()
             return
         source_track = self._track_by_id(clip.track_id)
-        if source_track is None or source_track.kind != target_track.kind:
+        if (
+            source_track is None
+            or source_track.kind != target_track.kind
+            or source_track.locked
+            or target_track.locked
+        ):
             self._drag_candidate = (
                 clip.timeline_start_us,
                 target_track.track_id,
                 False,
-                "视频片段和音频片段只能在同类轨道之间移动",
+                (
+                    "锁定轨道禁止移动片段"
+                    if source_track is not None
+                    and (source_track.locked or target_track.locked)
+                    else "视频片段和音频片段只能在同类轨道之间移动"
+                ),
             )
             self.update()
             return
@@ -362,6 +512,14 @@ class TimelineCanvas(QWidget):
         event.accept()
 
     def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._trim_interaction.active:
+            candidate = self._trim_interaction.finish()
+            self.unsetCursor()
+            if candidate is not None:
+                self.clip_trim_commit_requested.emit(candidate)
+            self.update()
+            event.accept()
+            return
         if event.button() != Qt.LeftButton or self._drag_clip_id is None:
             super().mouseReleaseEvent(event)
             return
@@ -377,6 +535,34 @@ class TimelineCanvas(QWidget):
             self.clip_move_requested.emit(clip_id, start, track_id)
         else:
             self.invalid_drop.emit(reason)
+        self.update()
+        event.accept()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_Escape and self._trim_interaction.active:
+            self.cancel_trim()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        self.cancel_trim()
+        super().focusOutEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if not self._trim_interaction.active:
+            self.unsetCursor()
+        super().leaveEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        clip = self._clip_at(QPointF(event.pos()))
+        if clip is None:
+            super().contextMenuEvent(event)
+            return
+        self._selected_clip_id = clip.clip_id
+        self._selected_track_id = clip.track_id
+        self.clip_selected.emit(clip.clip_id, clip.track_id)
+        self.clip_context_requested.emit(clip.clip_id, event.globalPos())
         self.update()
         event.accept()
 
@@ -409,6 +595,8 @@ class TimelineCanvas(QWidget):
             return start_us, "", False, "当前项目为只读状态"
         if track is None or x < self.track_header_width:
             return start_us, "", False, "请把素材拖到视频轨或兼容音频轨"
+        if track.locked:
+            return start_us, track.track_id, False, "目标轨道已锁定"
         if track.kind == "audio" and not has_audio:
             return (
                 start_us,
@@ -504,11 +692,19 @@ class TimelineCanvas(QWidget):
             selected = track.track_id == self._selected_track_id
             painter.fillRect(
                 QRectF(0, y, self.width(), self.track_height),
-                QColor("#F7FAFF" if selected else "#FFFFFF"),
+                QColor(
+                    "#E9EDF3"
+                    if track.locked
+                    else ("#F7FAFF" if selected else "#FFFFFF")
+                ),
             )
             painter.fillRect(
                 QRectF(0, y, self.track_header_width, self.track_height),
-                QColor("#EAF1FC" if selected else "#F1F4F8"),
+                QColor(
+                    "#DDE3EA"
+                    if track.locked
+                    else ("#EAF1FC" if selected else "#F1F4F8")
+                ),
             )
             painter.setPen(QPen(QColor("#D8DEE8"), 1))
             painter.drawLine(
@@ -522,16 +718,18 @@ class TimelineCanvas(QWidget):
             painter.setPen(QColor("#172033"))
             kind = "视频" if track.kind == "video" else "音频"
             painter.drawText(
-                QRectF(12, y + 5, self.track_header_width - 20, 22),
+                QRectF(12, y + 5, self.track_header_width - 52, 22),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 track.name,
             )
             painter.setPen(QColor("#7B8799"))
             painter.drawText(
-                QRectF(12, y + 27, self.track_header_width - 20, 18),
+                QRectF(12, y + 27, self.track_header_width - 52, 18),
                 Qt.AlignLeft | Qt.AlignVCenter,
-                kind,
+                f"{kind} · {'已锁定' if track.locked else '可编辑'}",
             )
+            lock_rect = self.track_lock_rects()[track.track_id]
+            self._draw_lock_icon(painter, lock_rect, locked=track.locked)
 
     def _draw_clips(self, painter: QPainter) -> None:
         candidate_clip = self._clip_by_id(self._drag_clip_id)
@@ -542,6 +740,13 @@ class TimelineCanvas(QWidget):
             track = self._track_by_id(clip.track_id)
             base = "#DCE8FF" if track and track.kind == "video" else "#DDF4E8"
             border = "#2563EB" if track and track.kind == "video" else "#168653"
+            status = self.clip_status(clip.clip_id)
+            if status == "missing":
+                base = "#FFF4D6"
+                border = "#B7791F"
+            elif status == "link_error":
+                base = "#FDE8E7"
+                border = "#C73A35"
             if clip.clip_id == self._selected_clip_id:
                 painter.setPen(QPen(QColor("#1457D9"), 2))
             else:
@@ -554,7 +759,16 @@ class TimelineCanvas(QWidget):
                 Qt.AlignLeft | Qt.AlignVCenter,
                 clip.material_id,
             )
-            if clip.link_group_id:
+            if status in {"missing", "link_error"}:
+                painter.setPen(
+                    QColor("#9A6700" if status == "missing" else "#B42318")
+                )
+                painter.drawText(
+                    rect.adjusted(8, 20, -6, -2),
+                    Qt.AlignLeft | Qt.AlignBottom,
+                    "素材缺失" if status == "missing" else "关联异常",
+                )
+            elif clip.link_group_id:
                 painter.setPen(QColor("#526077"))
                 painter.drawText(
                     rect.adjusted(8, 20, -6, -2),
@@ -621,6 +835,57 @@ class TimelineCanvas(QWidget):
         )
         painter.drawRoundedRect(rect, 5, 5)
 
+    def _draw_trim_handles(self, painter: QPainter) -> None:
+        for left, right in self.trim_handle_rects().values():
+            for rect in (left, right):
+                painter.setPen(QPen(QColor("#FFFFFF"), 1))
+                painter.setBrush(QColor("#1457D9"))
+                painter.drawRoundedRect(rect, 2, 2)
+
+    def _draw_trim_candidate(self, painter: QPainter) -> None:
+        candidate = self._trim_interaction.candidate
+        if candidate is None:
+            return
+        if candidate.timeline is None:
+            rect = self.clip_rects().get(
+                self._trim_interaction.clip_id or ""
+            )
+            if rect is not None:
+                painter.setBrush(Qt.NoBrush)
+                painter.setPen(QPen(QColor("#C73A35"), 2, Qt.DashLine))
+                painter.drawRoundedRect(rect, 5, 5)
+            return
+        rects = self._clip_rects_for(candidate.timeline)
+        affected = set(candidate.impact.affected_clip_ids)
+        for clip_id in affected:
+            rect = rects.get(clip_id)
+            if rect is None:
+                continue
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(
+                QPen(
+                    QColor("#168653" if candidate.valid else "#C73A35"),
+                    2,
+                    Qt.DashLine,
+                )
+            )
+            painter.drawRoundedRect(rect, 5, 5)
+
+    def _draw_lock_icon(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        *,
+        locked: bool,
+    ) -> None:
+        color = QColor("#A66309" if locked else "#526077")
+        painter.setPen(QPen(color, 1.5))
+        painter.setBrush(QColor("#FFF3D6") if locked else Qt.NoBrush)
+        body = QRectF(rect.left() + 5, rect.top() + 9, 12, 10)
+        painter.drawRoundedRect(body, 2, 2)
+        shackle = QRectF(rect.left() + 7, rect.top() + 3, 8, 10)
+        painter.drawArc(shackle, 0, 180 * 16)
+
     def _refresh_size(self) -> None:
         total_end = max(
             (clip.timeline_end_us for clip in self._timeline.clips),
@@ -635,12 +900,16 @@ class TimelineCanvas(QWidget):
         self.setMinimumSize(max(640, width), max(120, height))
 
     def _ordered_tracks(self) -> list[TimelineTrack]:
+        return self._ordered_tracks_for(self._timeline)
+
+    @staticmethod
+    def _ordered_tracks_for(timeline: Timeline) -> list[TimelineTrack]:
         videos = sorted(
-            (track for track in self._timeline.tracks if track.kind == "video"),
+            (track for track in timeline.tracks if track.kind == "video"),
             key=lambda item: item.order,
         )
         audios = sorted(
-            (track for track in self._timeline.tracks if track.kind == "audio"),
+            (track for track in timeline.tracks if track.kind == "audio"),
             key=lambda item: item.order,
         )
         return [*videos, *audios]
@@ -656,6 +925,26 @@ class TimelineCanvas(QWidget):
             rect = rects.get(clip.clip_id)
             if rect is not None and rect.contains(point):
                 return clip
+        return None
+
+    def _trim_handle_at(
+        self,
+        point: QPointF,
+    ) -> tuple[TimelineClip, TrimEdge] | None:
+        for clip_id, (left, right) in self.trim_handle_rects().items():
+            clip = self._clip_by_id(clip_id)
+            if clip is None:
+                continue
+            if left.contains(point):
+                return clip, "left"
+            if right.contains(point):
+                return clip, "right"
+        return None
+
+    def _track_lock_at(self, point: QPointF) -> TimelineTrack | None:
+        for track_id, rect in self.track_lock_rects().items():
+            if rect.contains(point):
+                return self._track_by_id(track_id)
         return None
 
     def _clip_by_id(self, clip_id: str | None) -> TimelineClip | None:

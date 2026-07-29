@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PyQt5.QtCore import QMimeData, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QDrag, QIcon, QImage, QPixmap
+from PyQt5.QtCore import QEvent, QMimeData, QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QDrag, QIcon, QImage, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -24,6 +25,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QShortcut,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -41,11 +43,24 @@ from services.project_materials import (
     resolve_project_media_sources,
 )
 from services.pyav_playback_backend import PyAVPlaybackBackend
+from services.timeline_edit_service import TimelineEditCandidate
+from services.timeline_health import (
+    TimelineClipHealth,
+    assess_timeline_clip_health,
+    summarize_timeline_health,
+)
 from services.timeline_query import timeline_duration_us
 from services.timeline_session import TimelineSession, TimelineSessionRegistry
+from ui.clip_inspector_widget import ClipInspectorWidget
 from ui.design_system import COLORS, WORKBENCH_STYLESHEET, quickrec_icon, set_button_icon
 from ui.timeline_canvas import TimelineCanvas
-from utils.timeline_model import MAX_TRACKS_PER_KIND, TimelineTrack
+from ui.timeline_edit_dialogs import TimelineImpactDialog
+from utils.timeline_model import (
+    MAX_TRACKS_PER_KIND,
+    Timeline,
+    TimelineClip,
+    TimelineTrack,
+)
 from utils.timeline_view import DEFAULT_TIMELINE_PIXELS_PER_SECOND
 
 _MATERIAL_ID_ROLE = Qt.UserRole
@@ -231,13 +246,40 @@ class TimelineEditorWindow(QMainWindow):
         self._session: TimelineSession | Any | None = None
         self._playback_runtime: PlaybackRuntime | None = None
         self._current_materials: list[Any] = []
+        self._clip_health: dict[str, TimelineClipHealth] = {}
         self._preview_image: QImage | None = None
+        self._inspector_candidate: TimelineEditCandidate | None = None
         self._shutting_down = False
         self._pending_success_text = "时间线已保存"
         self._init_ui()
+        self._write_control_tooltips = {
+            button: button.toolTip()
+            for button in (
+                self._btn_add_selected,
+                self._btn_undo,
+                self._btn_redo,
+                self._btn_split_clip,
+                self._btn_delete_clip,
+                self._btn_add_video_track,
+                self._btn_add_audio_track,
+                self._btn_rename_track,
+                self._btn_move_track_up,
+                self._btn_move_track_down,
+                self._btn_delete_track,
+            )
+        }
         self._playback_timer = QTimer(self)
         self._playback_timer.setInterval(16)
         self._playback_timer.timeout.connect(self._on_playback_tick)
+        self._shortcut_split = QShortcut(QKeySequence("Ctrl+B"), self)
+        self._shortcut_split.setContext(Qt.WindowShortcut)
+        self._shortcut_split.activated.connect(self._on_split_clip)
+        self._shortcut_delete_clip = QShortcut(
+            QKeySequence(Qt.Key_Delete),
+            self,
+        )
+        self._shortcut_delete_clip.setContext(Qt.WindowShortcut)
+        self._shortcut_delete_clip.activated.connect(self._on_delete_shortcut)
         self.setStyleSheet(WORKBENCH_STYLESHEET + _EDITOR_STYLESHEET)
 
     @property
@@ -528,8 +570,10 @@ class TimelineEditorWindow(QMainWindow):
 
     def _build_timeline_panel(self) -> QWidget:
         panel = QFrame()
+        self._timeline_panel = panel
         panel.setObjectName("timelinePanel")
         panel.setMinimumHeight(200)
+        panel.installEventFilter(self)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(10, 8, 10, 10)
         toolbar = QHBoxLayout()
@@ -543,6 +587,24 @@ class TimelineEditorWindow(QMainWindow):
         self._btn_redo.setToolTip("重新执行最近一次被撤销的时间线编辑")
         self._btn_redo.clicked.connect(self._on_redo)
         toolbar.addWidget(self._btn_redo)
+        self._btn_split_clip = QPushButton("分割")
+        self._btn_split_clip.setToolTip(
+            "在播放头处分割当前片段或关联音视频组（Ctrl+B）"
+        )
+        self._btn_split_clip.clicked.connect(self._on_split_clip)
+        toolbar.addWidget(self._btn_split_clip)
+        self._btn_delete_clip = QPushButton("删除片段")
+        self._btn_delete_clip.setToolTip(
+            "预览影响后，从时间线删除当前片段并执行全局波纹（Delete）"
+        )
+        self._btn_delete_clip.clicked.connect(self._on_delete_clip)
+        toolbar.addWidget(self._btn_delete_clip)
+        self._ripple_mode_label = QLabel("全局波纹")
+        self._ripple_mode_label.setObjectName("timelineRippleMode")
+        self._ripple_mode_label.setToolTip(
+            "固定开启：裁剪或删除会移动全部未锁定轨道上的后续片段"
+        )
+        toolbar.addWidget(self._ripple_mode_label)
         self._btn_add_video_track = QPushButton("视频轨")
         self._btn_add_video_track.setToolTip("新增一条视频轨，视频轨最多 8 条")
         self._btn_add_video_track.clicked.connect(
@@ -577,12 +639,6 @@ class TimelineEditorWindow(QMainWindow):
         )
         self._btn_delete_track.clicked.connect(self._on_delete_track)
         toolbar.addWidget(self._btn_delete_track)
-        self._btn_delete_clip = QPushButton("删除片段")
-        self._btn_delete_clip.setToolTip(
-            "删除当前片段；有关联音视频时确认后成组删除"
-        )
-        self._btn_delete_clip.clicked.connect(self._on_delete_clip)
-        toolbar.addWidget(self._btn_delete_clip)
         toolbar.addStretch(1)
         self._btn_focus_timeline = QPushButton("专注时间线")
         self._btn_focus_timeline.setToolTip("隐藏素材区和预览，让轨道使用全部可用空间")
@@ -605,9 +661,19 @@ class TimelineEditorWindow(QMainWindow):
         self._btn_fit_timeline.clicked.connect(self._fit_timeline)
         toolbar.addWidget(self._btn_fit_timeline)
         layout.addLayout(toolbar)
+        selection_row = QHBoxLayout()
         self._selection_summary = QLabel("未选择片段")
         self._selection_summary.setObjectName("pageSubtitle")
-        layout.addWidget(self._selection_summary)
+        selection_row.addWidget(self._selection_summary, 1)
+        self._btn_clip_inspector = QPushButton("片段属性")
+        self._btn_clip_inspector.setToolTip(
+            "打开精确裁剪检查器，查看源范围、关联状态和波纹影响"
+        )
+        self._btn_clip_inspector.clicked.connect(
+            self._open_clip_inspector
+        )
+        selection_row.addWidget(self._btn_clip_inspector)
+        layout.addLayout(selection_row)
         self._timeline_scroll = QScrollArea()
         self._timeline_scroll.setObjectName("timelineScrollArea")
         self._timeline_scroll.setWidgetResizable(False)
@@ -620,6 +686,18 @@ class TimelineEditorWindow(QMainWindow):
         )
         self._timeline_canvas.clip_move_requested.connect(
             self._on_clip_move_requested
+        )
+        self._timeline_canvas.clip_trim_preview_requested.connect(
+            self._on_clip_trim_preview_requested
+        )
+        self._timeline_canvas.clip_trim_commit_requested.connect(
+            self._on_clip_trim_commit_requested
+        )
+        self._timeline_canvas.clip_context_requested.connect(
+            self._on_clip_context_requested
+        )
+        self._timeline_canvas.track_lock_requested.connect(
+            self._on_track_lock_requested
         )
         self._timeline_canvas.material_drop_requested.connect(
             self._on_material_drop_requested
@@ -634,11 +712,25 @@ class TimelineEditorWindow(QMainWindow):
         horizontal.valueChanged.connect(self._on_horizontal_scroll_changed)
         vertical.valueChanged.connect(self._on_vertical_scroll_changed)
         layout.addWidget(self._timeline_scroll, 1)
+
+        self._clip_inspector = ClipInspectorWidget(panel)
+        self._clip_inspector.preview_requested.connect(
+            self._on_inspector_preview_requested
+        )
+        self._clip_inspector.apply_requested.connect(
+            self._on_inspector_apply_requested
+        )
+        self._clip_inspector.cancel_requested.connect(
+            self._cancel_edit_preview
+        )
+        self._clip_inspector.hide()
         return panel
 
     def set_session(self, session: TimelineSession | Any) -> None:
         self._release_playback()
         self._hide_save_error()
+        self._cancel_edit_preview()
+        self._clip_inspector.hide()
         self._current_materials = []
         self._session = session
         self._apply_recording_status(
@@ -646,6 +738,9 @@ class TimelineEditorWindow(QMainWindow):
         )
         self._set_timeline_recovery_actions(session)
         if not bool(getattr(session, "ready", False)):
+            self._clip_health = {}
+            self._timeline_canvas.set_timeline(Timeline("unavailable", []))
+            self._timeline_canvas.set_clip_statuses({})
             status = str(getattr(session, "status", "") or "unavailable")
             try:
                 project = session.project
@@ -684,6 +779,7 @@ class TimelineEditorWindow(QMainWindow):
         self._current_materials = self._material_items(project)
         self._populate_materials(self._current_materials)
         self._timeline_canvas.set_timeline(session.timeline)
+        self._refresh_clip_health()
         self._set_editor_enabled(
             status in {"ready", "available", "empty"} and not read_only
         )
@@ -855,6 +951,12 @@ class TimelineEditorWindow(QMainWindow):
     def _set_editor_enabled(self, writable: bool) -> None:
         self._writable = bool(writable)
         self._timeline_canvas.set_editing_enabled(writable)
+        read_only_hint = (
+            "当前时间线只读；请结束录制、处理保存失败，或恢复可写项目后再操作"
+        )
+        self._timeline_canvas.setToolTip("" if writable else read_only_hint)
+        for button, tooltip in self._write_control_tooltips.items():
+            button.setToolTip(tooltip if writable else read_only_hint)
         self._material_list.setDragEnabled(writable)
         self._btn_undo.setEnabled(
             writable
@@ -875,13 +977,51 @@ class TimelineEditorWindow(QMainWindow):
             else None
         )
         selected_track = self._selected_track() if timeline is not None else None
-        selected_clip = self._timeline_canvas.selected_clip_id()
+        selected_clip_id = self._timeline_canvas.selected_clip_id()
+        selected_clip = self._clip_by_id(selected_clip_id)
+        selected_clip_track = (
+            self._track_by_id(selected_clip.track_id)
+            if selected_clip is not None
+            else None
+        )
+        selected_health = (
+            self._clip_health.get(selected_clip.clip_id)
+            if selected_clip is not None
+            else None
+        )
+        selected_clip_base_editable = bool(
+            writable
+            and selected_clip is not None
+            and selected_clip_track is not None
+            and not selected_clip_track.locked
+        )
+        selected_clip_range_editable = bool(
+            selected_clip_base_editable
+            and (
+                selected_health is None
+                or selected_health.range_editable
+            )
+        )
+        selected_clip_delete_editable = bool(
+            selected_clip_base_editable
+            and (
+                selected_health is None
+                or selected_health.delete_editable
+            )
+        )
+        selected_clip_viewable = bool(
+            timeline is not None and selected_clip is not None
+        )
         current_material = self._material_list.currentItem()
         material_available = bool(
             current_material is not None
             and current_material.data(_MATERIAL_AVAILABLE_ROLE)
         )
-        self._btn_add_selected.setEnabled(writable and material_available)
+        self._btn_add_selected.setEnabled(
+            writable
+            and material_available
+            and (selected_track is None or not selected_track.locked)
+        )
         self._btn_add_video_track.setEnabled(
             writable
             and timeline is not None
@@ -918,7 +1058,100 @@ class TimelineEditorWindow(QMainWindow):
             and selected_track.order < len(peers) - 1
         )
         self._btn_delete_track.setEnabled(has_track and len(peers) > 1)
-        self._btn_delete_clip.setEnabled(writable and selected_clip is not None)
+        self._btn_delete_clip.setEnabled(selected_clip_delete_editable)
+        self._btn_clip_inspector.setEnabled(selected_clip_viewable)
+        block_reason = self._clip_edit_block_reason(
+            selected_clip,
+            selected_clip_track,
+            selected_health,
+            writable=writable,
+        )
+        self._btn_delete_clip.setToolTip(
+            "预览影响后，从时间线删除当前片段并执行全局波纹（Delete）"
+            if selected_clip_delete_editable
+            else block_reason
+        )
+        self._btn_clip_inspector.setToolTip(
+            "打开片段属性；当前状态仅允许查看，不能裁剪"
+            if selected_clip_viewable and not selected_clip_range_editable
+            else "打开精确裁剪检查器，查看源范围、关联状态和波纹影响"
+        )
+        split_enabled = False
+        split_reason = block_reason
+        commands = getattr(session, "commands", None)
+        if selected_clip_range_editable and commands is not None:
+            assert selected_clip is not None
+            playhead_us = int(
+                getattr(
+                    getattr(session, "view_state", None),
+                    "playhead_us",
+                    0,
+                )
+            )
+            preview_split = getattr(commands, "preview_split_clip", None)
+            if callable(preview_split):
+                candidate = preview_split(
+                    selected_clip.clip_id,
+                    playhead_us=playhead_us,
+                )
+                split_enabled = bool(candidate.valid)
+                if candidate.conflicts:
+                    split_reason = "；".join(
+                        item.message for item in candidate.conflicts
+                    )
+                elif split_enabled:
+                    split_reason = "在播放头处分割当前片段或关联组（Ctrl+B）"
+        self._btn_split_clip.setEnabled(split_enabled)
+        self._btn_split_clip.setToolTip(split_reason)
+        if hasattr(self, "_clip_inspector"):
+            self._clip_inspector.set_editable(selected_clip_range_editable)
+
+    def _clip_edit_block_reason(
+        self,
+        clip: TimelineClip | None,
+        track: TimelineTrack | None,
+        health: TimelineClipHealth | None,
+        *,
+        writable: bool,
+    ) -> str:
+        if clip is None:
+            return "请先选择一个片段"
+        if not writable:
+            session = self._session
+            if bool(getattr(session, "recording_active", False)):
+                return "正在录制，时间线暂时只读"
+            commands = getattr(session, "commands", None)
+            if bool(getattr(commands, "has_pending_save", False)):
+                return "存在待处理保存，解决后才能继续编辑"
+            project = getattr(session, "project", None)
+            if project is not None and getattr(project, "archived_at", None):
+                return "项目已归档，当前为只读查看"
+            return "当前项目为只读状态"
+        if track is not None and track.locked:
+            return "当前轨道已锁定"
+        if health is not None and health.status == "missing":
+            return "素材文件缺失；可查看属性或确认后波纹删除"
+        if health is not None and health.status == "link_error":
+            return "关联异常；整组只读，请查看诊断或从备份恢复"
+        return "请先选择一个可编辑片段"
+
+    def _refresh_clip_health(self) -> None:
+        session = self._session
+        if session is None or not bool(getattr(session, "ready", False)):
+            self._clip_health = {}
+            self._timeline_canvas.set_clip_statuses({})
+            return
+        self._clip_health = assess_timeline_clip_health(
+            session.timeline,
+            session.project,
+            self._current_materials,
+        )
+        self._timeline_canvas.set_clip_statuses(
+            {
+                clip_id: item.status
+                for clip_id, item in self._clip_health.items()
+            }
+        )
 
     def _apply_session_layout(self) -> None:
         state = getattr(self._session, "view_state", None)
@@ -963,6 +1196,32 @@ class TimelineEditorWindow(QMainWindow):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         QTimer.singleShot(0, self._restore_session_splitter)
+        QTimer.singleShot(0, self._position_clip_inspector)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is getattr(self, "_timeline_panel", None)
+            and event.type() == QEvent.Resize
+        ):
+            QTimer.singleShot(0, self._position_clip_inspector)
+        return super().eventFilter(watched, event)
+
+    def _position_clip_inspector(self) -> None:
+        inspector = getattr(self, "_clip_inspector", None)
+        panel = getattr(self, "_timeline_panel", None)
+        if inspector is None or panel is None:
+            return
+        width = min(360, max(300, panel.width() // 3))
+        top = 8
+        bottom = 8
+        inspector.setGeometry(
+            max(0, panel.width() - width - 8),
+            top,
+            width,
+            max(0, panel.height() - top - bottom),
+        )
+        if inspector.isVisible():
+            inspector.raise_()
 
     def _restore_session_splitter(self) -> None:
         state = getattr(self._session, "view_state", None)
@@ -1136,21 +1395,253 @@ class TimelineEditorWindow(QMainWindow):
         if clip_id is None or commands is None:
             self._show_timeline_error("请先选择一个片段")
             return
-        result = commands.delete_clip(clip_id)
-        if result.requires_confirmation:
-            if QMessageBox.question(
-                self,
-                "删除关联片段",
-                "该片段关联视频或音频，确认后将作为一组删除。继续吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            ) != QMessageBox.Yes:
-                return
-            result = commands.delete_clip(clip_id, confirmed=True)
+        health = self._clip_health.get(clip_id)
+        if health is not None and not health.delete_editable:
+            self._show_timeline_error(health.reason or "当前片段不可删除")
+            return
+        self._pause_for_edit()
+        candidate = commands.preview_ripple_delete(clip_id)
+        self._confirm_and_commit_edit(
+            candidate,
+            title="删除片段并执行全局波纹",
+            confirm_text="从时间线删除并波纹",
+            success_text="片段已删除，全局波纹已应用并自动保存",
+        )
+
+    def _on_delete_shortcut(self) -> None:
+        if isinstance(QApplication.focusWidget(), QLineEdit):
+            return
+        self._on_delete_clip()
+
+    def _on_split_clip(self) -> None:
+        clip_id = self._timeline_canvas.selected_clip_id()
+        commands = getattr(self._session, "commands", None)
+        if clip_id is None or commands is None or self._session is None:
+            self._show_timeline_error("请先选择一个片段")
+            return
+        health = self._clip_health.get(clip_id)
+        if health is not None and not health.range_editable:
+            self._show_timeline_error(health.reason or "当前片段不可分割")
+            return
+        self._pause_for_edit()
+        playhead_us = int(self._session.view_state.playhead_us)
+        candidate = commands.preview_split_clip(
+            clip_id,
+            playhead_us=playhead_us,
+        )
+        if not candidate.valid:
+            self._show_edit_candidate_error(candidate)
+            return
+        self._commit_edit_candidate(
+            candidate,
+            success_text="片段已在播放头处分割并自动保存",
+        )
+
+    def _on_clip_trim_preview_requested(
+        self,
+        clip_id: str,
+        source_start_us: int,
+        source_end_us: int,
+    ) -> None:
+        commands = getattr(self._session, "commands", None)
+        if commands is None:
+            self._timeline_canvas.set_trim_candidate(None)
+            return
+        health = self._clip_health.get(clip_id)
+        if health is not None and not health.range_editable:
+            self._timeline_canvas.set_trim_candidate(None)
+            self._show_timeline_error(health.reason or "当前片段不可裁剪")
+            return
+        self._pause_for_edit()
+        candidate = commands.preview_trim_clip(
+            clip_id,
+            source_start_us=source_start_us,
+            source_end_us=source_end_us,
+        )
+        self._inspector_candidate = candidate
+        self._timeline_canvas.set_trim_candidate(candidate)
+        if self._clip_inspector.isVisible():
+            self._clip_inspector.set_candidate(candidate)
+        if candidate.valid:
+            self._save_status.setText(
+                "正在预览裁剪候选 · 正式时间线尚未改变"
+            )
+        else:
+            self._show_edit_candidate_error(candidate)
+
+    def _on_clip_trim_commit_requested(
+        self,
+        candidate: TimelineEditCandidate,
+    ) -> None:
+        self._confirm_and_commit_edit(
+            candidate,
+            title="确认裁剪与全局波纹",
+            confirm_text="确认并应用",
+            success_text="裁剪与全局波纹已应用并自动保存",
+        )
+
+    def _on_inspector_preview_requested(
+        self,
+        source_start_us: int,
+        source_end_us: int,
+    ) -> None:
+        clip_id = self._timeline_canvas.selected_clip_id()
+        commands = getattr(self._session, "commands", None)
+        if clip_id is None or commands is None:
+            return
+        self._pause_for_edit()
+        candidate = commands.preview_trim_clip(
+            clip_id,
+            source_start_us=source_start_us,
+            source_end_us=source_end_us,
+        )
+        self._inspector_candidate = candidate
+        self._clip_inspector.set_candidate(candidate)
+        self._timeline_canvas.set_trim_candidate(candidate)
+
+    def _on_inspector_apply_requested(
+        self,
+        candidate: TimelineEditCandidate,
+    ) -> None:
+        self._confirm_and_commit_edit(
+            candidate,
+            title="确认精确裁剪与全局波纹",
+            confirm_text="确认并应用",
+            success_text="精确裁剪与全局波纹已应用并自动保存",
+        )
+
+    def _on_track_lock_requested(
+        self,
+        track_id: str,
+        locked: bool,
+    ) -> None:
+        commands = getattr(self._session, "commands", None)
+        if commands is None:
+            return
+        self._cancel_edit_preview()
+        self._apply_command_result(
+            commands.set_track_locked(track_id, locked),
+            success_text=(
+                "轨道已锁定并自动保存"
+                if locked
+                else "轨道已解锁并自动保存"
+            ),
+        )
+
+    def _on_clip_context_requested(
+        self,
+        _clip_id: str,
+        global_position,
+    ) -> None:
+        menu = QMenu(self)
+        split_action = menu.addAction("在播放头处分割\tCtrl+B")
+        assert split_action is not None
+        split_action.setEnabled(self._btn_split_clip.isEnabled())
+        split_action.triggered.connect(self._on_split_clip)
+        properties_action = menu.addAction("片段属性")
+        assert properties_action is not None
+        properties_action.setEnabled(self._btn_clip_inspector.isEnabled())
+        properties_action.triggered.connect(self._open_clip_inspector)
+        delete_action = menu.addAction("删除片段并执行全局波纹\tDelete")
+        assert delete_action is not None
+        delete_action.setEnabled(self._btn_delete_clip.isEnabled())
+        delete_action.triggered.connect(self._on_delete_clip)
+        menu.exec_(global_position)
+
+    def _confirm_and_commit_edit(
+        self,
+        candidate: TimelineEditCandidate,
+        *,
+        title: str,
+        confirm_text: str,
+        success_text: str,
+    ) -> None:
+        accepted = TimelineImpactDialog.execute(
+            self,
+            candidate,
+            title=title,
+            confirm_text=confirm_text,
+            locate_callback=self._locate_edit_conflict,
+        )
+        if not accepted:
+            self._cancel_edit_preview()
+            if candidate.conflicts:
+                self._show_edit_candidate_error(candidate)
+            else:
+                self._save_status.setText(
+                    "已取消候选 · 正式时间线未改变"
+                )
+            return
+        if not candidate.valid:
+            self._show_edit_candidate_error(candidate)
+            return
+        self._commit_edit_candidate(
+            candidate,
+            success_text=success_text,
+        )
+
+    def _commit_edit_candidate(
+        self,
+        candidate: TimelineEditCandidate,
+        *,
+        success_text: str,
+    ) -> None:
+        commands = getattr(self._session, "commands", None)
+        if commands is None:
+            return
+        result = commands.commit_edit_candidate(candidate)
+        self._cancel_edit_preview()
         self._apply_command_result(
             result,
-            success_text="片段已删除并自动保存",
+            success_text=success_text,
+            preferred_clip_ids=candidate.selected_clip_ids,
         )
+
+    def _show_edit_candidate_error(
+        self,
+        candidate: TimelineEditCandidate,
+    ) -> None:
+        detail = "；".join(
+            conflict.message for conflict in candidate.conflicts
+        )
+        self._show_timeline_error(detail or "剪辑候选无效")
+
+    def _locate_edit_conflict(
+        self,
+        track_id: str,
+        clip_id: str,
+    ) -> None:
+        if clip_id and self._clip_by_id(clip_id) is not None:
+            clip = self._clip_by_id(clip_id)
+            assert clip is not None
+            self._timeline_canvas.select_clip(clip_id)
+            self._on_clip_selected(clip_id, clip.track_id)
+        elif track_id and self._track_by_id(track_id) is not None:
+            self._timeline_canvas.select_track(track_id)
+            self._on_track_selected(track_id)
+        self._save_status.setText("已定位首个全局波纹冲突")
+
+    def _pause_for_edit(self) -> None:
+        runtime = self._playback_runtime
+        if (
+            runtime is not None
+            and runtime.snapshot().state == PlaybackState.PLAYING
+        ):
+            self._render_playback_snapshot(runtime.pause())
+
+    def _cancel_edit_preview(self) -> None:
+        had_preview = self._inspector_candidate is not None
+        self._inspector_candidate = None
+        if hasattr(self, "_timeline_canvas"):
+            had_preview = had_preview or self._timeline_canvas.trim_active
+            self._timeline_canvas.cancel_trim()
+            if had_preview and self._session is not None and bool(
+                getattr(self._session, "ready", False)
+            ):
+                self._timeline_canvas.set_timeline(self._session.timeline)
+                state = self._session.view_state
+                self._timeline_canvas.select_track(state.selected_track_id)
+                self._timeline_canvas.select_clip(state.selected_clip_id)
 
     def _on_clip_selected(self, clip_id: str, track_id: str) -> None:
         session = self._session
@@ -1161,22 +1652,20 @@ class TimelineEditorWindow(QMainWindow):
             )
         if session is None:
             return
-        clip = next(
-            (
-                item
-                for item in session.timeline.clips
-                if item.clip_id == clip_id
-            ),
-            None,
-        )
-        self._selection_summary.setText(
-
-                f"已选 {clip_id} · 起点 {_format_us(clip.timeline_start_us)}"
-                if clip is not None
-                else "未选择片段"
-
-        )
+        self._refresh_selection_summary(clip_id)
+        if self._clip_inspector.isVisible():
+            self._load_selected_clip_in_inspector()
         self._sync_command_controls()
+
+    def _refresh_selection_summary(self, clip_id: str | None) -> None:
+        clip = self._clip_by_id(clip_id)
+        self._selection_summary.setText(
+            f"已选 {clip.clip_id} · 源 "
+            f"{_format_us(clip.source_start_us)}–"
+            f"{_format_us(clip.source_start_us + clip.source_duration_us)}"
+            if clip is not None
+            else "未选择片段"
+        )
 
     def _on_track_selected(self, track_id: str) -> None:
         if self._session is not None:
@@ -1188,11 +1677,14 @@ class TimelineEditorWindow(QMainWindow):
         self._selection_summary.setText(
             f"已选轨道：{track.name}" if track is not None else "未选择片段"
         )
+        self._cancel_edit_preview()
+        self._clip_inspector.hide()
         self._sync_command_controls()
 
     def _on_playhead_requested(self, value_us: int) -> None:
         if self._session is not None:
             self._session.update_view_state(playhead_us=value_us)
+        self._sync_command_controls()
         runtime = self._playback_runtime
         if (
             runtime is not None
@@ -1212,6 +1704,10 @@ class TimelineEditorWindow(QMainWindow):
     ) -> None:
         commands = getattr(self._session, "commands", None)
         if commands is None:
+            return
+        health = self._clip_health.get(clip_id)
+        if health is not None and not health.move_editable:
+            self._show_timeline_error(health.reason or "当前片段不可移动")
             return
         self._apply_command_result(
             commands.move_clip(
@@ -1257,7 +1753,13 @@ class TimelineEditorWindow(QMainWindow):
         if self._session is not None:
             self._session.update_view_state(splitter_ratio=ratio)
 
-    def _apply_command_result(self, result, *, success_text: str) -> None:
+    def _apply_command_result(
+        self,
+        result,
+        *,
+        success_text: str,
+        preferred_clip_ids: tuple[str, ...] = (),
+    ) -> None:
         if not result.ok:
             commands = getattr(self._session, "commands", None)
             if bool(getattr(commands, "has_pending_save", False)):
@@ -1273,7 +1775,25 @@ class TimelineEditorWindow(QMainWindow):
             return
         self._hide_save_error()
         affected = tuple(result.affected_clip_ids)
-        selected_clip_id = affected[0] if affected else None
+        selected_clip_id = (
+            preferred_clip_ids[0]
+            if preferred_clip_ids
+            else (
+                affected[0]
+                if affected
+                else self._timeline_canvas.selected_clip_id()
+            )
+        )
+        valid_clip_ids = (
+            {
+                clip.clip_id
+                for clip in self._session.timeline.clips
+            }
+            if self._session is not None
+            else set()
+        )
+        if selected_clip_id not in valid_clip_ids:
+            selected_clip_id = None
         selected_track_id = (
             tuple(result.affected_track_ids)[0]
             if result.affected_track_ids
@@ -1293,9 +1813,11 @@ class TimelineEditorWindow(QMainWindow):
             return
         timeline = self._session.timeline
         self._timeline_canvas.set_timeline(timeline)
+        self._refresh_clip_health()
         state = self._session.view_state
         self._timeline_canvas.select_track(state.selected_track_id)
         self._timeline_canvas.select_clip(state.selected_clip_id)
+        self._refresh_selection_summary(state.selected_clip_id)
         self._time_label.setText(
             f"{_format_us(state.playhead_us)} / {_format_us(self._timeline_end_us())}"
         )
@@ -1304,6 +1826,9 @@ class TimelineEditorWindow(QMainWindow):
             and str(getattr(self._session, "status", ""))
             in {"ready", "available", "empty"}
         )
+        if self._clip_inspector.isVisible():
+            if not self._load_selected_clip_in_inspector():
+                self._clip_inspector.hide()
 
     def _show_timeline_error(self, message: str) -> None:
         self._save_status.setText(f"未保存：{message}")
@@ -1398,6 +1923,119 @@ class TimelineEditorWindow(QMainWindow):
             "冲突尚未处理 · 未覆盖外部版本，候选修改仍保留"
         )
 
+    def _open_clip_inspector(self) -> None:
+        if not self._btn_clip_inspector.isEnabled():
+            self._show_timeline_error("当前片段不可精确裁剪")
+            return
+        if not self._load_selected_clip_in_inspector():
+            return
+        self._position_clip_inspector()
+        self._clip_inspector.show()
+        self._clip_inspector.raise_()
+        self._clip_inspector.setFocus(Qt.OtherFocusReason)
+
+    def _load_selected_clip_in_inspector(self) -> bool:
+        clip = self._clip_by_id(self._timeline_canvas.selected_clip_id())
+        track = self._track_by_id(clip.track_id) if clip is not None else None
+        session = self._session
+        if clip is None or track is None or session is None:
+            self._show_timeline_error("请先选择一个片段")
+            return False
+        material = next(
+            (
+                item
+                for item in session.project.materials
+                if item.material_id == clip.material_id
+            ),
+            None,
+        )
+        if material is None:
+            self._show_timeline_error("片段引用的项目素材不存在")
+            return False
+        descriptor = next(
+            (
+                item
+                for item in self._current_materials
+                if isinstance(item, ProjectMaterialDescriptor)
+                and item.material_id == clip.material_id
+            ),
+            None,
+        )
+        metadata = material.metadata_snapshot
+        try:
+            duration_us = round(
+                float(
+                    descriptor.duration_sec
+                    if descriptor is not None
+                    and descriptor.duration_sec is not None
+                    else metadata.get("duration_sec", 0)
+                )
+                * 1_000_000
+            )
+        except (TypeError, ValueError):
+            duration_us = 0
+        try:
+            fps_value = float(
+                descriptor.fps
+                if descriptor is not None and descriptor.fps is not None
+                else metadata.get("fps")
+            )
+            fps = fps_value if fps_value > 0 else None
+        except (TypeError, ValueError):
+            fps = None
+        linked_count = (
+            sum(
+                item.link_group_id == clip.link_group_id
+                for item in session.timeline.clips
+            )
+            if clip.link_group_id
+            else 1
+        )
+        health = self._clip_health.get(clip.clip_id)
+        file_exists = (
+            bool(descriptor.file_exists)
+            if descriptor is not None
+            else Path(material.last_known_path).is_file()
+        )
+        editable = bool(
+            getattr(self, "_writable", False)
+            and not track.locked
+            and file_exists
+            and (health is None or health.range_editable)
+        )
+        self._clip_inspector.load_clip(
+            clip,
+            material_name=(
+                descriptor.file_name
+                if descriptor is not None
+                else material.file_name
+            ),
+            track_name=track.name,
+            material_duration_us=duration_us,
+            fps=fps,
+            linked_clip_count=linked_count,
+            editable=editable,
+        )
+        if health is not None and health.status == "link_error":
+            self._show_timeline_error(
+                "关联异常，当前片段组只读；请查看诊断或从备份恢复"
+            )
+        elif not file_exists:
+            self._show_timeline_error("素材文件缺失，裁剪和分割已禁用")
+        return True
+
+    def _clip_by_id(self, clip_id: str | None) -> TimelineClip | None:
+        if self._session is None or clip_id is None:
+            return None
+        return next(
+            (
+                item
+                for item in self._session.timeline.clips
+                if item.clip_id == clip_id
+            ),
+            None,
+        )
+
     def _track_by_id(self, track_id: str | None) -> TimelineTrack | None:
         if self._session is None or track_id is None:
             return None
@@ -1471,15 +2109,7 @@ class TimelineEditorWindow(QMainWindow):
         ):
             self._btn_play.setEnabled(False)
             return
-        descriptors = [
-            item
-            for item in self._current_materials
-            if isinstance(item, ProjectMaterialDescriptor)
-        ]
-        playback_project = resolve_project_media_sources(
-            session.project,
-            descriptors,
-        )
+        playback_project = self._resolved_playback_project()
         runtime = self._playback_runtime_factory(
             playback_project,
             session.timeline,
@@ -1655,15 +2285,28 @@ class TimelineEditorWindow(QMainWindow):
     def _rebuild_playback_after_edit(self) -> None:
         runtime = self._playback_runtime
         session = self._session
-        if runtime is None or session is None:
+        if session is None:
             return
-        snapshot = runtime.snapshot()
-        if snapshot.state == PlaybackState.STOPPED:
-            self._release_playback()
+        if runtime is None:
             self._create_lazy_playback_runtime()
             return
         self._render_playback_snapshot(
-            runtime.replace_timeline(session.project, session.timeline)
+            runtime.replace_timeline(
+                self._resolved_playback_project(),
+                session.timeline,
+            )
+        )
+
+    def _resolved_playback_project(self):
+        assert self._session is not None
+        descriptors = [
+            item
+            for item in self._current_materials
+            if isinstance(item, ProjectMaterialDescriptor)
+        ]
+        return resolve_project_media_sources(
+            self._session.project,
+            descriptors,
         )
 
     def _release_playback(self) -> None:
@@ -1749,6 +2392,8 @@ class TimelineEditorWindow(QMainWindow):
         self.close()
 
     def closeEvent(self, event) -> None:
+        self._cancel_edit_preview()
+        self._clip_inspector.hide()
         if self._shutting_down:
             self._release_playback()
             event.accept()
@@ -1764,18 +2409,39 @@ class TimelineEditorWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._position_clip_inspector()
         if self._preview_image is not None:
             self._apply_preview_image()
 
     def diagnostic_summary(self) -> dict[str, object]:
+        session = self._session
+        commands = getattr(session, "commands", None)
+        command_summary: dict[str, object] = (
+            dict(commands.diagnostic_summary())
+            if commands is not None
+            and callable(getattr(commands, "diagnostic_summary", None))
+            else {}
+        )
+        health_summary = summarize_timeline_health(self._clip_health)
         runtime = self._playback_runtime
+        playback: dict[str, object]
         if runtime is None:
-            return {
+            playback = {
                 "backend": "PyAV",
                 "backend_version": "18.0.0",
                 "state": "not_initialized",
             }
-        return runtime.diagnostic_summary()
+        else:
+            playback = dict(runtime.diagnostic_summary())
+        playback.update(command_summary)
+        playback.update(
+            {
+                "available_clips": health_summary["available"],
+                "missing_clips": health_summary["missing"],
+                "link_error_clips": health_summary["link_error"],
+            }
+        )
+        return playback
 
 
 class TimelineEditorCoordinator:
@@ -1920,6 +2586,14 @@ QLabel#timelineRecordingStatus {
     border-radius: 4px;
     padding: 6px 9px;
 }
+QLabel#timelineRippleMode {
+    color: #1457D9;
+    background: #E8F0FF;
+    border: 1px solid #B8CDF8;
+    border-radius: 4px;
+    padding: 6px 9px;
+    font-weight: 600;
+}
 QFrame#timelineMaterialRail,
 QFrame#timelinePreviewPanel,
 QFrame#timelinePanel {
@@ -1936,5 +2610,28 @@ QLabel#timelineCanvasPlaceholder {
     background: #F1F4F8;
     border: 1px solid #D8DEE8;
     padding: 18px;
+}
+QFrame#clipInspector {
+    background: #FFFFFF;
+    border: 1px solid #C2CAD7;
+    border-radius: 6px;
+}
+QFrame#clipInspectorImpact {
+    background: #E8F0FF;
+    border: 1px solid #B8CDF8;
+    border-radius: 5px;
+}
+QLabel#clipInspectorValidation {
+    color: #526077;
+}
+QFrame#timelineImpactConflict {
+    background: #FDECEA;
+    border: 1px solid #E8AAA5;
+    border-radius: 5px;
+}
+QFrame#timelineImpactSafe {
+    background: #E6F5ED;
+    border: 1px solid #A9D8BF;
+    border-radius: 5px;
 }
 """

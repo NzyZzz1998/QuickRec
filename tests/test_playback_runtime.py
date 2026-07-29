@@ -10,7 +10,12 @@ from services.playback_backend import (
 )
 from services.playback_runtime import PlaybackRuntime, PlaybackState
 from utils.project_store import ProjectFile, ProjectMaterialRef
-from utils.timeline_model import Timeline, TimelineClip, TimelineTrack
+from utils.timeline_model import (
+    TIMELINE_SCHEMA_VERSION,
+    Timeline,
+    TimelineClip,
+    TimelineTrack,
+)
 
 
 class FakeClock:
@@ -408,16 +413,24 @@ def test_diagnostic_summary_has_backend_schema_counts_without_media_path(
 ) -> None:
     runtime, _backend, _clock, _project, _timeline = _runtime(tmp_path)
     runtime.prepare()
+    runtime.seek(1_000_000)
 
     summary = runtime.diagnostic_summary()
 
     assert summary["backend"] == "fake"
     assert summary["backend_version"] == "1.0"
-    assert summary["timeline_schema"] == 1
+    assert summary["timeline_schema"] == TIMELINE_SCHEMA_VERSION
     assert summary["video_tracks"] == 1
     assert summary["audio_tracks"] == 1
     assert summary["clips"] == 1
+    assert summary["last_seek_target_us"] == 1_000_000
+    assert summary["last_seek_source_us"] == 1_000_000
+    assert summary["last_seek_result"] == "ok"
+    assert summary["resources_released"] is False
     assert str(tmp_path) not in str(summary)
+
+    runtime.release()
+    assert runtime.diagnostic_summary()["resources_released"] is True
 
 
 def test_fatal_prepare_error_can_retry_without_recreating_runtime(

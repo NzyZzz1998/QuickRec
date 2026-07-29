@@ -30,11 +30,12 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
+from recorder.events import RecordingEvent, RecordingEventType
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
 from recorder.workflow import RecordingWorkflow
 from services.capture_capability_runtime import CaptureCapabilityRuntime
@@ -48,6 +49,7 @@ from services.project_library import ProjectLibraryService
 from services.project_materials import ProjectMaterialQueryService
 from services.project_recording import ProjectRecordingCoordinator
 from services.recording_library import MigrationResult, RecordingLibraryService
+from services.single_instance import FULL_PRODUCT_ID, SingleInstanceGuard
 from services.thumbnail_coordinator import ThumbnailCoordinator
 from services.thumbnail_service import ThumbnailService
 from services.timeline_session import TimelineSession, TimelineSessionRegistry
@@ -146,23 +148,37 @@ class _PendingRetryBridge(QObject):
 class QuickRecApp:
     """QuickRec 应用主类"""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        instance_guard: SingleInstanceGuard | None = None,
+    ):
         self._app = QApplication(sys.argv)
         self._app.setQuitOnLastWindowClosed(False)
         self._app.setStyle("Fusion")
         self._qt_translator = install_qt_zh_cn(self._app)
+        self._instance_guard = instance_guard
+        self._instance_activation_timer: QTimer | None = None
+        if instance_guard is not None:
+            self._instance_activation_timer = QTimer(self._app)
+            self._instance_activation_timer.setInterval(250)
+            self._instance_activation_timer.timeout.connect(
+                self._poll_instance_activation
+            )
+            self._instance_activation_timer.start()
 
         # 初始化模块
         self._config = ConfigManager()
         log_result = initialize_file_logging(self._config, logger)
         if not log_result.ok:
             logger.warning(f"diagnostic file logging unavailable: {log_result.error}")
-        self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
+        self._recorder = RecorderManager(self._config)
         self._capture_capability = CaptureCapabilityRuntime(
             save_path=lambda: str(self._config.get("save_path", "")),
             ffmpeg_path=resolve_ffmpeg_path(),
         )
         self._workflow = RecordingWorkflow(self._recorder)
+        self._workflow.subscribe(self._on_recording_event)
         self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
         self._toolbar = None
@@ -485,6 +501,19 @@ class QuickRecApp:
         if callable(refresh_summary):
             refresh_summary()
         return window
+
+    def _poll_instance_activation(self) -> None:
+        guard = getattr(self, "_instance_guard", None)
+        if guard is None:
+            return
+        try:
+            requested = guard.consume_activation_request()
+        except OSError:
+            logger.exception("single-instance activation polling failed")
+            return
+        if requested:
+            logger.info("secondary launch requested workbench activation")
+            self._show_workbench()
 
     def _show_timeline_editor(self, project_id: str):
         return self._timeline_editor.open(project_id)
@@ -1315,6 +1344,13 @@ class QuickRecApp:
 
     # --- 编码完成回调 ---
 
+    def _on_recording_event(self, event: RecordingEvent) -> None:
+        """将唯一录制完成事实转交 Qt 主线程。"""
+        if event.type is RecordingEventType.SAVED:
+            self._on_saved(event.output_path)
+        elif event.type is RecordingEventType.FAILED:
+            self._on_saved("")
+
     def _on_saved(self, output_path: str):
         """编码完成回调（从编码线程调用，通过信号桥安全转发到主线程）"""
         logger.info(f"收到编码完成回调: {output_path}")
@@ -1681,6 +1717,13 @@ class QuickRecApp:
 
     def _on_exit(self):
         """退出程序"""
+        activation_timer = getattr(
+            self,
+            "_instance_activation_timer",
+            None,
+        )
+        if activation_timer is not None:
+            activation_timer.stop()
         state = self._workflow.get_state()
         if state != RecorderState.IDLE:
             self._workflow.stop()
@@ -1717,15 +1760,29 @@ class QuickRecApp:
 
 def main():
     """程序入口"""
+    instance_guard = None
     try:
+        instance_guard = SingleInstanceGuard(FULL_PRODUCT_ID)
+        if not instance_guard.acquire():
+            if instance_guard.activation_signal_sent:
+                logger.info("existing QuickRec Full instance activated")
+            else:
+                logger.warning(
+                    "QuickRec Full is already running, but activation "
+                    "signal could not be delivered"
+                )
+            return
         _enable_dpi_awareness()
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-        app = QuickRecApp()
+        app = QuickRecApp(instance_guard=instance_guard)
         sys.exit(app.run())
     except Exception as e:
         logger.exception(f"QuickRec 异常退出: {e}")
         sys.exit(1)
+    finally:
+        if instance_guard is not None:
+            instance_guard.close()
 
 
 if __name__ == "__main__":

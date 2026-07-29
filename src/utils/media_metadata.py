@@ -46,7 +46,11 @@ def resolve_ffprobe_path() -> str:
     candidates.append(Path(__file__).resolve().parents[2] / "ffmpeg" / "ffprobe.exe")
     for candidate in candidates:
         if candidate.is_file():
-            logger.debug("ffprobe resolved: frozen=%s executable=%s", getattr(sys, "frozen", False), candidate)
+            logger.debug(
+                "ffprobe resolved: frozen=%s source=%s",
+                getattr(sys, "frozen", False),
+                "bundled",
+            )
             return str(candidate)
     return shutil.which("ffprobe") or ""
 
@@ -83,19 +87,31 @@ def probe_media(
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
-        logger.warning("ffprobe timeout: path=%s timeout=%s", video_path, timeout)
+        logger.warning(
+            "ffprobe timeout: file=%s timeout=%s",
+            Path(video_path).name,
+            timeout,
+        )
         return MediaMetadataResult(False, error=f"ffprobe timeout after {timeout:g}s")
     except OSError as exc:
-        logger.warning("ffprobe start failed: path=%s error=%s", video_path, exc)
+        logger.warning(
+            "ffprobe start failed: file=%s error_type=%s",
+            Path(video_path).name,
+            type(exc).__name__,
+        )
         return MediaMetadataResult(False, error=str(exc))
     if completed.returncode != 0:
-        logger.warning(
-            "ffprobe returned nonzero: path=%s returncode=%s stderr=%s",
+        safe_error = _redact_path(
+            (completed.stderr or "ffprobe failed").strip(),
             video_path,
-            completed.returncode,
-            _short_error(completed.stderr),
         )
-        return MediaMetadataResult(False, error=(completed.stderr or "ffprobe failed").strip())
+        logger.warning(
+            "ffprobe returned nonzero: file=%s returncode=%s stderr=%s",
+            Path(video_path).name,
+            completed.returncode,
+            _short_error(safe_error),
+        )
+        return MediaMetadataResult(False, error=safe_error)
     try:
         payload = json.loads(completed.stdout)
         stream = next(
@@ -118,13 +134,23 @@ def probe_media(
             fps=fps,
         )
     except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError) as exc:
-        logger.warning("ffprobe output invalid: path=%s error=%s", video_path, exc)
+        logger.warning(
+            "ffprobe output invalid: file=%s error=%s",
+            Path(video_path).name,
+            exc,
+        )
         return MediaMetadataResult(False, error=f"invalid ffprobe output: {exc}")
 
 
 def _short_error(value: str | None, limit: int = 300) -> str:
     text = (value or "").strip().replace("\r", " ").replace("\n", " ")
     return text[:limit]
+
+
+def _redact_path(value: str, path: str | Path) -> str:
+    sensitive = str(Path(path))
+    redacted = value.replace(sensitive, "<media>")
+    return redacted.replace(sensitive.replace("\\", "/"), "<media>")
 
 
 def _parse_frame_rate(value: Any) -> float | None:

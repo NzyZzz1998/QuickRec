@@ -103,6 +103,7 @@ def test_recording_state_temporarily_blocks_timeline_commands_and_persistence():
         blocked = session.commands.add_track("video")
 
         assert session.recording_active
+        assert session.recording_guard.state.active
         assert session.read_only
         assert not blocked.ok
         assert blocked.stage == "read_only"
@@ -114,6 +115,7 @@ def test_recording_state_temporarily_blocks_timeline_commands_and_persistence():
         resumed = session.commands.add_track("video")
 
         assert not session.recording_active
+        assert not session.recording_guard.state.active
         assert not session.read_only
         assert resumed.ok
 
@@ -225,3 +227,20 @@ def test_registry_shutdown_releases_active_media_and_clears_sessions():
         assert registry.session_count == 0
         assert handle.pause_count == 1
         assert handle.release_count == 1
+
+
+def test_session_exposes_typed_media_runtime_with_compatible_delegates():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service = _project_service(Path(temp_dir))
+        session = TimelineSession(service, "project-1")
+        handle = _MediaHandle()
+
+        session.attach_media(handle)
+        assert session.media_runtime.current is handle
+
+        session.pause_media()
+        session.release_media()
+
+        assert handle.pause_count == 2
+        assert handle.release_count == 1
+        assert session.media_runtime.current is None
