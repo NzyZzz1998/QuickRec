@@ -66,7 +66,7 @@ class TestConfigManager(unittest.TestCase):
                 width=1920,
                 height=1080,
                 fps=60,
-                directory=str(project_path.parent / "Exports"),
+                directory=str(project_path.resolve().parent / "Exports"),
             ),
         )
 
@@ -158,7 +158,7 @@ class TestConfigManager(unittest.TestCase):
                 1920,
                 1080,
                 60,
-                str(project_path.parent / "Exports"),
+                str(project_path.resolve().parent / "Exports"),
             ),
         )
 

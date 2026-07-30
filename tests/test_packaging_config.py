@@ -167,6 +167,16 @@ def test_ci_stages_real_ffmpeg_tools_before_baseline_pytest():
     assert test_job.index(stage_marker) < test_job.index(pytest_marker)
 
 
+def test_ci_stages_real_ffmpeg_tools_before_packaging_tests():
+    packaging_job = CI_TEXT.split("\n  packaging:", 1)[1]
+    stage_marker = "- name: Stage FFmpeg tools"
+    pytest_marker = "- name: Packaging tests"
+
+    assert stage_marker in packaging_job
+    assert pytest_marker in packaging_job
+    assert packaging_job.index(stage_marker) < packaging_job.index(pytest_marker)
+
+
 def test_ci_verifies_pyav_runtime_files_in_package():
     assert "ci-dist\\QuickRec\\_internal\\av\\_core.pyd" in CI_TEXT
     assert "ci-dist\\QuickRec\\_internal\\av.libs" in CI_TEXT

@@ -147,7 +147,7 @@ E:\QRtest\QuickRec-v1.9.4-rc1-acceptance\long-gates
 | D11.21 | 自动入库、失败和持久重试 | RC6 在隔离索引独占锁定时完成正式 MP4，任务保持 `succeeded` 且入库单独失败；重启后失败状态仍在，恢复写入后 GUI 重试成功，编码 attempt 仍为 1，索引恰好 1 条，二次重启不重复 | 通过 | `ingestion-retry\evidence\before-retry.json`、`after-retry.json`、`after-successful-restart.json` 及四张 GUI 截图 |
 | D11.22 | 录制与导出互斥 | 四项互斥自动化通过；RC5 运行 4K60 导出时，工作台全屏、区域、窗口入口均禁用并就近说明原因；录制未启动 | 通过 | `D11-RC5-export-running-recording-entry-disabled.png`、Guard 测试 |
 | D11.23 | 100%、125%、150% DPI | RC8 在真实 Windows 125% 和 150% 系统缩放下重启并完成工作台、导出页、配置弹窗、预检成功态、成功/失败任务详情、结果操作及覆盖二次确认复验；底栏、原生确认框和长路径均无裁切、重叠或不可点击控件。结束后恢复 100%，媒体进程为 0，真实 `%APPDATA%\QuickRec` 零变更 | 通过 | `D11-RC8-windows-dpi-summary.json`、`D11-RC8-windows-dpi-125-*.png`、`D11-RC8-windows-dpi-150-*.png` |
-| D11.24 | v1.9.3 全功能回归 | RC8 全量自动化 1238 项通过、31 项跳过、66 个子测试通过；RC6 已补项目打开、时间线播放、素材库详情、项目冲突保护与恢复副本、自动保存持久化、区域和窗口录制；四类音频机器证据完整，RC8 使用 GS03 取得清晰麦克风样本并由用户确认声音正常 | 通过 | `regression\evidence\D11-RC6-project-*.jpg`、区域/窗口录制结果、`D11-RC6-*-audio-ffprobe.json`、`D11-RC6-*-audio-astats*.txt`、`D11-RC6-audio-library-records.json`、`mic-clear-speech-gs03\evidence\record.json` |
+| D11.24 | v1.9.3 全功能回归 | RC8 全量自动化 1238 项通过、32 项跳过、66 个子测试通过；RC6 已补项目打开、时间线播放、素材库详情、项目冲突保护与恢复副本、自动保存持久化、区域和窗口录制；四类音频机器证据完整，RC8 使用 GS03 取得清晰麦克风样本并由用户确认声音正常 | 通过 | `regression\evidence\D11-RC6-project-*.jpg`、区域/窗口录制结果、`D11-RC6-*-audio-ffprobe.json`、`D11-RC6-*-audio-astats*.txt`、`D11-RC6-audio-library-records.json`、`mic-clear-speech-gs03\evidence\record.json` |
 | D11.25 | QuickRec Lite 未修改 | Lite 工作区干净 | 通过 | `git status --short --branch` |
 | D11.26 | 输出手动验收文档 | 已输出本文 | 通过 | `doc/releases/v1.9.4/manual-verification.md` |
 | D11.27 | 全部 ACC 闭合与发布判断 | `ACC-194-01` 至 `ACC-194-15` 已闭合；`LIMIT-194-01` 经产品负责人确认作为后续版本治理的已知缺陷，不阻塞本版 | 通过 | 本表、第 7 节及 `bugfix-log.md` |

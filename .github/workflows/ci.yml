@@ -98,9 +98,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Packaging tests
-        run: python -m pytest -m packaging -q
-
       - name: Stage FFmpeg tools
         shell: pwsh
         run: |
@@ -135,6 +132,9 @@ jobs:
 
           & "ffmpeg\ffmpeg.exe" -version
           & "ffmpeg\ffprobe.exe" -version
+
+      - name: Packaging tests
+        run: python -m pytest -m packaging -q
 
       - name: Build onedir package
         run: >-

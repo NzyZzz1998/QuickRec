@@ -39,8 +39,8 @@
 
 ### 验证
 
-- 标准全量：1238 passed，31 deselected，66 subtests passed。
-- Packaging：19 passed，1250 deselected。
+- 标准全量：1238 passed，32 deselected，66 subtests passed。
+- Packaging：20 passed，1250 deselected。
 - 总体覆盖率：84.09%。
 - 六组增量覆盖率：87.72%、80.29%、87.80%、90.15%、87.44%、88.48%。
 - Ruff、Mypy、Compileall、UTF-8、文档状态和差异格式检查通过。

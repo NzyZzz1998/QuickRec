@@ -78,7 +78,7 @@ E:\QRtest\QuickRec-v1.9.4-rc8-coverage.json
 结果：
 
 ```text
-1238 passed, 31 deselected, 66 subtests passed
+1238 passed, 32 deselected, 66 subtests passed
 Total coverage: 84.09%
 ```
 
@@ -96,7 +96,7 @@ Total coverage: 84.09%
 ### 3.4 Packaging
 
 ```text
-19 passed, 1250 deselected
+20 passed, 1250 deselected
 ```
 
 ## 4. 静态和文档门禁
@@ -271,10 +271,10 @@ RC8 随后在真实 Windows 125% 和 150% 系统缩放下完成专项复验，�
 
 ```text
 python -m pytest -m "not hardware and not packaging" -q
-1238 passed, 31 deselected, 66 subtests passed
+1238 passed, 32 deselected, 66 subtests passed
 
 python -m pytest -m packaging -q
-19 passed, 1250 deselected
+20 passed, 1250 deselected
 
 python -m pytest -m "not hardware and not packaging" --cov=src
 Total coverage: 84.09%

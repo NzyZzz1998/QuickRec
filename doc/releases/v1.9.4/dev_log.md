@@ -270,3 +270,15 @@
 - 同一 RC8 随后在真实 Windows 125%/150% 系统缩放下通过工作台、导出页、
   配置、预检、成功/失败详情和覆盖确认复验；系统恢复为 100%，真实
   `%APPDATA%\QuickRec` 零变更。
+
+## 2026-07-30：正式发布前 CI 门禁收口
+
+- `test` 首次发布流水线在 GitHub Windows Runner 暴露两处环境差异：
+  配置测试把同一临时目录的 8.3 短路径和长路径作为不同文本比较；
+  Packaging job 在准备 FFmpeg 前执行了依赖真实 FFmpeg 的集成测试。
+- 配置测试改为按实现合同比较规范化项目目录；Packaging job 先准备并验证
+  FFmpeg/FFprobe，再执行 packaging 测试。运行时代码不变，RC8 身份保持有效。
+- 新增 CI 顺序回归测试，锁定“准备媒体工具早于 packaging 测试”的约束。
+- 本地最终门禁：标准测试 1238 项通过、32 项排除、66 个子测试通过，
+  覆盖率 84.09%；Packaging 20 项通过；六组增量覆盖门禁、Ruff、Mypy
+  和 Compileall 均通过。

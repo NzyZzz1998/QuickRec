@@ -55,8 +55,8 @@ v1.9.4 在 v1.9.3 基础剪辑能力上补齐正式本地导出闭环。用户�
 
 ## 验证状态
 
-- 标准全量测试：`1238 passed, 31 deselected, 66 subtests passed`。
-- Packaging：`19 passed, 1250 deselected`。
+- 标准全量测试：`1238 passed, 32 deselected, 66 subtests passed`。
+- Packaging：`20 passed, 1250 deselected`。
 - 总体覆盖率：`84.09%`。
 - 时间线剪辑核心增量覆盖率：`87.72%`。
 - 时间线 UI 协调增量覆盖率：`80.29%`。
