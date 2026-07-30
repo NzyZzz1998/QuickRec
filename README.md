@@ -2,35 +2,73 @@
 
 > 面向 Windows 的本地屏幕录制、素材管理与项目创作工具。支持全屏、区域和
 > 窗口录制，四类音频模式、中央素材库、项目工作区、可播放多轨时间线、
-> 基础剪辑、内部自动化 CLI、诊断导出，以及单显示器 1080p120 全屏录制能力。
+> 基础剪辑、持久导出队列、内部自动化 CLI、诊断导出，以及单显示器
+> 1080p120 全屏录制能力。
 
-[![正式版本](https://img.shields.io/badge/正式版本-v1.9.3-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.3)
+[![正式版本](https://img.shields.io/badge/正式版本-v1.9.4-2563EB)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.4)
 ![发布状态](https://img.shields.io/badge/状态-正式发布-16A34A)
 ![平台](https://img.shields.io/badge/平台-Windows-111827)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB)
-![测试](https://img.shields.io/badge/v1.9.3_tests-1031%20passed-16A34A)
-![覆盖率](https://img.shields.io/badge/v1.9.3_coverage-83.56%25-16A34A)
+![测试](https://img.shields.io/badge/v1.9.4_tests-1238%20passed-16A34A)
+![覆盖率](https://img.shields.io/badge/v1.9.4_coverage-84.09%25-16A34A)
 
 ## 版本状态
 
 | 产品线 | 状态 | 分支 / 标签 | 说明 |
 | --- | --- | --- | --- |
-| QuickRec Full v1.9.3 | **当前正式版** | `master` / `v1.9.3` | 基础剪辑、全局波纹与内部自动化 CLI |
+| QuickRec Full v1.9.4 | **当前正式版** | `master` / `v1.9.4` | 持久导出队列与完整本地成片链路 |
+| QuickRec Full v1.9.3 | 历史稳定版 | `v1.9.3` | 基础剪辑、全局波纹与内部自动化 CLI |
 | QuickRec Full v1.9.2 | 历史稳定版 | `v1.9.2` | 可播放多轨时间线 |
 | QuickRec Full v1.9.1 | 历史稳定版 | `v1.9.1` | 项目素材预览与基础使用闭环 |
 | QuickRec Full v1.9 | 历史稳定版 | `v1.9` | 项目工作区基础 |
 | QuickRec Full v1.8 | 历史稳定版 | `v1.8` | 统一工作台、视觉改版和 1080p120 |
 | QuickRec Lite | 独立维护 | `E:\codex\QuickRec-Lite` | 轻量产品线，不属于本工作区 |
 
-v1.9.3 已完成开发、自动化门禁、D10 GUI 与真实媒体验收和正式发布。
-v1.9.2 是当前直接回滚点。
+v1.9.4 已完成开发、自动化门禁、D11 GUI、长样本与真实媒体验收并正式发布。
+v1.9.3 是当前直接回滚点。
 
-- [下载 QuickRec Full v1.9.3](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.3)
+- [下载 QuickRec Full v1.9.4](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.4)
 - [查看当前事实入口](doc/current.md)
-- [查看 v1.9.3 发布进度](doc/releases/v1.9.3/progress.md)
-- [查看 v1.9.3 验收记录](doc/releases/v1.9.3/manual-verification.md)
+- [查看 v1.9.4 发布进度](doc/releases/v1.9.4/progress.md)
+- [查看 v1.9.4 验收记录](doc/releases/v1.9.4/manual-verification.md)
 
-## v1.9.3 正式版本
+## v1.9.4 正式版本
+
+v1.9.4 将 v1.9.3 的多轨剪辑结果接入正式本地成片链路：
+
+- 从 timeline schema v2 构造不可变 `ExportPlan`，冻结轨道、片段、素材指纹和
+  输出配置。
+- 支持最大 4K 正偶数画布与 30/60/120 FPS，120 FPS 仅限不超过 1080p。
+- 使用最高视频轨固定覆盖、空白黑场和最多 8 路活动音频动态混合。
+- 工作台新增持久导出队列，支持进度、预计时间、暂停、取消、诊断、重试和
+  应用或系统重启恢复。
+- FFprobe 验证通过后才原子提交正式 MP4；默认不覆盖，显式覆盖具备事务恢复。
+- 导出成功后自动加入中央素材库，入库失败可持久重试且不重新编码。
+- `QuickRecCLI.exe` 新增 `export validate` 和 `export smoke`。
+
+正式发布包：
+
+```text
+GUI: E:\QRtest\QuickRec-v1.9.4-rc8-dist\QuickRec\QuickRec.exe
+GUI SHA256: 08A2ACCAFBA45C4DA02AFB2C00135B04D3CE2C606E48583AD08E30465BBA81C9
+CLI: E:\QRtest\QuickRec-v1.9.4-rc8-dist\QuickRec\QuickRecCLI.exe
+CLI SHA256: FF52A346B74232BFC1CE43DAFBD84FBA164EC3481CABC8CB2EBB1E34B4737C21
+ZIP: E:\QRtest\QuickRec-v1.9.4-win-x64.zip
+ZIP SHA256: 8969FDE7CA57853E4D658033AA91469B4990B5A5843711FDCA4662D841DD0997
+状态: D11 27/27 通过，正式发布
+```
+
+详细资料：
+
+- [v1.9.4 PRD](doc/releases/v1.9.4/prd.md)
+- [v1.9.4 实施计划](doc/releases/v1.9.4/dev_plan.md)
+- [v1.9.4 进度看板](doc/releases/v1.9.4/progress.md)
+- [v1.9.4 自动验证](doc/releases/v1.9.4/verification.md)
+- [v1.9.4 GUI 验收](doc/releases/v1.9.4/manual-verification.md)
+- [v1.9.4 发布说明](doc/releases/v1.9.4/release-notes.md)
+- [v1.9.4 变更日志](doc/releases/v1.9.4/changelog.md)
+
+## v1.9.3 历史版本
 
 v1.9.3 在可播放多轨时间线上补齐基础剪辑与工程自动化能力：
 
@@ -209,6 +247,15 @@ v1.8 高保真交互原型与逐页面实现核对：
 - 使用 timeline schema v2 保存非零源入点，并保护旧项目和未知版本数据。
 - 支持 8+8 轨、100 片段和 30 分钟时间线。
 
+### 正式导出
+
+- 从 timeline schema v2 冻结不可变导出计划。
+- 支持最大 4K 画布和 30/60/120 FPS H.264/AAC MP4。
+- 按最高视频轨覆盖并支持最多 8 路活动音频动态混合。
+- 使用单工作线程持久队列，支持进度、取消、诊断、重试和中断恢复。
+- 默认不覆盖已有目标；显式覆盖使用可恢复事务。
+- FFprobe 验证通过后才提交正式文件并自动加入中央素材库。
+
 ### 设置与诊断
 
 - 保存路径、质量、FPS、音频、倒计时、快捷键和开机自启配置。
@@ -338,19 +385,23 @@ doc/
 │   ├── v1.9/                  # 历史稳定版本
 │   ├── v1.9.1/                # 历史稳定版本
 │   ├── v1.9.2/                # 历史稳定版本
-│   └── v1.9.3/                # 当前正式版本
+│   ├── v1.9.3/                # 历史稳定版本
+│   └── v1.9.4/                # 当前正式版本
 ├── technical/
 ├── verification/
 ├── prototypes/
 └── archive/
 ```
 
-v1.8 的主要文档：
+v1.9.4 的主要文档：
 
-- [PRD](doc/releases/v1.8/prd.md)
-- [实施计划](doc/releases/v1.8/dev_plan.md)
-- [进度看板](doc/releases/v1.8/progress.md)
-- [自动化验证](doc/releases/v1.8/verification.md)
+- [PRD](doc/releases/v1.9.4/prd.md)
+- [实施计划](doc/releases/v1.9.4/dev_plan.md)
+- [进度看板](doc/releases/v1.9.4/progress.md)
+- [自动化验证](doc/releases/v1.9.4/verification.md)
+- [GUI 与真实媒体验收](doc/releases/v1.9.4/manual-verification.md)
+- [发布说明](doc/releases/v1.9.4/release-notes.md)
+- [变更日志](doc/releases/v1.9.4/changelog.md)
 - [GUI 手动验收](doc/releases/v1.8/manual-verification.md)
 - [缺陷记录](doc/releases/v1.8/bugfix-log.md)
 - [发布说明](doc/releases/v1.8/release-notes.md)

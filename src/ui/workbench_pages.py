@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -89,9 +90,12 @@ class RecordingModeCard(QFrame):
         layout.addWidget(metadata_label)
 
         self.action_button = QPushButton(action_text)
-        self.action_button.setToolTip(f"{description}。点击后进入对应的录制流程。")
+        default_tooltip = f"{description}。点击后进入对应的录制流程。"
+        self.action_button.setToolTip(default_tooltip)
+        self.action_button.setProperty("defaultToolTip", default_tooltip)
         self.action_button.setAccessibleName(action_text)
         self.action_button.setAccessibleDescription(description)
+        self.action_button.setProperty("defaultAccessibleDescription", description)
         set_button_icon(
             self.action_button,
             icon_name,
@@ -113,13 +117,29 @@ class RecordingPage(QWidget):
     open_folder_requested = pyqtSignal(str)
     retry_material_requested = pyqtSignal(str)
 
-    def __init__(self, config: ConfigManager, parent=None) -> None:
+    def __init__(
+        self,
+        config: ConfigManager,
+        parent=None,
+        *,
+        availability_provider: Callable[[], tuple[bool, str]] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._config = config
         self._output_path = ""
+        self._recording_state = "idle"
+        self._recording_mode = ""
+        self._recording_block_reason = ""
+        self._availability_provider = availability_provider
         self._init_ui()
         self.refresh_summary()
         self.set_recording_state("idle")
+        self._availability_timer = QTimer(self)
+        self._availability_timer.setInterval(250)
+        self._availability_timer.timeout.connect(self.refresh_recording_availability)
+        if self._availability_provider is not None:
+            self.refresh_recording_availability()
+            self._availability_timer.start()
 
     def _init_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -283,10 +303,24 @@ class RecordingPage(QWidget):
         return f"...{path[-(limit - 3):]}"
 
     def set_recording_state(self, state: str, *, mode: str = "") -> None:
+        self._recording_state = state
+        self._recording_mode = mode
         active = state in {"countdown", "recording", "paused", "saving"}
+        blocked = bool(self._recording_block_reason)
         for button in (self._btn_fullscreen, self._btn_region, self._btn_window):
-            button.setEnabled(not active)
-        if state == "idle":
+            button.setEnabled(not active and not blocked)
+            if blocked:
+                button.setToolTip(self._recording_block_reason)
+                button.setAccessibleDescription(self._recording_block_reason)
+            else:
+                button.setToolTip(str(button.property("defaultToolTip") or ""))
+                button.setAccessibleDescription(
+                    str(button.property("defaultAccessibleDescription") or "")
+                )
+        if state == "idle" and blocked:
+            self._state_title.setText("录制暂不可用")
+            self._state_detail.setText(self._recording_block_reason)
+        elif state == "idle":
             self._state_title.setText("准备录制")
             self._state_detail.setText("录制控制将在独立浮动工具栏中显示。")
         elif state == "countdown":
@@ -314,6 +348,26 @@ class RecordingPage(QWidget):
         if state_panel is not None:
             state_panel.setProperty("state", state)
             refresh_style(state_panel)
+
+    def set_recording_blocked(
+        self,
+        blocked: bool,
+        *,
+        reason: str = "",
+    ) -> None:
+        """同步录制与导出互斥状态，并保留当前录制状态语义。"""
+        self._recording_block_reason = str(reason).strip() if blocked else ""
+        self.set_recording_state(
+            self._recording_state,
+            mode=self._recording_mode,
+        )
+
+    def refresh_recording_availability(self) -> None:
+        provider = self._availability_provider
+        if provider is None:
+            return
+        allowed, reason = provider()
+        self.set_recording_blocked(not allowed, reason=reason)
 
     def show_result(
         self,

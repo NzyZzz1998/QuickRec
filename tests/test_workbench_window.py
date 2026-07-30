@@ -26,6 +26,7 @@ from services.pending_recordings import PendingRecordingService  # noqa: E402
 from services.project_library import ProjectLibraryService  # noqa: E402
 from services.recording_library import RecordingLibraryService  # noqa: E402
 from ui.material_library_dialog import MaterialLibraryDialog  # noqa: E402
+from ui.export_page import ExportPage  # noqa: E402
 from ui.project_page import ProjectPage  # noqa: E402
 from ui.settings_dialog import SettingsDialog  # noqa: E402
 from ui.workbench_pages import DiagnosticPage, RecordingPage  # noqa: E402
@@ -137,6 +138,7 @@ def test_workbench_page_order_includes_projects_between_materials_and_settings()
         WorkbenchPage.RECORDING,
         WorkbenchPage.MATERIALS,
         WorkbenchPage.PROJECTS,
+        WorkbenchPage.EXPORTS,
         WorkbenchPage.SETTINGS,
         WorkbenchPage.DIAGNOSTICS,
     ]
@@ -282,6 +284,10 @@ def test_application_factory_embeds_all_real_pages_and_preserves_material_query(
         assert isinstance(
             window.page_widgets[WorkbenchPage.PROJECTS],
             ProjectPage,
+        )
+        assert isinstance(
+            window.page_widgets[WorkbenchPage.EXPORTS],
+            ExportPage,
         )
         assert isinstance(
             window.page_widgets[WorkbenchPage.SETTINGS],

@@ -4,6 +4,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -110,6 +111,51 @@ def test_editor_window_has_expected_size_and_top_level_lifecycle():
     assert window.parent() is None
     assert window._main_splitter.orientation() != window._workspace_splitter.orientation()
 
+    window.shutdown()
+
+
+def test_timeline_editor_exposes_export_entry_for_current_project():
+    window = TimelineEditorWindow()
+    emitted: list[str] = []
+    window.export_requested.connect(emitted.append)
+    window._session = SimpleNamespace(
+        project_id="project-1",
+        ready=True,
+        status="available",
+        commands=SimpleNamespace(
+            has_pending_save=False,
+            pending_save_stage="",
+        ),
+    )
+    window._update_export_action()
+
+    window._btn_export.click()
+
+    assert emitted == ["project-1"]
+    assert window._btn_export.toolTip()
+    window._session.commands.has_pending_save = True
+    window._update_export_action()
+    assert not window._btn_export.isEnabled()
+    window.shutdown()
+
+
+def test_timeline_export_entry_is_disabled_without_ready_session():
+    window = TimelineEditorWindow()
+
+    assert not window._btn_export.isEnabled()
+
+    window._session = SimpleNamespace(
+        project_id="project-1",
+        ready=False,
+        status="missing",
+        commands=SimpleNamespace(
+            has_pending_save=False,
+            pending_save_stage="",
+        ),
+    )
+    window._update_export_action()
+
+    assert not window._btn_export.isEnabled()
     window.shutdown()
 
 

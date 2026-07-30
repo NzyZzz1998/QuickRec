@@ -183,7 +183,9 @@ jobs:
           New-Item -ItemType Directory -Path "ci-cli\media" -Force | Out-Null
           & "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe" `
             -y -f lavfi -i "testsrc2=size=640x360:rate=30" `
-            -t 1 -c:v libx264 -pix_fmt yuv420p "ci-cli\media\sample.mp4"
+            -f lavfi -i "sine=frequency=880:sample_rate=48000" `
+            -t 6 -c:v libx264 -pix_fmt yuv420p `
+            -c:a aac -shortest "ci-cli\media\sample.mp4"
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to create controlled CLI media"
           }
@@ -208,9 +210,39 @@ jobs:
               $smoke.result.input_unchanged -ne $true) {
             throw "QuickRecCLI editing smoke returned unexpected results"
           }
+          Copy-Item "ci-cli\media\sample.mp4" `
+            "ci-cli\workspace\editing-smoke\controlled-source.mp4" -Force
 
           $timelineJson = & $cli timeline validate `
             "ci-cli\evidence\editing-smoke-project.qrproj" --json
           if ($LASTEXITCODE -ne 0) {
             throw "QuickRecCLI timeline validate failed with exit code $LASTEXITCODE"
+          }
+
+          $exportValidateJson = & $cli export validate `
+            "ci-cli\evidence\editing-smoke-project.qrproj" `
+            --width 640 --height 360 --fps 30 --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI export validate failed with exit code $LASTEXITCODE"
+          }
+          $exportValidate = $exportValidateJson | ConvertFrom-Json
+          if ($exportValidate.status -ne "success" -or
+              $exportValidate.result.plan.clip_count -lt 1) {
+            throw "QuickRecCLI export validate returned unexpected results"
+          }
+
+          $exportSmokeJson = & $cli export smoke `
+            "ci-cli\evidence\editing-smoke-project.qrproj" `
+            --output-dir "ci-cli\export-output" `
+            --evidence-dir "ci-cli\export-evidence" `
+            --width 640 --height 360 --fps 30 --json
+          if ($LASTEXITCODE -ne 0) {
+            throw "QuickRecCLI export smoke failed with exit code $LASTEXITCODE"
+          }
+          $exportSmoke = $exportSmokeJson | ConvertFrom-Json
+          if ($exportSmoke.status -ne "success" -or
+              $exportSmoke.result.stage -ne "succeeded" -or
+              -not (Test-Path "ci-cli\export-output\QuickRec-export-smoke.mp4") -or
+              -not (Test-Path "ci-cli\export-evidence\export-smoke.json")) {
+            throw "QuickRecCLI export smoke returned unexpected results"
           }

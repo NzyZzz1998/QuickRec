@@ -61,6 +61,31 @@ def test_recording_page_presents_all_modes_as_peer_actions(tmp_path):
     assert all(not button.icon().isNull() for button in buttons)
 
 
+def test_recording_page_disables_all_modes_while_export_is_active(tmp_path):
+    page = RecordingPage(_config(tmp_path))
+    buttons = (
+        page._btn_fullscreen,
+        page._btn_region,
+        page._btn_window,
+    )
+
+    page.set_recording_blocked(
+        True,
+        reason="导出正在占用编码资源，请等待完成或取消导出。",
+    )
+
+    assert all(not button.isEnabled() for button in buttons)
+    assert page._state_title.text() == "录制暂不可用"
+    assert "取消导出" in page._state_detail.text()
+    assert all("取消导出" in button.toolTip() for button in buttons)
+
+    page.set_recording_blocked(False)
+
+    assert all(button.isEnabled() for button in buttons)
+    assert page._state_title.text() == "准备录制"
+    assert all("取消导出" not in button.toolTip() for button in buttons)
+
+
 def test_recording_page_exposes_read_only_recording_state_and_result(tmp_path):
     page = RecordingPage(_config(tmp_path))
 

@@ -20,6 +20,20 @@ def test_parser_exposes_only_supported_command_tree() -> None:
     doctor = parser.parse_args(["doctor", "--json"])
     project = parser.parse_args(["project", "validate", "project.qrproj"])
     timeline = parser.parse_args(["timeline", "validate", "project.qrproj"])
+    export_validate = parser.parse_args(
+        ["export", "validate", "project.qrproj", "--json"]
+    )
+    export_smoke = parser.parse_args(
+        [
+            "export",
+            "smoke",
+            "project.qrproj",
+            "--output-dir",
+            "output",
+            "--evidence-dir",
+            "evidence",
+        ]
+    )
     record = parser.parse_args(
         [
             "record",
@@ -37,6 +51,12 @@ def test_parser_exposes_only_supported_command_tree() -> None:
     assert (doctor.command, doctor.timeout, doctor.json) == ("doctor", 30.0, True)
     assert project.project_command == "validate"
     assert timeline.timeline_command == "validate"
+    assert export_validate.export_command == "validate"
+    assert export_validate.json is True
+    assert export_smoke.export_command == "smoke"
+    assert export_smoke.width == 1920
+    assert export_smoke.height == 1080
+    assert export_smoke.fps == 60
     assert record.timeout is None
     assert record.audio == "none"
     assert record.fps == 30
@@ -256,6 +276,21 @@ def test_dispatches_mutating_commands_with_isolation(
 
     monkeypatch.setattr(cli_main, "run_record", record_command)
     monkeypatch.setattr(cli_main, "run_editing_smoke", smoke_command)
+    monkeypatch.setattr(
+        cli_main,
+        "run_export_smoke",
+        lambda context, isolation, project_path, **kwargs: _record_dispatch(
+            seen,
+            "export smoke",
+            (
+                context.timeout,
+                isolation.output_dir,
+                isolation.evidence_dir,
+                project_path,
+                kwargs,
+            ),
+        ),
+    )
 
     record_args = parser.parse_args(
         [
@@ -287,9 +322,29 @@ def test_dispatches_mutating_commands_with_isolation(
             "project.qrproj",
         ]
     )
+    export_output = tmp_path / "export-output"
+    export_evidence = tmp_path / "export-evidence"
+    export_args = parser.parse_args(
+        [
+            "export",
+            "smoke",
+            "project.qrproj",
+            "--output-dir",
+            str(export_output),
+            "--evidence-dir",
+            str(export_evidence),
+            "--width",
+            "640",
+            "--height",
+            "360",
+            "--fps",
+            "30",
+        ]
+    )
 
     cli_main._dispatch(record_args)
     cli_main._dispatch(smoke_args)
+    cli_main._dispatch(export_args)
 
     assert seen[0] == (
         "record",
@@ -314,6 +369,20 @@ def test_dispatches_mutating_commands_with_isolation(
             "project.qrproj",
         ),
     )
+    assert seen[2] == (
+        "export smoke",
+        (
+            900.0,
+            export_output.resolve(),
+            export_evidence.resolve(),
+            "project.qrproj",
+            {
+                "width": 640,
+                "height": 360,
+                "fps": 30,
+            },
+        ),
+    )
 
 
 def test_dispatch_rejects_unsupported_namespace() -> None:
@@ -336,6 +405,17 @@ def test_command_name_includes_nested_subcommand() -> None:
             )
         )
         == "timeline validate"
+    )
+    assert (
+        cli_main._command_name(
+            Namespace(
+                command="export",
+                project_command=None,
+                timeline_command=None,
+                export_command="smoke",
+            )
+        )
+        == "export smoke"
     )
 
 

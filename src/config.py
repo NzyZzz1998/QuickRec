@@ -25,6 +25,41 @@ class ConfigSaveResult:
     path: str = ""
 
 
+@dataclass(frozen=True)
+class ExportProjectDefaults:
+    """某个项目最近一次成功导出的非项目事实偏好。"""
+
+    width: int
+    height: int
+    fps: int
+    directory: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.width <= 0
+            or self.height <= 0
+            or self.width > 3840
+            or self.height > 2160
+            or self.width % 2
+            or self.height % 2
+        ):
+            raise ValueError("export dimensions must be positive even values within 3840x2160")
+        if self.fps not in {30, 60, 120}:
+            raise ValueError("export FPS must be 30, 60, or 120")
+        if self.fps == 120 and (self.width > 1920 or self.height > 1080):
+            raise ValueError("120 FPS export is limited to 1920x1080")
+        if not self.directory.strip() or not Path(self.directory).is_absolute():
+            raise ValueError("export directory must be an absolute path")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "directory": self.directory,
+        }
+
+
 class ConfigManager:
     """配置管理器"""
 
@@ -48,6 +83,7 @@ class ConfigManager:
         "diagnostic_dir_customized": False,
         "diagnostic_keep_days": 7,
         "workbench_geometry": {},
+        "export_defaults_by_project": {},
     }
 
     # 画质档位 → 目标分辨率 (width, height)，"native" 表示原始分辨率
@@ -102,6 +138,72 @@ class ConfigManager:
     def snapshot(self) -> dict[str, Any]:
         """返回与正式内存配置隔离的候选副本。"""
         return self._config.copy()
+
+    def get_export_defaults(
+        self,
+        project_id: str,
+        *,
+        project_path: str | Path,
+    ) -> ExportProjectDefaults:
+        """读取项目最近成功导出偏好；无效旧值按产品默认值降级。"""
+        fallback = ExportProjectDefaults(
+            1920,
+            1080,
+            60,
+            str(Path(project_path).resolve().parent / "Exports"),
+        )
+        raw_defaults = self._config.get("export_defaults_by_project", {})
+        if not isinstance(raw_defaults, Mapping):
+            return fallback
+        raw = raw_defaults.get(project_id)
+        if not isinstance(raw, Mapping):
+            return fallback
+        try:
+            return ExportProjectDefaults(
+                width=int(raw["width"]),
+                height=int(raw["height"]),
+                fps=int(raw["fps"]),
+                directory=str(raw["directory"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return fallback
+
+    def remember_successful_export(
+        self,
+        project_id: str,
+        *,
+        width: int,
+        height: int,
+        fps: int,
+        directory: str | Path,
+    ) -> ConfigSaveResult:
+        """成功任务完成后原子记录项目偏好；失败时不污染内存。"""
+        try:
+            if not str(project_id).strip():
+                raise ValueError("project id is required")
+            preferences = ExportProjectDefaults(
+                width,
+                height,
+                fps,
+                str(directory),
+            )
+        except (TypeError, ValueError) as exc:
+            return ConfigSaveResult(
+                False,
+                "validate",
+                str(exc),
+                str(self.config_path),
+            )
+        candidate = self.snapshot()
+        raw_defaults = candidate.get("export_defaults_by_project", {})
+        defaults_by_project = (
+            dict(raw_defaults)
+            if isinstance(raw_defaults, Mapping)
+            else {}
+        )
+        defaults_by_project[str(project_id)] = preferences.to_dict()
+        candidate["export_defaults_by_project"] = defaults_by_project
+        return self.save_candidate(candidate)
 
     def get_diagnostic_dir(self) -> str:
         """获取有效诊断目录，未自定义时跟随保存路径。"""

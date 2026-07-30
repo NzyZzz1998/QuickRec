@@ -61,6 +61,7 @@ def test_doctor_reports_dependencies_without_importing_gui(tmp_path: Path) -> No
     assert outcome.result["python"]["compatible"] is True
     assert outcome.result["ffmpeg"]["available"] is True
     assert outcome.result["ffprobe"]["available"] is True
+    assert outcome.result["pyav"]["available"] is True
     assert outcome.result["gui_initialized"] is False
 
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from services.timeline_query import (
-    FIXED_AUDIO_SOURCE_GAIN,
     build_playback_plan,
     mix_audio_blocks,
     timeline_duration_us,
@@ -139,15 +139,17 @@ def test_timeline_duration_uses_last_clip_end() -> None:
     assert timeline_duration_us(_timeline()) == 8_000_000
 
 
-def test_fixed_audio_mix_uses_constant_gain_and_safe_limiter() -> None:
+@pytest.mark.parametrize("source_count", [1, 4, 8])
+def test_audio_mix_uses_dynamic_equal_gain_and_safe_limiter(
+    source_count: int,
+) -> None:
     blocks = [
         np.full((2, 32), 0.9, dtype=np.float32)
-        for _ in range(4)
+        for _ in range(source_count)
     ]
 
     mixed = mix_audio_blocks(blocks)
 
-    assert FIXED_AUDIO_SOURCE_GAIN == 0.25
     assert mixed.shape == (2, 32)
     assert np.isfinite(mixed).all()
     assert float(np.max(np.abs(mixed))) <= 1.0

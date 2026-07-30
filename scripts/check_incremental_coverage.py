@@ -46,6 +46,35 @@ GROUPS = (
         ),
         85.0,
     ),
+    CoverageGroup(
+        "export-planning-and-persistence",
+        (
+            "src/exporting/plan_builder.py",
+            "src/exporting/filter_graph.py",
+            "src/exporting/queue_service.py",
+            "src/exporting/queue_store.py",
+            "src/exporting/committer.py",
+        ),
+        90.0,
+    ),
+    CoverageGroup(
+        "export-execution-and-cli",
+        (
+            "src/exporting/executor.py",
+            "src/exporting/verifier.py",
+            "src/exporting/ingestion.py",
+            "src/cli/export_commands.py",
+        ),
+        85.0,
+    ),
+    CoverageGroup(
+        "export-ui-coordination",
+        (
+            "src/ui/export_dialogs.py",
+            "src/ui/export_page.py",
+        ),
+        80.0,
+    ),
 )
 
 
@@ -102,7 +131,7 @@ def check_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Check v1.9.3 incremental statement coverage gates."
+        description="Check QuickRec incremental statement coverage gates."
     )
     parser.add_argument("report", type=Path)
     args = parser.parse_args()

@@ -6,7 +6,7 @@ import re
 import threading
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -125,6 +125,57 @@ class RecordingLibraryService:
         )
         if result.ok:
             self._notify_changes("added", (item,))
+        return result
+
+    @_synchronized
+    def upsert(self, item: MaterialItem) -> LibraryWriteResult:
+        """按稳定素材 ID 或规范化路径新增或替换一条素材事实。"""
+        loaded = self.load()
+        if not loaded.ok:
+            return LibraryWriteResult(
+                False,
+                self.library_path,
+                error=loaded.error,
+            )
+        normalized = normalize_windows_path(item.file_path)
+        matches = [
+            (index, current)
+            for index, current in enumerate(loaded.items)
+            if current.id == item.id
+            or normalize_windows_path(current.file_path) == normalized
+        ]
+        matched_ids = {current.id for _, current in matches}
+        if len(matched_ids) > 1:
+            return LibraryWriteResult(
+                False,
+                self.library_path,
+                loaded.items,
+                "material identity conflicts with an existing path",
+            )
+        if matches:
+            index, current = matches[0]
+            candidate = replace(item, id=current.id)
+            if current.to_dict() == candidate.to_dict():
+                return LibraryWriteResult(
+                    True,
+                    self.library_path,
+                    loaded.items,
+                )
+            items = list(loaded.items)
+            items[index] = candidate
+            reason = "updated"
+        else:
+            candidate = item
+            items = [candidate, *loaded.items]
+            reason = "added"
+        result = save_library(
+            self.library_path,
+            items,
+            migration_sources=loaded.migration_sources,
+            extensions=loaded.extensions,
+        )
+        if result.ok:
+            self._notify_changes(reason, (candidate,))
         return result
 
     def add_recording(

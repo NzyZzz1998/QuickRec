@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import platform
 import shutil
@@ -76,12 +77,13 @@ def run_doctor(context: CliCommandContext) -> CliCommandOutcome:
         },
         "ffmpeg": _dependency_status(ffmpeg, context.timeout),
         "ffprobe": _dependency_status(ffprobe, context.timeout),
+        "pyav": _python_dependency_status("av"),
         "gui_initialized": _is_gui_initialized(),
     }
     _raise_if_timed_out(started, context.timeout)
     missing = [
         name
-        for name in ("ffmpeg", "ffprobe")
+        for name in ("ffmpeg", "ffprobe", "pyav")
         if not bool(result[name]["available"])
     ]
     if missing:
@@ -758,6 +760,17 @@ def _dependency_status(path: str, timeout: float) -> dict[str, object]:
     return {
         "available": completed.returncode == 0,
         "version": version,
+    }
+
+
+def _python_dependency_status(module_name: str) -> dict[str, object]:
+    try:
+        module = importlib.import_module(module_name)
+    except (ImportError, OSError):
+        return {"available": False, "version": ""}
+    return {
+        "available": True,
+        "version": str(getattr(module, "__version__", "")),
     }
 
 

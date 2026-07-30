@@ -1,4 +1,4 @@
-"""时间线播放查询与固定规则音频混合。"""
+"""时间线播放查询与动态等增益音频混合。"""
 
 from __future__ import annotations
 
@@ -10,8 +10,6 @@ from numpy.typing import NDArray
 
 from utils.project_store import ProjectFile, ProjectMaterialRef
 from utils.timeline_model import Timeline, TimelineClip, TimelineTrack
-
-FIXED_AUDIO_SOURCE_GAIN = 0.25
 
 
 @dataclass(frozen=True)
@@ -85,7 +83,7 @@ def build_playback_plan(
 def mix_audio_blocks(
     blocks: list[NDArray[np.floating[object]]],
 ) -> NDArray[np.float32]:
-    """按固定增益混合活动音频，并做有限值与安全限幅处理。"""
+    """按成功解码源数量使用 1/N 增益，并做有限值与安全限幅。"""
     if not blocks:
         return np.zeros((0, 0), dtype=np.float32)
 
@@ -94,6 +92,7 @@ def mix_audio_blocks(
         raise ValueError("audio blocks must share the same shape")
 
     mixed = np.zeros(shape, dtype=np.float32)
+    gain = 1.0 / len(blocks)
     for block in blocks:
         safe_block = np.nan_to_num(
             np.asarray(block, dtype=np.float32),
@@ -101,7 +100,7 @@ def mix_audio_blocks(
             posinf=1.0,
             neginf=-1.0,
         )
-        mixed += safe_block * FIXED_AUDIO_SOURCE_GAIN
+        mixed += safe_block * gain
     return np.clip(mixed, -1.0, 1.0).astype(np.float32, copy=False)
 
 

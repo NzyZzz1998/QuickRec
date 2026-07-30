@@ -1,3 +1,3 @@
 """QuickRec 的单一版本事实源。"""
 
-APP_VERSION = "v1.9.3"
+APP_VERSION = "v1.9.4"

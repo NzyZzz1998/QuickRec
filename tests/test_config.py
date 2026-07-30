@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from config import ConfigManager, ConfigSaveResult
+from config import ConfigManager, ConfigSaveResult, ExportProjectDefaults
 
 
 class TestConfigManager(unittest.TestCase):
@@ -49,7 +49,118 @@ class TestConfigManager(unittest.TestCase):
         )
         self.assertEqual(self.config.get("diagnostic_keep_days"), 7)
         self.assertEqual(self.config.get("workbench_geometry"), {})
+        self.assertEqual(self.config.get("export_defaults_by_project"), {})
         self.assertFalse(self.config.get("diagnostic_dir_customized"))
+
+    def test_export_defaults_fall_back_to_project_exports_directory(self):
+        project_path = Path(self.base_temp_dir) / "项目 空格" / "demo.qrproj"
+
+        defaults = self.config.get_export_defaults(
+            "project-1",
+            project_path=project_path,
+        )
+
+        self.assertEqual(
+            defaults,
+            ExportProjectDefaults(
+                width=1920,
+                height=1080,
+                fps=60,
+                directory=str(project_path.parent / "Exports"),
+            ),
+        )
+
+    def test_successful_export_preferences_are_persisted_per_project(self):
+        directory = Path(self.base_temp_dir) / "导出 目录"
+
+        result = self.config.remember_successful_export(
+            "project-1",
+            width=1280,
+            height=720,
+            fps=120,
+            directory=directory,
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(
+            self.config.get_export_defaults(
+                "project-1",
+                project_path=Path(self.base_temp_dir) / "project.qrproj",
+            ),
+            ExportProjectDefaults(1280, 720, 120, str(directory)),
+        )
+        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            persisted["export_defaults_by_project"]["project-1"],
+            {
+                "width": 1280,
+                "height": 720,
+                "fps": 120,
+                "directory": str(directory),
+            },
+        )
+
+    def test_export_preference_save_failure_has_zero_side_effects(self):
+        original = {
+            "width": 1920,
+            "height": 1080,
+            "fps": 60,
+            "directory": str(Path(self.base_temp_dir) / "old"),
+        }
+        self.config._config["export_defaults_by_project"] = {
+            "project-1": original
+        }
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(
+            json.dumps(self.config._config, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        with patch("config.os.replace", side_effect=OSError("replace failed")):
+            result = self.config.remember_successful_export(
+                "project-1",
+                width=1280,
+                height=720,
+                fps=30,
+                directory=Path(self.base_temp_dir) / "new",
+            )
+
+        self.assertFalse(result.ok)
+        self.assertEqual(
+            self.config.get("export_defaults_by_project"),
+            {"project-1": original},
+        )
+        persisted = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            persisted["export_defaults_by_project"],
+            {"project-1": original},
+        )
+
+    def test_invalid_legacy_export_preferences_fall_back_without_rewrite(self):
+        project_path = Path(self.base_temp_dir) / "project.qrproj"
+        self.config._config["export_defaults_by_project"] = {
+            "project-1": {
+                "width": 1921,
+                "height": 1080,
+                "fps": 90,
+                "directory": "",
+            }
+        }
+
+        defaults = self.config.get_export_defaults(
+            "project-1",
+            project_path=project_path,
+        )
+
+        self.assertEqual(
+            defaults,
+            ExportProjectDefaults(
+                1920,
+                1080,
+                60,
+                str(project_path.parent / "Exports"),
+            ),
+        )
 
     def test_default_diagnostic_dir_uses_save_path(self):
         """未自定义诊断目录时使用保存路径下的 QuickRecDiagnostics"""
@@ -258,6 +369,21 @@ class TestConfigManager(unittest.TestCase):
 
         self.assertTrue(self.config_path.parent.exists())
         self.assertTrue(self.config_path.exists())
+
+    def test_config_load_and_save_ignore_separate_export_queue_directory(self):
+        appdata = Path(self.base_temp_dir) / "appdata"
+        queue_path = appdata / "QuickRec" / "Exports" / "queue.json"
+        queue_path.parent.mkdir(parents=True)
+        queue_payload = b'{"schema_version":1,"paused":true,"jobs":[]}'
+        queue_path.write_bytes(queue_payload)
+
+        with patch.dict(os.environ, {"APPDATA": str(appdata)}):
+            legacy_compatible_config = ConfigManager()
+            legacy_compatible_config.set("quality", "medium")
+            result = legacy_compatible_config.save()
+
+        self.assertTrue(result.ok)
+        self.assertEqual(queue_path.read_bytes(), queue_payload)
 
 
 if __name__ == "__main__":

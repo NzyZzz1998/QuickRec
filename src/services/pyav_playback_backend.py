@@ -60,7 +60,7 @@ class PlaybackDependencyError(RuntimeError):
 class PyAVPlaybackBackend:
     """把后端无关播放计划映射为 PyAV/PyAudio 操作。"""
 
-    capabilities = BackendCapabilities("PyAV", "18.0.0", max_audio_sources=4)
+    capabilities = BackendCapabilities("PyAV", "18.0.0", max_audio_sources=8)
 
     def __init__(
         self,

@@ -99,6 +99,12 @@ class TestDiagnostics(unittest.TestCase):
                 "audio_tracks": 2,
                 "clips": 4,
             },
+            exports={
+                "queue_schema": 1,
+                "paused": True,
+                "job_count": 2,
+                "active_count": 1,
+            },
             errors=[],
             recent_logs=[],
         )
@@ -113,6 +119,8 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIn("[playback]", text)
         self.assertIn("backend: PyAV", text)
         self.assertIn("timeline_schema: 1", text)
+        self.assertIn("[exports]", text)
+        self.assertIn("job_count: 2", text)
 
     def test_export_diagnostic_file_writes_utf8_named_file(self):
         target = self.base_path / "diagnostics"

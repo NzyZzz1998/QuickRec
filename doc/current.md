@@ -3,16 +3,59 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.9.3。
+- 当前公开正式版本：v1.9.4。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.9.3`。
+- 当前发布标签：`v1.9.4`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前阶段：v1.9.3 已完成 D10 GUI 与真实媒体验收并正式发布。
+- 当前阶段：v1.9.4 已完成 D11 GUI、长样本与真实媒体验收并正式发布。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
-## v1.9.3 发布状态
+## v1.9.4 发布状态
+
+v1.9.4 在 v1.9.3 基础剪辑和全局波纹之上交付正式本地导出闭环：
+
+- 从 timeline schema v2 构造不可变 `ExportPlan`；
+- 支持最大 4K 正偶数画布和 30/60/120 FPS；
+- 使用最高视频轨固定覆盖、空白黑场和最多 8 路活动音频动态混合；
+- 工作台提供单工作线程持久队列、进度、取消、失败诊断、重试和重启恢复；
+- FFprobe 验证通过后才执行同目录原子提交；
+- 默认不覆盖，显式覆盖使用备份、事务和崩溃恢复；
+- 导出成功后自动加入中央素材库，入库失败可持久重试；
+- CLI 新增 `export validate` 和 `export smoke`；
+- D10 自动化与 D11 `27/27` GUI、长样本和真实媒体验收通过；
+- `LIMIT-194-01` 作为后续版本治理的已知缺陷，不阻塞本版；
+- QuickRec Lite 未修改。
+
+正式发布资产：
+
+```text
+目录: E:\QRtest\QuickRec-v1.9.4-rc8-dist\QuickRec
+GUI: E:\QRtest\QuickRec-v1.9.4-rc8-dist\QuickRec\QuickRec.exe
+GUI SHA256: 08A2ACCAFBA45C4DA02AFB2C00135B04D3CE2C606E48583AD08E30465BBA81C9
+CLI: E:\QRtest\QuickRec-v1.9.4-rc8-dist\QuickRec\QuickRecCLI.exe
+CLI SHA256: FF52A346B74232BFC1CE43DAFBD84FBA164EC3481CABC8CB2EBB1E34B4737C21
+FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9.4-win-x64.zip
+ZIP SHA256: 8969FDE7CA57853E4D658033AA91469B4990B5A5843711FDCA4662D841DD0997
+```
+
+当前 v1.9.4 文档：
+
+- PRD：[releases/v1.9.4/prd.md](releases/v1.9.4/prd.md)
+- 实施计划：[releases/v1.9.4/dev_plan.md](releases/v1.9.4/dev_plan.md)
+- 进度：[releases/v1.9.4/progress.md](releases/v1.9.4/progress.md)
+- 自动验证：[releases/v1.9.4/verification.md](releases/v1.9.4/verification.md)
+- GUI 验收：[releases/v1.9.4/manual-verification.md](releases/v1.9.4/manual-verification.md)
+- 缺陷记录：[releases/v1.9.4/bugfix-log.md](releases/v1.9.4/bugfix-log.md)
+- 技术门禁：[releases/v1.9.4/export-technical-spike.md](releases/v1.9.4/export-technical-spike.md)
+- 发布说明：[releases/v1.9.4/release-notes.md](releases/v1.9.4/release-notes.md)
+- 变更日志：[releases/v1.9.4/changelog.md](releases/v1.9.4/changelog.md)
+- 高保真原型：[releases/v1.9.4/prototype/index.html](releases/v1.9.4/prototype/index.html)
+
+## v1.9.3 历史发布状态
 
 v1.9.3 在 v1.9.2 可播放多轨时间线基础上交付基础剪辑、固定全局波纹和
 内部自动化 CLI：
@@ -207,7 +250,7 @@ v1.8 包含两条正式产品主线：
 - 100%、125%、150% DPI：通过。
 - QuickRec Lite：未修改。
 
-## 当前候选身份
+### v1.8 发布资产
 
 正式发布包：
 
@@ -222,7 +265,7 @@ ZIP SHA256: 78AD1AA5EABCE77211607CE7135C9656923892B5D9C837F92E4EF6C961B10B27
 D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基础上更新版本号为
 `v1.8` 并重新构建，已通过基础启动和 ZIP 内容检查。
 
-## 当前版本文档
+### v1.8 历史文档
 
 - PRD：[releases/v1.8/prd.md](releases/v1.8/prd.md)
 - 实施计划：[releases/v1.8/dev_plan.md](releases/v1.8/dev_plan.md)
@@ -237,7 +280,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.9.3：当前公开正式版。
+- v1.9.4：当前公开正式版。
+- v1.9.3：历史稳定版，也是 v1.9.4 的直接回滚点。
 - v1.9.2：历史稳定版，也是 v1.9.3 的直接回滚点。
 - v1.9.1：历史稳定版，也是 v1.9.2 的直接回滚点。
 - v1.9：历史稳定版，也是 v1.9.1 的直接回滚点。
@@ -288,3 +332,12 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 4. v1.9.2 遇到 timeline schema v2 时会保留原始数据并只读，不得为了回滚
    删除或重建项目文件。
 5. 不移动或重写 `v1.9.2` 及更早 tag。
+
+## v1.9.4 回滚
+
+1. 退出 QuickRec、`QuickRecCLI.exe`、FFmpeg 和 FFprobe。
+2. 使用 `v1.9.3` tag 或 v1.9.3 GitHub Release 发布包。
+3. 保留项目文件、项目索引、中央素材索引、时间线、首帧缓存、视频和已完成导出。
+4. v1.9.3 会忽略 v1.9.4 导出队列与配置，不需要删除用户项目或素材。
+5. 回滚前如有运行中任务，应先取消或等待完成。
+6. 不移动或重写 `v1.9.3` 及更早 tag。

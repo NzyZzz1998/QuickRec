@@ -52,6 +52,16 @@ SECTION_DEFAULT_KEYS = {
         "missing_clips",
         "link_error_clips",
     ),
+    "exports": (
+        "queue_schema",
+        "paused",
+        "job_count",
+        "active_count",
+        "ffmpeg_version",
+        "ffprobe_version",
+        "recent_jobs",
+        "recent_transactions",
+    ),
 }
 
 
@@ -79,6 +89,7 @@ class DiagnosticSnapshot:
     window: dict[str, Any] = field(default_factory=dict)
     thumbnail: dict[str, Any] = field(default_factory=dict)
     playback: dict[str, Any] = field(default_factory=dict)
+    exports: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     recent_logs: list[str] = field(default_factory=list)
 
@@ -213,6 +224,7 @@ def format_snapshot_text(snapshot: DiagnosticSnapshot) -> str:
         ("window", snapshot.window),
         ("thumbnail", snapshot.thumbnail),
         ("playback", snapshot.playback),
+        ("exports", snapshot.exports),
     ]
     for title, values in sections:
         lines.extend(_format_section(title, values))

@@ -80,6 +80,11 @@ def test_pyinstaller_spec_includes_runtime_hiddenimports():
         "utils.recycle_bin",
         "send2trash",
         "av",
+        "exporting.plan_builder",
+        "exporting.executor",
+        "exporting.verifier",
+        "exporting.committer",
+        "cli.export_commands",
     ]
 
     for module_name in required_hiddenimports:
@@ -175,3 +180,6 @@ def test_ci_verifies_frozen_cli_contract_and_editing_smoke():
     assert "& $cli smoke --suite editing" in CI_TEXT
     assert "& $cli probe" in CI_TEXT
     assert "& $cli timeline validate" in CI_TEXT
+    assert "& $cli export validate" in CI_TEXT
+    assert "& $cli export smoke" in CI_TEXT
+    assert "export-smoke.json" in CI_TEXT

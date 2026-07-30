@@ -32,6 +32,7 @@ class WorkbenchPage(StrEnum):
     RECORDING = "recording"
     MATERIALS = "materials"
     PROJECTS = "projects"
+    EXPORTS = "exports"
     SETTINGS = "settings"
     DIAGNOSTICS = "diagnostics"
 
@@ -40,6 +41,7 @@ PAGE_LABELS = {
     WorkbenchPage.RECORDING: "录制",
     WorkbenchPage.MATERIALS: "素材库",
     WorkbenchPage.PROJECTS: "项目",
+    WorkbenchPage.EXPORTS: "导出",
     WorkbenchPage.SETTINGS: "设置",
     WorkbenchPage.DIAGNOSTICS: "诊断",
 }
@@ -47,6 +49,7 @@ PAGE_ICONS = {
     WorkbenchPage.RECORDING: "record",
     WorkbenchPage.MATERIALS: "library",
     WorkbenchPage.PROJECTS: "folder",
+    WorkbenchPage.EXPORTS: "file",
     WorkbenchPage.SETTINGS: "settings",
     WorkbenchPage.DIAGNOSTICS: "diagnostics",
 }

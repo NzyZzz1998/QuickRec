@@ -86,6 +86,51 @@ class CliIsolation:
             output_dir=output_dir,
         )
 
+    @classmethod
+    def prepare_export(
+        cls,
+        output_directory: str | Path,
+        evidence_directory: str | Path,
+    ) -> CliIsolation:
+        output_path = _resolved(output_directory)
+        evidence_path = _resolved(evidence_directory)
+        if _paths_overlap(output_path, evidence_path):
+            raise CliFailure(
+                CliExitCode.ISOLATION_ERROR,
+                "overlapping_directories",
+                "导出目录与证据目录必须彼此独立",
+            )
+        real_appdata = _resolved(os.getenv("APPDATA") or Path.home())
+        real_quickrec = real_appdata / "QuickRec"
+        if _paths_overlap(output_path, real_quickrec):
+            raise CliFailure(
+                CliExitCode.ISOLATION_ERROR,
+                "unsafe_output_directory",
+                "导出目录不得指向真实 QuickRec 用户数据目录",
+            )
+        workspace = (
+            evidence_path.parent
+            / f".{evidence_path.name}-quickrec-export-workspace"
+        )
+        prepared = cls.prepare(workspace, evidence_path)
+        try:
+            output_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise CliFailure(
+                CliExitCode.ISOLATION_ERROR,
+                "output_prepare_failed",
+                "无法创建隔离导出目录",
+                context={"error_type": type(exc).__name__},
+            ) from exc
+        return cls(
+            workspace=prepared.workspace,
+            evidence_dir=prepared.evidence_dir,
+            appdata_dir=prepared.appdata_dir,
+            local_appdata_dir=prepared.local_appdata_dir,
+            temp_dir=prepared.temp_dir,
+            output_dir=output_path,
+        )
+
     def activate(self) -> EnvironmentSnapshot:
         snapshot = EnvironmentSnapshot(
             values={key: os.environ.get(key) for key in _ISOLATED_ENV_KEYS},

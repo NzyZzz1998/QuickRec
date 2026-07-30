@@ -26,6 +26,7 @@ from cli.contracts import (
     CliReport,
     status_for_exit_code,
 )
+from cli.export_commands import run_export_smoke, run_export_validate
 from cli.isolation import CliIsolation
 from version import APP_VERSION
 
@@ -61,6 +62,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     timeline_validate.add_argument("project_file")
     _add_common_options(timeline_validate, default_timeout=30.0)
+
+    export = subparsers.add_parser("export", help="导出项目时间线")
+    export_commands = export.add_subparsers(
+        dest="export_command",
+        required=True,
+    )
+    export_validate = export_commands.add_parser(
+        "validate",
+        help="只读校验正式导出计划",
+    )
+    export_validate.add_argument("project_file")
+    _add_export_spec_options(export_validate)
+    _add_common_options(export_validate, default_timeout=60.0)
+    export_smoke = export_commands.add_parser(
+        "smoke",
+        help="在隔离环境执行正式短样本导出",
+    )
+    export_smoke.add_argument("project_file")
+    export_smoke.add_argument("--output-dir", required=True)
+    export_smoke.add_argument("--evidence-dir", required=True)
+    _add_export_spec_options(export_smoke)
+    _add_common_options(export_smoke, default_timeout=900.0)
 
     record = subparsers.add_parser("record", help="在隔离环境执行全屏录制")
     record.add_argument("--mode", choices=["fullscreen"], required=True)
@@ -147,6 +170,27 @@ def _dispatch(args: argparse.Namespace) -> CliCommandOutcome:
         return run_project_validate(context, args.project_file)
     if args.command == "timeline" and args.timeline_command == "validate":
         return run_timeline_validate(context, args.project_file)
+    if args.command == "export" and args.export_command == "validate":
+        return run_export_validate(
+            context,
+            args.project_file,
+            width=int(args.width),
+            height=int(args.height),
+            fps=int(args.fps),
+        )
+    if args.command == "export" and args.export_command == "smoke":
+        isolation = CliIsolation.prepare_export(
+            args.output_dir,
+            args.evidence_dir,
+        )
+        return run_export_smoke(
+            context,
+            isolation,
+            args.project_file,
+            width=int(args.width),
+            height=int(args.height),
+            fps=int(args.fps),
+        )
     if args.command == "record":
         isolation = CliIsolation.prepare(args.workspace, args.evidence_dir)
         return run_record(
@@ -173,7 +217,7 @@ def _dispatch(args: argparse.Namespace) -> CliCommandOutcome:
 
 def _command_name(args: argparse.Namespace) -> str:
     parts = [str(args.command)]
-    for attribute in ("project_command", "timeline_command"):
+    for attribute in ("project_command", "timeline_command", "export_command"):
         value = getattr(args, attribute, None)
         if value:
             parts.append(str(value))
@@ -196,6 +240,12 @@ def _add_common_options(
 ) -> None:
     parser.add_argument("--json", action="store_true", help="输出 JSON v1")
     parser.add_argument("--timeout", type=float, default=default_timeout)
+
+
+def _add_export_spec_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--width", type=int, default=1920)
+    parser.add_argument("--height", type=int, default=1080)
+    parser.add_argument("--fps", type=int, choices=[30, 60, 120], default=60)
 
 
 def _configure_logging() -> None:

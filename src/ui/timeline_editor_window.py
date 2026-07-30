@@ -216,6 +216,7 @@ class TimelineEditorWindow(QMainWindow):
     return_to_project_requested = pyqtSignal(str)
     open_material_workspace_requested = pyqtSignal(str)
     open_diagnostics_requested = pyqtSignal(str)
+    export_requested = pyqtSignal(str)
     start_recording_requested = pyqtSignal(str, str)
     hidden_requested = pyqtSignal()
 
@@ -352,6 +353,15 @@ class TimelineEditorWindow(QMainWindow):
         set_button_icon(self._btn_materials, "library")
         self._btn_materials.clicked.connect(self._emit_open_materials)
         command_layout.addWidget(self._btn_materials)
+
+        self._btn_export = QPushButton("导出项目")
+        self._btn_export.setToolTip(
+            "从当前已保存项目创建不可变导出计划；加入队列后可继续编辑"
+        )
+        set_button_icon(self._btn_export, "file")
+        self._btn_export.clicked.connect(self._emit_export)
+        self._btn_export.setEnabled(False)
+        command_layout.addWidget(self._btn_export)
 
         self._btn_record = QPushButton("开始录制")
         self._btn_record.setProperty("role", "primary")
@@ -966,7 +976,23 @@ class TimelineEditorWindow(QMainWindow):
             writable
             and bool(getattr(getattr(self._session, "commands", None), "redo_depth", 0))
         )
+        self._update_export_action()
         self._sync_command_controls()
+
+    def _update_export_action(self) -> None:
+        session = self._session
+        commands = getattr(session, "commands", None)
+        enabled = bool(
+            session is not None
+            and getattr(session, "project_id", None)
+            and bool(getattr(session, "ready", False))
+            and str(getattr(session, "status", ""))
+            in {"ready", "available", "empty"}
+            and not bool(getattr(commands, "has_pending_save", False))
+            and str(getattr(commands, "pending_save_stage", ""))
+            != "external_conflict"
+        )
+        self._btn_export.setEnabled(enabled)
 
     def _sync_command_controls(self) -> None:
         writable = bool(getattr(self, "_writable", False))
@@ -2383,6 +2409,10 @@ class TimelineEditorWindow(QMainWindow):
     def _emit_open_diagnostics(self) -> None:
         if self.project_id is not None:
             self.open_diagnostics_requested.emit(self.project_id)
+
+    def _emit_export(self) -> None:
+        if self.project_id is not None:
+            self.export_requested.emit(self.project_id)
 
     def _emit_start_recording(self, mode: str) -> None:
         if self.project_id is not None:

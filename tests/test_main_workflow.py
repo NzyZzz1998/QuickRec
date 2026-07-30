@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import main
 from recorder.events import RecordingEvent
 from services.material_ingestion import MaterialIngestionCoordinator
+from services.media_operation_guard import MediaOperationGuard
 from services.pending_recordings import PendingRecordingService
 from services.project_library import ProjectLibraryService
 from services.project_recording import ProjectRecordingCoordinator
@@ -44,7 +45,21 @@ class FakeConfig:
         return default
 
     def get_diagnostic_dir(self):
-        return self.values.get("diagnostic_dir", str(Path(self.values.get("save_path", tempfile.gettempdir())) / "QuickRecDiagnostics"))
+        return self.values.get(
+            "diagnostic_dir",
+            str(
+                Path(self.values.get("save_path", tempfile.gettempdir()))
+                / "QuickRecDiagnostics"
+            ),
+        )
+
+
+class _SignalProbe:
+    def __init__(self):
+        self.listeners = []
+
+    def connect(self, listener):
+        self.listeners.append(listener)
 
 
 class FakeRecorder:
@@ -133,6 +148,50 @@ class FakeTray:
 
     def hide(self):
         self.hidden = True
+
+
+def test_recording_request_is_blocked_while_export_is_active():
+    app = main.QuickRecApp.__new__(main.QuickRecApp)
+    app._media_operation_guard = MediaOperationGuard()
+    app._tray = FakeTray(None, {})
+    assert app._media_operation_guard.try_begin_export("job-1").ok
+
+    allowed = app._can_start_recording_request()
+    acquired = app._acquire_recording_operation()
+
+    assert not allowed
+    assert not acquired
+    assert len(app._tray.notifications) == 2
+
+
+def test_export_runtime_state_is_reflected_on_recording_page():
+    app = main.QuickRecApp.__new__(main.QuickRecApp)
+    app._media_operation_guard = MediaOperationGuard()
+    app._recording_page = FakeRecordingPage()
+
+    app._sync_recording_operation_availability()
+    assert app._recording_page.blocks[-1] == (False, "")
+
+    assert app._media_operation_guard.try_begin_export("job-1").ok
+    app._sync_recording_operation_availability()
+
+    blocked, reason = app._recording_page.blocks[-1]
+    assert blocked
+    assert "取消导出" in reason
+
+    assert app._media_operation_guard.release_export("job-1")
+    app._sync_recording_operation_availability()
+    assert app._recording_page.blocks[-1] == (False, "")
+
+
+def test_recording_operation_is_released_after_request_finishes():
+    app = main.QuickRecApp.__new__(main.QuickRecApp)
+    app._media_operation_guard = MediaOperationGuard()
+
+    assert app._acquire_recording_operation()
+    app._release_recording_operation()
+
+    assert app._media_operation_guard.try_begin_export("job-1").ok
 
 
 class FakeClickHighlighter:
@@ -263,9 +322,13 @@ class FakeRecordingPage:
         self.states = []
         self.results = []
         self.clear_count = 0
+        self.blocks = []
 
     def set_recording_state(self, state, *, mode=""):
         self.states.append((state, mode))
+
+    def set_recording_blocked(self, blocked, *, reason=""):
+        self.blocks.append((blocked, reason))
 
     def show_result(
         self,
@@ -1633,6 +1696,139 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         )
         self.assertTrue(app._hotkey.stopped)
         self.assertTrue(app._app.quit_called)
+
+    def test_export_entries_share_application_dialog_flow(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        defaults = SimpleNamespace(
+            width=1920,
+            height=1080,
+            fps=60,
+            directory=r"E:\Exports",
+            to_dict=lambda: {
+                "width": 1920,
+                "height": 1080,
+                "fps": 60,
+                "directory": r"E:\Exports",
+            },
+        )
+        app._config = SimpleNamespace(
+            get_export_defaults=lambda *_args, **_kwargs: defaults
+        )
+        app._project_service = SimpleNamespace(
+            get_entry=lambda _project_id: SimpleNamespace(
+                project_id="project-1",
+                file_path=Path(r"E:\Projects\demo.qrproj"),
+            ),
+            get_project=lambda _project_id: SimpleNamespace(
+                ok=True,
+                project=SimpleNamespace(name="演示项目"),
+            ),
+        )
+        app._timeline_sessions = SimpleNamespace(current_session=None)
+        app._export_plan_builder = object()
+        app._export_queue_service = SimpleNamespace(
+            state=SimpleNamespace(jobs=()),
+        )
+        app._tray = FakeTray(config=None, callbacks={})
+        app._export_page = None
+        app._export_dialog = None
+
+        class Dialog:
+            def __init__(self):
+                self.queued = _SignalProbe()
+                self.finished = _SignalProbe()
+                self.shown = False
+
+            def show(self):
+                self.shown = True
+
+            def raise_(self):
+                return None
+
+            def activateWindow(self):
+                return None
+
+        dialog = Dialog()
+        with patch("main.ExportConfigDialog", return_value=dialog) as factory:
+            result = app._show_export_dialog("project-1")
+
+        self.assertIs(result, dialog)
+        self.assertTrue(dialog.shown)
+        context = factory.call_args.args[0]
+        self.assertEqual(context.project_id, "project-1")
+        self.assertEqual(context.project_name, "演示项目")
+        self.assertEqual(context.output_directory, r"E:\Exports")
+        self.assertEqual(len(dialog.queued.listeners), 1)
+
+    def test_export_success_updates_preferences_and_notifies_without_reencoding(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        saved = []
+        app._config = SimpleNamespace(
+            remember_successful_export=lambda project_id, **values: (
+                saved.append((project_id, values))
+                or SimpleNamespace(ok=True, stage="complete", message="")
+            )
+        )
+        refreshed = []
+        app._export_page = SimpleNamespace(
+            refresh=lambda: refreshed.append(True)
+        )
+        app._tray = FakeTray(config=None, callbacks={})
+        job = SimpleNamespace(
+            output_path=r"E:\Exports\demo.mp4",
+            plan=SimpleNamespace(
+                project=SimpleNamespace(project_id="project-1"),
+                output=SimpleNamespace(
+                    width=1920,
+                    height=1080,
+                    fps=60,
+                    directory=r"E:\Exports",
+                    target_path=Path(r"E:\Exports\demo.mp4"),
+                ),
+            ),
+        )
+
+        app._on_export_succeeded(job)
+
+        self.assertEqual(saved[0][0], "project-1")
+        self.assertEqual(saved[0][1]["fps"], 60)
+        self.assertEqual(refreshed, [True])
+        self.assertIn("导出已完成", app._tray.notifications[-1][0])
+
+    def test_export_material_navigation_opens_library_and_focuses_result(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        pages = []
+        focused = []
+        app._show_workbench = pages.append
+        app._material_library_dialog = SimpleNamespace(
+            focus_material=lambda material_id: focused.append(material_id) or True
+        )
+
+        app._show_export_material("material-export-1")
+
+        self.assertEqual(pages, [main.WorkbenchPage.MATERIALS])
+        self.assertEqual(focused, ["material-export-1"])
+
+    def test_export_terminal_failure_and_interruption_notify_user(self):
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._tray = FakeTray(config=None, callbacks={})
+        app._export_page = SimpleNamespace(refresh=lambda: None)
+
+        app._on_export_terminal(
+            SimpleNamespace(
+                status=main.ExportStage.FAILED,
+                message="ffmpeg returned non-zero",
+            )
+        )
+        app._on_export_terminal(
+            SimpleNamespace(
+                status=main.ExportStage.INTERRUPTED,
+                message="application exit",
+            )
+        )
+
+        self.assertIn("导出失败", app._tray.notifications[0][0])
+        self.assertIn("导出已中断", app._tray.notifications[1][0])
 
 
 if __name__ == "__main__":

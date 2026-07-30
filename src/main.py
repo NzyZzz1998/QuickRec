@@ -34,6 +34,16 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from config import ConfigManager
+from exporting.diagnostics import build_export_diagnostic_summary
+from exporting.exit_coordinator import (
+    ExportExitAction,
+    ExportExitCoordinator,
+)
+from exporting.ingestion import ExportIngestionCoordinator
+from exporting.models import ExportStage
+from exporting.plan_builder import ExportPlanBuilder
+from exporting.queue_service import ExportQueueService
+from exporting.queue_store import ExportQueueStore, resolve_export_queue_file
 from hotkey.hotkey_manager import HotkeyManager
 from recorder.events import RecordingEvent, RecordingEventType
 from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
@@ -44,6 +54,7 @@ from services.material_ingestion import (
     MaterialIngestionCoordinator,
     StartupRetrySummary,
 )
+from services.media_operation_guard import MediaOperationGuard
 from services.pending_recordings import PendingRecordingService
 from services.project_library import ProjectLibraryService
 from services.project_materials import ProjectMaterialQueryService
@@ -56,6 +67,8 @@ from services.timeline_session import TimelineSession, TimelineSessionRegistry
 from ui.area_selector import AreaSelector
 from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
+from ui.export_dialogs import ExportConfigDialog, ExportDialogContext
+from ui.export_page import ExportPage
 from ui.material_library_dialog import MaterialLibraryDialog
 from ui.project_page import ProjectPage
 from ui.qt_localization import install_qt_zh_cn
@@ -145,6 +158,11 @@ class _PendingRetryBridge(QObject):
     finished = pyqtSignal(object)
 
 
+class _ExportBridge(QObject):
+    succeeded = pyqtSignal(object)
+    terminal = pyqtSignal(object)
+
+
 class QuickRecApp:
     """QuickRec 应用主类"""
 
@@ -169,6 +187,7 @@ class QuickRecApp:
 
         # 初始化模块
         self._config = ConfigManager()
+        self._media_operation_guard = MediaOperationGuard()
         log_result = initialize_file_logging(self._config, logger)
         if not log_result.ok:
             logger.warning(f"diagnostic file logging unavailable: {log_result.error}")
@@ -196,6 +215,9 @@ class QuickRecApp:
             self._project_service,
             self._library_service,
         )
+        self._ensure_export_runtime()
+        self._export_page = None
+        self._export_dialog = None
         self._ensure_thumbnail_runtime()
         self._pending_ids_by_output: dict[str, str] = {}
         self._material_library_dialog = None
@@ -237,6 +259,16 @@ class QuickRecApp:
         )
         self._pending_retry_bridge = _PendingRetryBridge()
         self._pending_retry_bridge.finished.connect(self._on_pending_retry_finished)
+        self._export_bridge = _ExportBridge()
+        self._export_bridge.succeeded.connect(self._on_export_succeeded)
+        self._export_bridge.terminal.connect(self._on_export_terminal)
+        self._export_queue_service.subscribe_succeeded(
+            self._export_bridge.succeeded.emit
+        )
+        self._export_queue_service.subscribe_terminal(
+            self._export_bridge.terminal.emit
+        )
+        self._export_ingestion_coordinator.recover_pending()
 
         # 快捷键信号桥
         self._hotkey_bridge = _HotkeyBridge()
@@ -301,6 +333,45 @@ class QuickRecApp:
         self._setup_hotkeys()
         self._hotkey.start_listening()
 
+    def _ensure_export_runtime(self) -> None:
+        if getattr(self, "_export_queue_service", None) is not None:
+            return
+        operation_guard = getattr(self, "_media_operation_guard", None)
+        if operation_guard is None:
+            operation_guard = MediaOperationGuard()
+            self._media_operation_guard = operation_guard
+        queue_path = (
+            resolve_export_queue_file()
+            if hasattr(self, "_app")
+            else Path(self._config.config_path).parent
+            / "Exports"
+            / "queue.json"
+        )
+        self._export_queue_store = ExportQueueStore(queue_path)
+        self._export_queue_service = ExportQueueService(
+            self._export_queue_store,
+            operation_guard=operation_guard,
+        )
+        export_queue_result = self._export_queue_service.initialize()
+        if not export_queue_result.ok:
+            logger.error(
+                "export queue initialization failed: %s",
+                export_queue_result.message,
+            )
+        elif export_queue_result.read_only:
+            logger.warning(
+                "export queue opened read-only: %s",
+                export_queue_result.message,
+            )
+        self._export_ingestion_coordinator = ExportIngestionCoordinator(
+            self._export_queue_service,
+            self._library_service,
+        )
+        self._export_plan_builder = ExportPlanBuilder()
+        self._export_exit_coordinator = ExportExitCoordinator(
+            self._export_queue_service
+        )
+
     def _ensure_thumbnail_runtime(self) -> None:
         if getattr(self, "_thumbnail_coordinator", None) is not None:
             return
@@ -329,8 +400,12 @@ class QuickRecApp:
             logger.warning("thumbnail cache prune failed: %s", prune.error)
 
     def _create_workbench_window(self) -> WorkbenchWindow:
+        self._ensure_export_runtime()
         self._ensure_thumbnail_runtime()
-        self._recording_page = RecordingPage(self._config)
+        self._recording_page = RecordingPage(
+            self._config,
+            availability_provider=self._recording_operation_availability,
+        )
         self._material_library_dialog = MaterialLibraryDialog(
             self._library_service,
             pending_service=self._pending_service,
@@ -353,6 +428,11 @@ class QuickRecApp:
             capture_capability=getattr(self, "_capture_capability", None),
         )
         self._diagnostic_page = DiagnosticPage(self._config)
+        self._export_page = ExportPage(
+            self._export_queue_service,
+            ingestion_coordinator=self._export_ingestion_coordinator,
+            project_linker=getattr(self, "_project_recording_coordinator", None),
+        )
         capability_runtime = getattr(self, "_capture_capability", None)
         if capability_runtime is not None:
             capability_context = capability_runtime.diagnostic_context()
@@ -409,6 +489,15 @@ class QuickRecApp:
         self._project_page.project_content_changed.connect(
             self._timeline_editor.refresh_project
         )
+        self._export_page.new_export_requested.connect(
+            self._show_export_dialog
+        )
+        self._export_page.open_diagnostics_requested.connect(
+            lambda _job_id: self._show_workbench(WorkbenchPage.DIAGNOSTICS)
+        )
+        self._export_page.show_material_requested.connect(
+            self._show_export_material
+        )
         self._material_library_dialog.return_to_project_requested.connect(
             self._return_to_project_material
         )
@@ -436,6 +525,7 @@ class QuickRecApp:
                 WorkbenchPage.RECORDING: self._recording_page,
                 WorkbenchPage.MATERIALS: self._material_library_dialog,
                 WorkbenchPage.PROJECTS: self._project_page,
+                WorkbenchPage.EXPORTS: self._export_page,
                 WorkbenchPage.SETTINGS: self._settings_page,
                 WorkbenchPage.DIAGNOSTICS: self._diagnostic_page,
             },
@@ -448,6 +538,7 @@ class QuickRecApp:
                 self._initial_migration_result
             )
         self._sync_workbench_recording_state()
+        self._sync_recording_operation_availability()
         return window
 
     def _create_timeline_editor_window(self) -> TimelineEditorWindow:
@@ -463,11 +554,167 @@ class QuickRecApp:
         window.open_diagnostics_requested.connect(
             self._open_diagnostics_from_timeline_editor
         )
+        window.export_requested.connect(self._show_export_dialog)
         window.start_recording_requested.connect(
             self._on_start_timeline_recording
         )
         window.hidden_requested.connect(self._timeline_sessions.close_current)
         return window
+
+    def _resolve_export_project_id(
+        self,
+        preferred_project_id: str | None = None,
+    ) -> str | None:
+        if preferred_project_id:
+            return str(preferred_project_id)
+        timeline_sessions = getattr(self, "_timeline_sessions", None)
+        current_session = (
+            timeline_sessions.current_session
+            if timeline_sessions is not None
+            else None
+        )
+        if current_session is not None:
+            return str(current_session.project_id)
+        project_page = getattr(self, "_project_page", None)
+        selected = getattr(project_page, "selected_project_id", None)
+        if selected:
+            return str(selected)
+        entries = self._project_service.list_entries()
+        active = next(
+            (
+                entry
+                for entry in entries
+                if not getattr(entry, "archived_at", None)
+            ),
+            None,
+        )
+        return str(active.project_id) if active is not None else None
+
+    def _show_export_dialog(
+        self,
+        project_id: str | None = None,
+    ) -> ExportConfigDialog | None:
+        target_id = self._resolve_export_project_id(project_id)
+        if target_id is None:
+            self._tray.show_notification("请先创建或打开一个项目")
+            return None
+        entry = self._project_service.get_entry(target_id)
+        loaded = self._project_service.get_project(target_id)
+        if entry is None or not loaded.ok or loaded.project is None:
+            self._tray.show_notification("项目不可用，无法创建导出任务")
+            return None
+
+        current_session = getattr(
+            getattr(self, "_timeline_sessions", None),
+            "current_session",
+            None,
+        )
+        commands = (
+            current_session.commands
+            if current_session is not None
+            and str(current_session.project_id) == target_id
+            else None
+        )
+        save_pending = bool(
+            getattr(commands, "has_pending_save", False)
+        )
+        external_conflict = (
+            str(getattr(commands, "pending_save_stage", ""))
+            == "external_conflict"
+        )
+        defaults = self._config.get_export_defaults(
+            target_id,
+            project_path=entry.file_path,
+        )
+        context = ExportDialogContext(
+            project_id=target_id,
+            project_name=loaded.project.name,
+            project_path=str(entry.file_path),
+            output_directory=defaults.directory,
+            project_saved=True,
+            save_pending=save_pending,
+            external_conflict=external_conflict,
+            incomplete_job_count=sum(
+                job.is_incomplete
+                for job in self._export_queue_service.state.jobs
+            ),
+        )
+        dialog = ExportConfigDialog(
+            context,
+            plan_builder=self._export_plan_builder,
+            queue_service=self._export_queue_service,
+            defaults=defaults.to_dict(),
+            parent=None,
+        )
+        dialog.queued.connect(self._on_export_queued)
+        dialog.finished.connect(
+            lambda _result, current=dialog: self._release_export_dialog(
+                current
+            )
+        )
+        self._export_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        return dialog
+
+    def _release_export_dialog(self, dialog: ExportConfigDialog) -> None:
+        if self._export_dialog is dialog:
+            self._export_dialog = None
+
+    def _on_export_queued(self, job_id: str) -> None:
+        page = getattr(self, "_export_page", None)
+        if page is not None:
+            page.refresh()
+            page.select_job(job_id)
+        self._tray.show_notification("导出任务已加入队列")
+
+    def _on_export_succeeded(self, job) -> None:
+        plan = job.plan
+        saved = self._config.remember_successful_export(
+            plan.project.project_id,
+            width=plan.output.width,
+            height=plan.output.height,
+            fps=plan.output.fps,
+            directory=plan.output.directory,
+        )
+        if not saved.ok:
+            logger.warning(
+                "export preferences save failed: stage=%s message=%s",
+                saved.stage,
+                saved.message,
+            )
+        page = getattr(self, "_export_page", None)
+        if page is not None:
+            page.refresh()
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.show_notification(
+                f"导出已完成：{Path(job.output_path or plan.output.target_path).name}"
+            )
+
+    def _on_export_terminal(self, job) -> None:
+        page = getattr(self, "_export_page", None)
+        if page is not None:
+            page.refresh()
+        tray = getattr(self, "_tray", None)
+        if tray is None:
+            return
+        if job.status == ExportStage.FAILED:
+            tray.show_notification("导出失败，请在导出页查看诊断并重试")
+        elif job.status == ExportStage.INTERRUPTED:
+            tray.show_notification("导出已中断，可在导出页继续处理")
+
+    def _show_export_material(self, material_id: str) -> None:
+        self._show_workbench(WorkbenchPage.MATERIALS)
+        page = getattr(self, "_material_library_dialog", None)
+        if page is not None:
+            found = page.focus_material(material_id)
+            if not found:
+                logger.warning(
+                    "export material not found in global library: material_id=%s",
+                    material_id,
+                )
 
     def _describe_timeline_materials(self, project):
         loaded = self._library_service.load()
@@ -496,6 +743,10 @@ class QuickRecApp:
         project_reload = getattr(project_page, "reload", None)
         if page == WorkbenchPage.PROJECTS and callable(project_reload):
             project_reload()
+        export_page = getattr(self, "_export_page", None)
+        export_refresh = getattr(export_page, "refresh", None)
+        if page == WorkbenchPage.EXPORTS and callable(export_refresh):
+            export_refresh()
         recording_page = getattr(self, "_recording_page", None)
         refresh_summary = getattr(recording_page, "refresh_summary", None)
         if callable(refresh_summary):
@@ -791,6 +1042,7 @@ class QuickRecApp:
 
     def _finish_recording_request(self, *, restore_workbench: bool) -> None:
         source = getattr(self, "_recording_source", None)
+        self._release_recording_operation()
         self._recording_source = None
         self._recording_mode = ""
         thumbnail_coordinator = getattr(
@@ -984,9 +1236,66 @@ class QuickRecApp:
             return show_disk_warning(free_mb, block=False)
         return True
 
+    def _can_start_recording_request(self) -> bool:
+        guard = getattr(self, "_media_operation_guard", None)
+        if guard is None:
+            return True
+        decision = guard.can_begin_recording()
+        if decision.ok:
+            return True
+        logger.warning("recording blocked by export runtime")
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.show_notification(
+                "导出任务正在运行，请等待完成或先取消导出"
+            )
+        return False
+
+    def _recording_operation_availability(self) -> tuple[bool, str]:
+        guard = getattr(self, "_media_operation_guard", None)
+        if guard is None:
+            return True, ""
+        decision = guard.can_begin_recording()
+        if decision.ok:
+            return True, ""
+        return (
+            False,
+            "导出正在占用编码资源，请等待完成或取消导出。",
+        )
+
+    def _sync_recording_operation_availability(self) -> None:
+        page = getattr(self, "_recording_page", None)
+        setter = getattr(page, "set_recording_blocked", None)
+        if not callable(setter):
+            return
+        allowed, reason = self._recording_operation_availability()
+        setter(not allowed, reason=reason)
+
+    def _acquire_recording_operation(self) -> bool:
+        guard = getattr(self, "_media_operation_guard", None)
+        if guard is None:
+            return True
+        decision = guard.try_begin_recording()
+        if decision.ok:
+            return True
+        logger.warning("recording start lost export runtime race")
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.show_notification(
+                "导出任务已经开始，本次录制未启动"
+            )
+        return False
+
+    def _release_recording_operation(self) -> None:
+        guard = getattr(self, "_media_operation_guard", None)
+        if guard is not None:
+            guard.release_recording()
+
     def _on_start_fullscreen(self, *, source: str = "tray"):
         """开始全屏录制"""
         if self._workflow.get_state() != RecorderState.IDLE:
+            return
+        if not self._can_start_recording_request():
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -1041,6 +1350,10 @@ class QuickRecApp:
     def _do_start_fullscreen(self):
         """倒计时结束后的实际全屏录制启动"""
         self._hotkey.set_esc_callback(None)  # 清除 ESC 回调
+        if not self._acquire_recording_operation():
+            self._hide_toolbar()
+            self._finish_recording_request(restore_workbench=True)
+            return
         if not self._workflow.start_fullscreen():
             logger.error("全屏录制启动失败")
             self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
@@ -1058,6 +1371,8 @@ class QuickRecApp:
     def _on_start_region(self, *, source: str = "tray"):
         """区域录制：显示区域选择器"""
         if self._workflow.get_state() != RecorderState.IDLE:
+            return
+        if not self._can_start_recording_request():
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -1093,6 +1408,10 @@ class QuickRecApp:
     def _do_start_region(self, x, y, w, h):
         """区域录制实际启动"""
         self._hotkey.set_esc_callback(None)
+        if not self._acquire_recording_operation():
+            self._hide_toolbar()
+            self._finish_recording_request(restore_workbench=True)
+            return
         if not self._workflow.start_region((x, y, w, h)):
             logger.error("区域录制启动失败")
             self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
@@ -1127,6 +1446,8 @@ class QuickRecApp:
     def _on_start_window(self, *, source: str = "tray"):
         """窗口录制：显示窗口选择器"""
         if self._workflow.get_state() != RecorderState.IDLE:
+            return
+        if not self._can_start_recording_request():
             return
         if self._toolbar and self._toolbar.is_countdown_mode():
             self._on_countdown_esc()
@@ -1180,6 +1501,10 @@ class QuickRecApp:
     def _do_start_window(self, hwnd: int):
         """窗口录制实际启动"""
         self._hotkey.set_esc_callback(None)
+        if not self._acquire_recording_operation():
+            self._hide_toolbar()
+            self._finish_recording_request(restore_workbench=True)
+            return
         if not self._workflow.start_window(hwnd):
             logger.error("窗口录制启动失败")
             self._hide_toolbar()
@@ -1649,6 +1974,12 @@ class QuickRecApp:
             if timeline_editor is not None
             else {"state": "not_initialized"}
         )
+        export_queue = getattr(self, "_export_queue_service", None)
+        export_context = (
+            build_export_diagnostic_summary(export_queue.state)
+            if export_queue is not None
+            else {"state": "not_initialized"}
+        )
         snapshot = DiagnosticSnapshot(
             app={
                 "version": APP_VERSION,
@@ -1663,6 +1994,7 @@ class QuickRecApp:
             window=context.get("window", {}),
             thumbnail=thumbnail_context,
             playback=playback_context,
+            exports=export_context,
             errors=[failure] if failure else [],
             recent_logs=read_recent_log_lines(directory / "quickrec.log", max_lines=100),
         )
@@ -1715,8 +2047,62 @@ class QuickRecApp:
 
     # --- 退出 ---
 
+    def _confirm_export_exit(self) -> bool:
+        coordinator = getattr(self, "_export_exit_coordinator", None)
+        queue = getattr(self, "_export_queue_service", None)
+        if coordinator is None or queue is None or queue.active_job_id is None:
+            return True
+
+        box = QMessageBox()
+        box.setWindowTitle("导出任务正在运行")
+        box.setIcon(QMessageBox.Warning)
+        box.setText("当前导出任务尚未完成。")
+        box.setInformativeText(
+            "关闭工作台不会影响导出。若退出 QuickRec，可安全中断当前尝试，"
+            "任务将在下次启动后保持为可重试状态。"
+        )
+        continue_button = box.addButton(
+            "继续导出并留在托盘",
+            QMessageBox.RejectRole,
+        )
+        interrupt_button = box.addButton(
+            "安全中断并退出",
+            QMessageBox.DestructiveRole,
+        )
+        return_button = box.addButton(
+            "返回应用",
+            QMessageBox.AcceptRole,
+        )
+        box.setDefaultButton(continue_button)
+        box.exec_()
+        clicked = box.clickedButton()
+        if clicked is not interrupt_button:
+            action = (
+                ExportExitAction.CONTINUE_BACKGROUND
+                if clicked is continue_button
+                else ExportExitAction.RETURN_TO_APP
+            )
+            coordinator.request_exit(action)
+            if clicked is return_button:
+                self._show_workbench(WorkbenchPage.EXPORTS)
+            return False
+        result = coordinator.request_exit(
+            ExportExitAction.INTERRUPT_AND_EXIT,
+            timeout=30.0,
+        )
+        if result.should_exit:
+            return True
+        QMessageBox.warning(
+            None,
+            "暂时无法退出",
+            result.message or "导出任务尚未安全停止，请稍后重试。",
+        )
+        return False
+
     def _on_exit(self):
         """退出程序"""
+        if not self._confirm_export_exit():
+            return
         activation_timer = getattr(
             self,
             "_instance_activation_timer",
@@ -1731,6 +2117,7 @@ class QuickRecApp:
         # 等待录制停止和编码完成（stop 现在是非阻塞的）
         if not self._workflow.wait_until_idle(timeout=60):
             logger.error("Recorder did not become idle before exit timeout")
+        self._release_recording_operation()
         # 确保处理完所有编码完成信号
         from PyQt5.QtCore import QCoreApplication
         QCoreApplication.processEvents()

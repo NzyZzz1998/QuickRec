@@ -81,7 +81,7 @@ class FakeAudioOutput:
 
 def _project_and_timeline(tmp_path: Path) -> tuple[ProjectFile, Timeline]:
     materials: list[ProjectMaterialRef] = []
-    for index in range(1, 6):
+    for index in range(1, 10):
         path = tmp_path / f"中文 素材 {index}.mp4"
         path.write_bytes(b"media")
         materials.append(
@@ -113,7 +113,7 @@ def _project_and_timeline(tmp_path: Path) -> tuple[ProjectFile, Timeline]:
                     f"音频 {index}",
                     index - 1,
                 )
-                for index in range(1, 5)
+                for index in range(1, 9)
             ],
         ],
         [
@@ -145,14 +145,14 @@ def _project_and_timeline(tmp_path: Path) -> tuple[ProjectFile, Timeline]:
                     0,
                     5_000_000,
                 )
-                for index in range(1, 5)
+                for index in range(1, 9)
             ],
         ],
     )
     return project, timeline
 
 
-def test_backend_decodes_only_top_video_and_mixes_four_audio_sources(
+def test_backend_decodes_only_top_video_and_mixes_eight_audio_sources(
     tmp_path: Path,
 ) -> None:
     project, timeline = _project_and_timeline(tmp_path)
@@ -187,9 +187,38 @@ def test_backend_decodes_only_top_video_and_mixes_four_audio_sources(
     assert frame.video_frame.shape == (4, 6, 3)
     assert len(video_decoders) == 1
     assert video_decoders[0].path.name == "中文 素材 1.mp4"
-    assert len(audio_decoders) == 4
+    assert backend.capabilities.max_audio_sources == 8
+    assert len(audio_decoders) == 8
     assert len(output.writes) == 1
     assert np.allclose(output.writes[0], 0.5)
+
+
+def test_failed_audio_source_is_excluded_from_dynamic_gain(
+    tmp_path: Path,
+) -> None:
+    project, timeline = _project_and_timeline(tmp_path)
+    output = FakeAudioOutput()
+
+    def make_audio(path: Path) -> FakeAudioDecoder:
+        if path.name == "中文 素材 3.mp4":
+            return FailingAudioDecoder(path, 0.4)
+        return FakeAudioDecoder(path, 0.4)
+
+    backend = PyAVPlaybackBackend(
+        video_decoder_factory=FakeVideoDecoder,
+        audio_decoder_factory=make_audio,
+        audio_output_factory=lambda: output,
+    )
+    plan = build_playback_plan(project, timeline, 100_000)
+
+    assert backend.prepare(plan).ok
+    rendered = backend.render(plan)
+
+    assert not rendered.ok
+    assert rendered.audio_status == "degraded"
+    assert rendered.error_kind == "audio_decode_failed"
+    assert len(output.writes) == 1
+    assert np.allclose(output.writes[0], 0.4)
 
 
 def test_seek_forces_all_active_decoders_to_reposition(tmp_path: Path) -> None:
