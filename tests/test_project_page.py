@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
 
+from services.project_editing_profile import (  # noqa: E402
+    EDITING_EXTENSION_KEY,
+)
 from services.project_library import (
     ProjectLibraryService,  # noqa: E402
     ProjectOperationResult,  # noqa: E402
@@ -25,6 +28,7 @@ from ui.project_page import ProjectPage  # noqa: E402
 from utils.project_store import (  # noqa: E402
     ProjectFile,
     ProjectMaterialRef,  # noqa: E402
+    load_project,
     save_project,
 )
 from utils.recording_library_store import MaterialItem  # noqa: E402
@@ -215,6 +219,32 @@ def test_create_project_action_uses_one_time_location_without_changing_default()
         assert service.default_root == default
         assert service.list_entries()[0].name == "自定义项目"
         assert Path(service.list_entries()[0].file_path).parent == custom / service.list_entries()[0].project_id
+
+
+def test_create_project_action_inherits_current_recording_fps_once():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        service = ProjectLibraryService(
+            base / "projects.json",
+            default_root=base / "projects",
+        )
+        page = ProjectPage(service, editing_fps_provider=lambda: 120)
+
+        with patch(
+            "ui.project_page.ProjectCreateDialog.exec_",
+            return_value=QDialog.Accepted,
+        ), patch(
+            "ui.project_page.ProjectCreateDialog.values",
+            return_value=("高帧项目", "", str(base / "projects")),
+        ):
+            page._on_create_project()
+        entry = service.list_entries()[0]
+        loaded = load_project(entry.file_path)
+
+        assert loaded.ok and loaded.project is not None
+        assert loaded.project.extensions[EDITING_EXTENSION_KEY][
+            "editing_fps"
+        ] == 120
 
 
 def test_open_external_project_registers_original_file_in_place():

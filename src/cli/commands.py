@@ -21,6 +21,10 @@ from cli.contracts import (
     CliFailure,
 )
 from cli.isolation import CliIsolation
+from services.project_editing_profile import (
+    EDITING_EXTENSION_KEY,
+    resolve_project_editing_profile,
+)
 from services.timeline_edit_service import TimelineEditService
 from services.timeline_query import build_playback_plan
 from utils.media_metadata import (
@@ -35,6 +39,7 @@ from utils.project_store import (
     save_project,
 )
 from utils.timeline_model import (
+    Timeline,
     TimelineClip,
     create_empty_timeline,
     load_project_timeline,
@@ -168,6 +173,13 @@ def run_project_validate(
             },
         )
     project = loaded.project
+    timeline_result = load_project_timeline(project)
+    editing_timeline = (
+        timeline_result.timeline
+        if timeline_result.timeline is not None
+        else create_empty_timeline(project.project_id)
+    )
+    editing = _editing_validation_result(project, editing_timeline)
     return CliCommandOutcome(
         result={
             "status": loaded.status,
@@ -176,6 +188,7 @@ def run_project_validate(
             "archived": bool(project.archived_at),
             "material_count": len(project.materials),
             "timeline_present": "quickrec.timeline" in project.extensions,
+            **editing,
         }
     )
 
@@ -211,6 +224,10 @@ def run_timeline_validate(
             },
         )
     timeline = timeline_result.timeline
+    editing = _editing_validation_result(loaded.project, timeline)
+    linked_clips = [
+        clip for clip in timeline.clips if clip.link_group_id is not None
+    ]
     return CliCommandOutcome(
         result={
             "status": timeline_result.status,
@@ -218,8 +235,21 @@ def run_timeline_validate(
             "time_unit": timeline.time_unit,
             "track_count": len(timeline.tracks),
             "clip_count": len(timeline.clips),
-            "read_only": timeline_result.read_only,
+            "linked_clip_count": len(linked_clips),
+            "unlinked_clip_count": len(timeline.clips) - len(linked_clips),
+            "link_group_count": len(
+                {
+                    clip.link_group_id
+                    for clip in linked_clips
+                    if clip.link_group_id is not None
+                }
+            ),
+            "read_only": (
+                timeline_result.read_only
+                or bool(editing["editing_read_only"])
+            ),
             "persisted": timeline_result.persisted,
+            **editing,
         }
     )
 
@@ -606,6 +636,29 @@ def _write_smoke_project(path: Path) -> None:
             "无法创建 editing smoke 输入项目",
             context={"stage": written.stage},
         )
+
+
+def _editing_validation_result(
+    project: ProjectFile,
+    timeline: Timeline,
+) -> dict[str, object]:
+    raw = project.extensions.get(EDITING_EXTENSION_KEY)
+    raw_schema = raw.get("schema_version") if isinstance(raw, dict) else None
+    schema = (
+        raw_schema
+        if isinstance(raw_schema, int) and not isinstance(raw_schema, bool)
+        else None
+    )
+    resolved = resolve_project_editing_profile(project, timeline)
+    return {
+        "editing_present": raw is not None,
+        "editing_schema": schema,
+        "editing_status": resolved.status,
+        "editing_fps": resolved.profile.editing_fps,
+        "editing_fps_locked": resolved.profile.fps_locked,
+        "editing_read_only": resolved.read_only,
+        "editing_error": _safe_error(resolved.error),
+    }
 
 
 def _ensure_smoke_timeline(path: Path, project: ProjectFile) -> ProjectFile:

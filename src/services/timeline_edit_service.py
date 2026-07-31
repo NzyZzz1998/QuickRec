@@ -8,6 +8,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from pathlib import Path
 
 from utils.project_store import ProjectFile, ProjectMaterialRef
 from utils.timeline_model import (
@@ -65,6 +66,23 @@ class TimelineEditCandidate:
 
 
 @dataclass(frozen=True)
+class TimelineRelinkOption:
+    clip_id: str
+    track_id: str
+    track_name: str
+    track_order: int
+    track_distance: int
+    material_id: str
+    timeline_start_us: int
+    timeline_duration_us: int
+    source_start_us: int
+    source_duration_us: int
+    file_name: str
+    file_path: str
+    file_exists: bool
+
+
+@dataclass(frozen=True)
 class _TargetContext:
     timeline: Timeline
     selected: TimelineClip
@@ -87,6 +105,209 @@ class TimelineEditService:
     ) -> None:
         self._clip_id_factory = clip_id_factory
         self._link_group_id_factory = link_group_id_factory
+
+    def unlink(
+        self,
+        timeline: Timeline,
+        project: ProjectFile,
+        clip_id: str,
+    ) -> TimelineEditCandidate:
+        operation = "unlink"
+        prepared = self._prepare(operation, timeline, project, clip_id)
+        if isinstance(prepared, TimelineEditCandidate):
+            return prepared
+        context = prepared
+        target_ids = _clip_ids(context.targets)
+        if context.selected.link_group_id is None:
+            return self._invalid(
+                context,
+                operation,
+                "not_linked",
+                "selected clip is not linked",
+            )
+        locked = _locked_target_conflicts(
+            context.targets,
+            context.tracks,
+        )
+        if locked:
+            return TimelineEditCandidate(
+                operation,
+                False,
+                context.source_fingerprint,
+                None,
+                _impact(
+                    operation,
+                    context.timeline,
+                    target_ids=target_ids,
+                    associated_clip_count=len(target_ids),
+                ),
+                locked,
+            )
+        candidate = copy.deepcopy(context.timeline)
+        for clip in candidate.clips:
+            if clip.clip_id in target_ids:
+                clip.link_group_id = None
+        return self._validated(
+            context,
+            operation,
+            project,
+            candidate,
+            impact=_impact(
+                operation,
+                context.timeline,
+                candidate=candidate,
+                target_ids=target_ids,
+                associated_clip_count=len(target_ids),
+            ),
+            selected_clip_ids=(context.selected.clip_id,),
+        )
+
+    def relink_options(
+        self,
+        timeline: Timeline,
+        project: ProjectFile,
+        clip_id: str,
+    ) -> tuple[TimelineRelinkOption, ...]:
+        try:
+            validate_timeline(timeline, project)
+            candidate = upgrade_timeline_for_v2_edit(timeline, project)
+            selected = _find_clip(candidate, clip_id)
+            tracks = {
+                track.track_id: track
+                for track in candidate.tracks
+            }
+            selected_track = tracks[selected.track_id]
+            material = _find_material(project, selected.material_id)
+        except Exception:
+            return ()
+        file_path = Path(material.last_known_path)
+        if (
+            selected.link_group_id is not None
+            or selected_track.locked
+            or not file_path.is_file()
+        ):
+            return ()
+        options: list[TimelineRelinkOption] = []
+        for other in candidate.clips:
+            if not _clips_are_relink_compatible(
+                selected,
+                other,
+                tracks,
+            ):
+                continue
+            track = tracks[other.track_id]
+            options.append(
+                TimelineRelinkOption(
+                    clip_id=other.clip_id,
+                    track_id=track.track_id,
+                    track_name=track.name,
+                    track_order=track.order,
+                    track_distance=abs(
+                        track.order - selected_track.order
+                    ),
+                    material_id=other.material_id,
+                    timeline_start_us=other.timeline_start_us,
+                    timeline_duration_us=other.timeline_duration_us,
+                    source_start_us=other.source_start_us,
+                    source_duration_us=other.source_duration_us,
+                    file_name=material.file_name,
+                    file_path=material.last_known_path,
+                    file_exists=True,
+                )
+            )
+        return tuple(
+            sorted(
+                options,
+                key=lambda item: (
+                    item.track_distance,
+                    item.track_order,
+                    item.clip_id,
+                ),
+            )
+        )
+
+    def relink(
+        self,
+        timeline: Timeline,
+        project: ProjectFile,
+        clip_id: str,
+        candidate_clip_id: str,
+    ) -> TimelineEditCandidate:
+        operation = "relink"
+        fingerprint = timeline_edit_fingerprint(timeline, project)
+        options = self.relink_options(timeline, project, clip_id)
+        option = next(
+            (
+                item
+                for item in options
+                if item.clip_id == candidate_clip_id
+            ),
+            None,
+        )
+        try:
+            prepared = upgrade_timeline_for_v2_edit(timeline, project)
+            selected = _find_clip(prepared, clip_id)
+            other = _find_clip(prepared, candidate_clip_id)
+            tracks = {
+                track.track_id: track
+                for track in prepared.tracks
+            }
+            material = _find_material(project, selected.material_id)
+        except Exception as exc:
+            return TimelineEditCandidate(
+                operation,
+                False,
+                fingerprint,
+                None,
+                _impact(operation, timeline),
+                (
+                    TimelineEditConflict(
+                        "invalid_timeline",
+                        str(exc),
+                    ),
+                ),
+            )
+        context = _TargetContext(
+            prepared,
+            selected,
+            (selected, other),
+            material,
+            tracks,
+            _target_fps((selected, other), tracks, material),
+            _minimum_duration_us(
+                (selected, other),
+                tracks,
+                _target_fps((selected, other), tracks, material),
+            ),
+            fingerprint,
+        )
+        target_ids = (selected.clip_id, other.clip_id)
+        if option is None:
+            return self._invalid(
+                context,
+                operation,
+                "incompatible_relink",
+                "selected clips are not compatible for relinking",
+            )
+        link_group_id = self._link_group_id_factory()
+        candidate = copy.deepcopy(prepared)
+        for clip in candidate.clips:
+            if clip.clip_id in target_ids:
+                clip.link_group_id = link_group_id
+        return self._validated(
+            context,
+            operation,
+            project,
+            candidate,
+            impact=_impact(
+                operation,
+                prepared,
+                candidate=candidate,
+                target_ids=target_ids,
+                associated_clip_count=2,
+            ),
+            selected_clip_ids=(selected.clip_id,),
+        )
 
     def trim(
         self,
@@ -448,6 +669,58 @@ class TimelineEditService:
             ),
         )
 
+    def delete_preserving_gap(
+        self,
+        timeline: Timeline,
+        project: ProjectFile,
+        clip_id: str,
+    ) -> TimelineEditCandidate:
+        operation = "delete"
+        prepared = self._prepare(operation, timeline, project, clip_id)
+        if isinstance(prepared, TimelineEditCandidate):
+            return prepared
+        context = prepared
+        target_ids = _clip_ids(context.targets)
+        conflicts = _locked_target_conflicts(
+            context.targets,
+            context.tracks,
+        )
+        impact = _impact(
+            operation,
+            context.timeline,
+            target_ids=target_ids,
+            associated_clip_count=len(target_ids),
+        )
+        if conflicts:
+            return TimelineEditCandidate(
+                operation,
+                False,
+                context.source_fingerprint,
+                None,
+                impact,
+                conflicts,
+            )
+
+        candidate = copy.deepcopy(context.timeline)
+        candidate.clips = [
+            clip
+            for clip in candidate.clips
+            if clip.clip_id not in target_ids
+        ]
+        return self._validated(
+            context,
+            operation,
+            project,
+            candidate,
+            impact=_impact(
+                operation,
+                context.timeline,
+                candidate=candidate,
+                target_ids=target_ids,
+                associated_clip_count=len(target_ids),
+            ),
+        )
+
     def _prepare(
         self,
         operation: str,
@@ -805,6 +1078,32 @@ def _resolve_targets(
             f"link group is not editable: {selected.link_group_id}"
         )
     return targets
+
+
+def _clips_are_relink_compatible(
+    selected: TimelineClip,
+    other: TimelineClip,
+    tracks: dict[str, TimelineTrack],
+) -> bool:
+    if selected.clip_id == other.clip_id:
+        return False
+    selected_track = tracks.get(selected.track_id)
+    other_track = tracks.get(other.track_id)
+    if selected_track is None or other_track is None:
+        return False
+    return bool(
+        selected.link_group_id is None
+        and other.link_group_id is None
+        and not selected_track.locked
+        and not other_track.locked
+        and selected_track.kind != other_track.kind
+        and {selected_track.kind, other_track.kind} == {"video", "audio"}
+        and selected.material_id == other.material_id
+        and selected.timeline_start_us == other.timeline_start_us
+        and selected.timeline_duration_us == other.timeline_duration_us
+        and selected.source_start_us == other.source_start_us
+        and selected.source_duration_us == other.source_duration_us
+    )
 
 
 def _target_fps(

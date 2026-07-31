@@ -78,6 +78,7 @@ from ui.timeline_editor_window import (
     TimelineEditorWindow,
 )
 from ui.toolbar import RecordingToolbar
+from ui.toolbar_placement import select_target_screen_index
 from ui.tray_icon import TrayIcon
 from ui.window_highlighter import WindowHighlighter
 from ui.window_selector import WindowSelector
@@ -421,6 +422,7 @@ class QuickRecApp:
             timeline_command_provider=lambda project_id: (
                 self._timeline_sessions.get(project_id).commands
             ),
+            editing_fps_provider=lambda: self._config.get("fps", 30),
         )
         self._settings_page = SettingsDialog(
             self._config,
@@ -1309,7 +1311,7 @@ class QuickRecApp:
         # v1.2: 检查倒计时配置
         if self._config.get("show_countdown", False):
             self._set_recording_request_state("countdown")
-            self._show_toolbar()
+            self._show_toolbar(mode="fullscreen", output_index=0)
             self._toolbar.start_countdown(
                 self._config.get("countdown_seconds", 3)
             )
@@ -1317,7 +1319,7 @@ class QuickRecApp:
             # 倒计时期间全局 ESC 可取消
             self._hotkey.set_esc_callback(self._on_countdown_esc)
         else:
-            self._show_toolbar()
+            self._show_toolbar(mode="fullscreen", output_index=0)
             self._do_start_fullscreen()
 
     def _check_120_capture_readiness(self) -> bool:
@@ -1393,7 +1395,10 @@ class QuickRecApp:
         self._area_selector = None
         if self._config.get("show_countdown", False):
             self._set_recording_request_state("countdown")
-            self._show_toolbar()
+            self._show_toolbar(
+                mode="region",
+                target_rect=(x, y, w, h),
+            )
             self._toolbar.start_countdown(
                 self._config.get("countdown_seconds", 3)
             )
@@ -1402,7 +1407,10 @@ class QuickRecApp:
             )
             self._hotkey.set_esc_callback(self._on_countdown_esc)
         else:
-            self._show_toolbar()
+            self._show_toolbar(
+                mode="region",
+                target_rect=(x, y, w, h),
+            )
             self._do_start_region(x, y, w, h)
 
     def _do_start_region(self, x, y, w, h):
@@ -1488,14 +1496,21 @@ class QuickRecApp:
             return
         self._window_highlighter = WindowHighlighter(hwnd)
         self._window_highlighter.show_highlight()
+        target_geometry = self._window_highlighter.geometry()
+        target_rect = (
+            target_geometry.x(),
+            target_geometry.y(),
+            target_geometry.width(),
+            target_geometry.height(),
+        )
         if self._config.get("show_countdown", False):
             self._set_recording_request_state("countdown")
-            self._show_toolbar()
+            self._show_toolbar(mode="window", target_rect=target_rect)
             self._toolbar.start_countdown(self._config.get("countdown_seconds", 3))
             self._toolbar.countdown_finished.connect(lambda: self._do_start_window(hwnd))
             self._hotkey.set_esc_callback(self._on_countdown_esc)
         else:
-            self._show_toolbar()
+            self._show_toolbar(mode="window", target_rect=target_rect)
             self._do_start_window(hwnd)
 
     def _do_start_window(self, hwnd: int):
@@ -1577,9 +1592,44 @@ class QuickRecApp:
 
     # --- 工具栏 ---
 
-    def _show_toolbar(self):
+    def _show_toolbar(
+        self,
+        *,
+        mode: str = "fullscreen",
+        target_rect: tuple[int, int, int, int] | None = None,
+        output_index: int | None = None,
+    ):
         """显示录制工具栏"""
-        self._toolbar = RecordingToolbar()
+        screens = QApplication.screens()
+        target_screen = None
+        if screens:
+            primary = QApplication.primaryScreen()
+            primary_index = next(
+                (
+                    index
+                    for index, screen in enumerate(screens)
+                    if screen is primary
+                ),
+                0,
+            )
+            screen_rects = [
+                (
+                    screen.geometry().x(),
+                    screen.geometry().y(),
+                    screen.geometry().width(),
+                    screen.geometry().height(),
+                )
+                for screen in screens
+            ]
+            screen_index = select_target_screen_index(
+                screen_rects,
+                mode=mode,
+                target_rect=target_rect,
+                output_index=output_index,
+                primary_index=primary_index,
+            )
+            target_screen = screens[screen_index]
+        self._toolbar = RecordingToolbar(target_screen=target_screen)
         self._toolbar.paused.connect(self._on_pause_resume)
         self._toolbar.resumed.connect(self._on_pause_resume)
         self._toolbar.stopped.connect(self._on_stop_recording)

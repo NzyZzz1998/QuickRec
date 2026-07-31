@@ -38,7 +38,12 @@ from utils.timeline_model import (  # noqa: E402
 APP = QApplication.instance() or QApplication([])
 
 
-def _session(base: Path, *, material_count: int = 1) -> TimelineSession:
+def _session(
+    base: Path,
+    *,
+    material_count: int = 1,
+    editing_fps: int = 30,
+) -> TimelineSession:
     service = ProjectLibraryService(
         base / "projects.json",
         default_root=base / "projects",
@@ -46,6 +51,7 @@ def _session(base: Path, *, material_count: int = 1) -> TimelineSession:
     assert service.create_project(
         name="中文 项目名称很长但不能挤压按钮",
         project_id="project-1",
+        editing_fps=editing_fps,
     ).ok
     project = service.get_project("project-1").project
     assert project is not None
@@ -84,6 +90,19 @@ def test_timeline_scale_round_trip_and_pointer_center_zoom():
     assert zoomed.pixels_per_second == 200.0
 
 
+def test_canvas_uses_project_fps_for_frame_level_ruler_ticks():
+    canvas = TimelineCanvas()
+
+    canvas.set_editing_fps(120)
+    canvas.set_zoom(4.0)
+
+    assert canvas.editing_fps == 120
+    minor_frames, major_frames = canvas.ruler_tick_spec()
+    assert minor_frames == 1
+    assert major_frames >= 1
+    assert major_frames % minor_frames == 0
+
+
 def test_fit_timeline_shows_all_clips_for_thirty_minute_arrangement():
     track = TimelineTrack("video-1", "video", "视频 1", 0)
     clip = TimelineClip(
@@ -112,6 +131,56 @@ def test_fit_level_zoom_label_keeps_a_nonzero_decimal_percentage():
 
     assert window._zoom_label.text() == "0.5%"
     window.shutdown()
+
+
+def test_editor_time_input_supports_120_fps_timecode_and_total_frames():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir), editing_fps=120)
+        window = TimelineEditorWindow()
+        window.set_session(session)
+
+        assert window._timeline_canvas.editing_fps == 120
+        assert window._editing_fps_label.text() == "120 FPS"
+        required_width = (
+            window._timecode_input.fontMetrics().horizontalAdvance(
+                "88:88:88:888"
+            )
+            + 24
+        )
+        assert window._timecode_input.minimumWidth() >= required_width
+
+        with (
+            patch.object(window, "_timeline_end_us", return_value=2_000_000),
+            patch.object(window, "_on_playhead_requested") as requested,
+        ):
+            window._timecode_input.setText("00:00:01:119")
+            window._on_timecode_submitted()
+            requested.assert_called_once_with(1_991_667)
+
+            requested.reset_mock()
+            window._toggle_time_input_mode()
+            window._timecode_input.setText("120")
+            window._on_timecode_submitted()
+            requested.assert_called_once_with(1_000_000)
+
+        window.shutdown()
+
+
+def test_invalid_frame_time_input_keeps_original_playhead():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir), editing_fps=120)
+        session.update_view_state(playhead_us=500_000)
+        window = TimelineEditorWindow()
+        window.set_session(session)
+
+        with patch.object(window, "_on_playhead_requested") as requested:
+            window._timecode_input.setText("00:00:00:120")
+            window._on_timecode_submitted()
+
+        requested.assert_not_called()
+        assert "时间码" in window._save_status.text()
+        assert window._timecode_input.text() == "00:00:00:060"
+        window.shutdown()
 
 
 def test_snap_uses_grid_playhead_and_clip_edges_or_can_be_disabled():

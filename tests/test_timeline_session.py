@@ -244,3 +244,28 @@ def test_session_exposes_typed_media_runtime_with_compatible_delegates():
         assert handle.pause_count == 2
         assert handle.release_count == 1
         assert session.media_runtime.current is None
+
+
+def test_session_exposes_and_updates_project_editing_profile():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service = ProjectLibraryService(
+            Path(temp_dir) / "projects.json",
+            default_root=Path(temp_dir) / "projects",
+        )
+        assert service.create_project(
+            name="帧率测试项目",
+            project_id="project-fps",
+            editing_fps=60,
+        ).ok
+        session = TimelineSession(service, "project-fps")
+
+        assert session.editing_fps == 60
+        assert not session.editing_fps_locked
+        assert session.editing_profile_persisted
+        assert session.editing_profile_status == "ready"
+        assert session.editing_profile_error == ""
+
+        changed = session.set_editing_fps(120)
+
+        assert changed.ok
+        assert session.editing_fps == 120

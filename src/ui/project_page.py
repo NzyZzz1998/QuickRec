@@ -103,6 +103,7 @@ class ProjectPage(QWidget):
         timeline_command_provider: (
             Callable[[str], TimelineCommandService] | None
         ) = None,
+        editing_fps_provider: Callable[[], object] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("projectPage")
@@ -111,6 +112,9 @@ class ProjectPage(QWidget):
         self._material_query = material_query
         self._thumbnail_coordinator = thumbnail_coordinator
         self._timeline_command_provider = timeline_command_provider
+        self._editing_fps_provider = (
+            editing_fps_provider or (lambda: 30)
+        )
         self._query = ProjectQueryEngine()
         self._deletion = (
             ProjectDeletionCoordinator(project_service, material_service)
@@ -1152,6 +1156,7 @@ class ProjectPage(QWidget):
             name=name,
             description=description,
             root_path=root,
+            editing_fps=self._editing_fps_provider(),
         )
         if not result.ok:
             if result.project_written:

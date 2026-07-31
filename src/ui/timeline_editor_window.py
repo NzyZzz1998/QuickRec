@@ -9,10 +9,9 @@ from typing import Any
 
 import numpy as np
 from PyQt5.QtCore import QEvent, QMimeData, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QDrag, QIcon, QImage, QKeySequence, QPixmap
+from PyQt5.QtGui import QDrag, QIcon, QImage, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -25,7 +24,6 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QShortcut,
     QSizePolicy,
     QSplitter,
     QSplitterHandle,
@@ -43,7 +41,15 @@ from services.project_materials import (
     resolve_project_media_sources,
 )
 from services.pyav_playback_backend import PyAVPlaybackBackend
+from services.timeline_drag_transaction import TimelineDragCandidate
 from services.timeline_edit_service import TimelineEditCandidate
+from services.timeline_frame_time import (
+    format_frame_time,
+    microseconds_to_nearest_frame,
+    navigate_frame_position,
+    parse_frame_time,
+    parse_total_frame_number,
+)
 from services.timeline_health import (
     TimelineClipHealth,
     assess_timeline_clip_health,
@@ -54,7 +60,12 @@ from services.timeline_session import TimelineSession, TimelineSessionRegistry
 from ui.clip_inspector_widget import ClipInspectorWidget
 from ui.design_system import COLORS, WORKBENCH_STYLESHEET, quickrec_icon, set_button_icon
 from ui.timeline_canvas import TimelineCanvas
-from ui.timeline_edit_dialogs import TimelineImpactDialog
+from ui.timeline_edit_dialogs import TimelineImpactDialog, TimelineRelinkDialog
+from ui.timeline_shortcut_router import (
+    ShortcutDispatchResult,
+    TimelineShortcutCommand,
+    TimelineShortcutRouter,
+)
 from utils.timeline_model import (
     MAX_TRACKS_PER_KIND,
     Timeline,
@@ -67,6 +78,7 @@ _MATERIAL_ID_ROLE = Qt.UserRole
 _MATERIAL_HAS_AUDIO_ROLE = Qt.UserRole + 1
 _MATERIAL_PATH_ROLE = Qt.UserRole + 2
 _MATERIAL_AVAILABLE_ROLE = Qt.UserRole + 3
+_MATERIAL_HAS_VIDEO_ROLE = Qt.UserRole + 4
 
 
 class _TimelineMaterialList(QListWidget):
@@ -84,6 +96,7 @@ class _TimelineMaterialList(QListWidget):
             return
         payload = {
             "material_id": str(item.data(_MATERIAL_ID_ROLE)),
+            "has_video": bool(item.data(_MATERIAL_HAS_VIDEO_ROLE)),
             "has_audio": bool(item.data(_MATERIAL_HAS_AUDIO_ROLE)),
         }
         mime = QMimeData()
@@ -250,6 +263,7 @@ class TimelineEditorWindow(QMainWindow):
         self._clip_health: dict[str, TimelineClipHealth] = {}
         self._preview_image: QImage | None = None
         self._inspector_candidate: TimelineEditCandidate | None = None
+        self._time_input_mode = "timecode"
         self._shutting_down = False
         self._pending_success_text = "时间线已保存"
         self._init_ui()
@@ -261,6 +275,8 @@ class TimelineEditorWindow(QMainWindow):
                 self._btn_redo,
                 self._btn_split_clip,
                 self._btn_delete_clip,
+                self._btn_ripple_delete,
+                self._btn_link_clip,
                 self._btn_add_video_track,
                 self._btn_add_audio_track,
                 self._btn_rename_track,
@@ -272,15 +288,11 @@ class TimelineEditorWindow(QMainWindow):
         self._playback_timer = QTimer(self)
         self._playback_timer.setInterval(16)
         self._playback_timer.timeout.connect(self._on_playback_tick)
-        self._shortcut_split = QShortcut(QKeySequence("Ctrl+B"), self)
-        self._shortcut_split.setContext(Qt.WindowShortcut)
-        self._shortcut_split.activated.connect(self._on_split_clip)
-        self._shortcut_delete_clip = QShortcut(
-            QKeySequence(Qt.Key_Delete),
+        self._shortcut_router = TimelineShortcutRouter(
             self,
+            self._timeline_canvas,
+            dispatch_command=self._dispatch_shortcut_command,
         )
-        self._shortcut_delete_clip.setContext(Qt.WindowShortcut)
-        self._shortcut_delete_clip.activated.connect(self._on_delete_shortcut)
         self.setStyleSheet(WORKBENCH_STYLESHEET + _EDITOR_STYLESHEET)
 
     @property
@@ -308,6 +320,7 @@ class TimelineEditorWindow(QMainWindow):
         command_layout.setSpacing(8)
 
         self._btn_return = QPushButton("返回项目")
+        self._btn_return.setAccessibleName("返回当前项目")
         self._btn_return.setToolTip("激活主工作台并返回当前项目；剪辑状态会在本进程中保留")
         set_button_icon(self._btn_return, "folder")
         self._btn_return.clicked.connect(self._emit_return_to_project)
@@ -349,12 +362,14 @@ class TimelineEditorWindow(QMainWindow):
         command_layout.addWidget(self._recording_status)
 
         self._btn_materials = QPushButton("素材工作台")
+        self._btn_materials.setAccessibleName("打开素材工作台")
         self._btn_materials.setToolTip("激活主工作台素材库；当前剪辑窗口和项目上下文保持")
         set_button_icon(self._btn_materials, "library")
         self._btn_materials.clicked.connect(self._emit_open_materials)
         command_layout.addWidget(self._btn_materials)
 
         self._btn_export = QPushButton("导出项目")
+        self._btn_export.setAccessibleName("导出当前项目")
         self._btn_export.setToolTip(
             "从当前已保存项目创建不可变导出计划；加入队列后可继续编辑"
         )
@@ -364,6 +379,7 @@ class TimelineEditorWindow(QMainWindow):
         command_layout.addWidget(self._btn_export)
 
         self._btn_record = QPushButton("开始录制")
+        self._btn_record.setAccessibleName("选择模式并开始录制")
         self._btn_record.setProperty("role", "primary")
         self._btn_record.setToolTip("复用 QuickRec 既有录制页选择全屏、区域或窗口模式")
         set_button_icon(
@@ -515,6 +531,7 @@ class TimelineEditorWindow(QMainWindow):
         self._material_hint.setObjectName("pageSubtitle")
         layout.addWidget(self._material_hint)
         self._btn_add_selected = QPushButton("加入时间线")
+        self._btn_add_selected.setAccessibleName("把选中素材加入时间线")
         self._btn_add_selected.setEnabled(False)
         self._btn_add_selected.setToolTip(
             "把当前素材追加到第一组兼容轨道；有音频时同时创建关联音频片段"
@@ -550,13 +567,53 @@ class TimelineEditorWindow(QMainWindow):
         controls = QHBoxLayout()
         self._btn_play = QPushButton("播放")
         self._btn_play.setEnabled(False)
-        self._btn_play.setToolTip("从当前播放头播放；播放中点击将暂停")
-        self._btn_play.clicked.connect(self._toggle_playback)
+        self._btn_play.setToolTip(
+            "从当前播放头播放；播放中点击将暂停（Space）"
+        )
+        self._btn_play.setAccessibleName("播放或暂停时间线")
+        self._btn_play.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.TOGGLE_PLAYBACK
+            )
+        )
         set_button_icon(self._btn_play, "play")
         self._btn_play.setProperty("playbackIcon", "play")
         controls.addWidget(self._btn_play)
         self._time_label = QLabel("00:00.000 / 00:00.000")
         controls.addWidget(self._time_label)
+        self._editing_fps_label = QLabel("30 FPS")
+        self._editing_fps_label.setObjectName("timelineEditingFps")
+        self._editing_fps_label.setToolTip(
+            "项目编辑帧率；时间码、逐帧导航和帧吸附均使用此基准"
+        )
+        controls.addWidget(self._editing_fps_label)
+        self._btn_time_input_mode = QPushButton("时间码")
+        self._btn_time_input_mode.setToolTip(
+            "当前按 HH:MM:SS:FF 输入；点击切换为总帧号输入"
+        )
+        self._btn_time_input_mode.clicked.connect(
+            self._toggle_time_input_mode
+        )
+        controls.addWidget(self._btn_time_input_mode)
+        self._timecode_input = QLineEdit("00:00:00:00")
+        self._timecode_input.setObjectName("timelineTimecodeInput")
+        self._timecode_input.setAccessibleName("播放头时间码")
+        self._timecode_input.setToolTip(
+            "输入当前项目帧率下的 HH:MM:SS:FF，按 Enter 跳转；"
+            "120 FPS 使用三位帧号"
+        )
+        self._timecode_input.returnPressed.connect(
+            self._on_timecode_submitted
+        )
+        controls.addWidget(self._timecode_input)
+        self._btn_jump_timecode = QPushButton("跳转")
+        self._btn_jump_timecode.setToolTip(
+            "校验输入后移动播放头；不会修改片段或写入项目"
+        )
+        self._btn_jump_timecode.clicked.connect(
+            self._on_timecode_submitted
+        )
+        controls.addWidget(self._btn_jump_timecode)
         controls.addStretch(1)
         self._btn_retry_playback = QPushButton("重试播放")
         self._btn_retry_playback.setToolTip(
@@ -589,66 +646,122 @@ class TimelineEditorWindow(QMainWindow):
         toolbar = QHBoxLayout()
         self._btn_undo = QPushButton("撤销")
         self._btn_undo.setEnabled(False)
-        self._btn_undo.setToolTip("撤销最近一次成功保存的时间线编辑")
-        self._btn_undo.clicked.connect(self._on_undo)
+        self._btn_undo.setToolTip(
+            "撤销最近一次成功保存的时间线编辑（Ctrl+Z）"
+        )
+        self._btn_undo.setAccessibleName("撤销时间线编辑")
+        self._btn_undo.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.UNDO
+            )
+        )
         toolbar.addWidget(self._btn_undo)
         self._btn_redo = QPushButton("重做")
         self._btn_redo.setEnabled(False)
-        self._btn_redo.setToolTip("重新执行最近一次被撤销的时间线编辑")
-        self._btn_redo.clicked.connect(self._on_redo)
+        self._btn_redo.setToolTip(
+            "重新执行最近一次被撤销的时间线编辑（Ctrl+Y）"
+        )
+        self._btn_redo.setAccessibleName("重做时间线编辑")
+        self._btn_redo.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.REDO
+            )
+        )
         toolbar.addWidget(self._btn_redo)
         self._btn_split_clip = QPushButton("分割")
         self._btn_split_clip.setToolTip(
             "在播放头处分割当前片段或关联音视频组（Ctrl+B）"
         )
-        self._btn_split_clip.clicked.connect(self._on_split_clip)
+        self._btn_split_clip.setAccessibleName("在播放头处分割片段")
+        self._btn_split_clip.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.SPLIT_CLIP
+            )
+        )
         toolbar.addWidget(self._btn_split_clip)
         self._btn_delete_clip = QPushButton("删除片段")
         self._btn_delete_clip.setToolTip(
-            "预览影响后，从时间线删除当前片段并执行全局波纹（Delete）"
+            "从时间线删除当前片段并保留空隙（Delete）"
         )
-        self._btn_delete_clip.clicked.connect(self._on_delete_clip)
+        self._btn_delete_clip.setAccessibleName("删除片段并保留空隙")
+        self._btn_delete_clip.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.DELETE_CLIP
+            )
+        )
         toolbar.addWidget(self._btn_delete_clip)
+        self._btn_ripple_delete = QPushButton("波纹删除")
+        self._btn_ripple_delete.setToolTip(
+            "删除当前片段并全局移动后续片段（Shift+Delete）"
+        )
+        self._btn_ripple_delete.setAccessibleName(
+            "删除片段并执行全局波纹"
+        )
+        self._btn_ripple_delete.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.RIPPLE_DELETE_CLIP
+            )
+        )
+        toolbar.addWidget(self._btn_ripple_delete)
+        self._btn_link_clip = QPushButton("音视频关联")
+        self._btn_link_clip.setToolTip(
+            "解绑当前关联组，或为未关联片段选择严格兼容候选（Ctrl+L）"
+        )
+        self._btn_link_clip.setAccessibleName("切换音视频关联状态")
+        self._btn_link_clip.clicked.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.TOGGLE_LINK
+            )
+        )
+        toolbar.addWidget(self._btn_link_clip)
         self._ripple_mode_label = QLabel("全局波纹")
         self._ripple_mode_label.setObjectName("timelineRippleMode")
         self._ripple_mode_label.setToolTip(
             "固定开启：裁剪或删除会移动全部未锁定轨道上的后续片段"
         )
         toolbar.addWidget(self._ripple_mode_label)
+        track_toolbar = QHBoxLayout()
         self._btn_add_video_track = QPushButton("视频轨")
+        self._btn_add_video_track.setAccessibleName("新增视频轨")
         self._btn_add_video_track.setToolTip("新增一条视频轨，视频轨最多 8 条")
         self._btn_add_video_track.clicked.connect(
             lambda: self._on_add_track("video")
         )
-        toolbar.addWidget(self._btn_add_video_track)
+        track_toolbar.addWidget(self._btn_add_video_track)
         self._btn_add_audio_track = QPushButton("音频轨")
+        self._btn_add_audio_track.setAccessibleName("新增音频轨")
         self._btn_add_audio_track.setToolTip("新增一条音频轨，音频轨最多 8 条")
         self._btn_add_audio_track.clicked.connect(
             lambda: self._on_add_track("audio")
         )
-        toolbar.addWidget(self._btn_add_audio_track)
+        track_toolbar.addWidget(self._btn_add_audio_track)
         self._btn_rename_track = QPushButton("重命名轨道")
+        self._btn_rename_track.setAccessibleName("重命名选中轨道")
         self._btn_rename_track.setToolTip("修改当前选中轨道名称并原子保存")
         self._btn_rename_track.clicked.connect(self._on_rename_track)
-        toolbar.addWidget(self._btn_rename_track)
+        track_toolbar.addWidget(self._btn_rename_track)
         self._btn_move_track_up = QPushButton("上移")
+        self._btn_move_track_up.setAccessibleName("上移选中轨道")
         self._btn_move_track_up.setToolTip("在同类型轨道中把当前轨道上移一层")
         self._btn_move_track_up.clicked.connect(
             lambda: self._on_reorder_track(-1)
         )
-        toolbar.addWidget(self._btn_move_track_up)
+        track_toolbar.addWidget(self._btn_move_track_up)
         self._btn_move_track_down = QPushButton("下移")
+        self._btn_move_track_down.setAccessibleName("下移选中轨道")
         self._btn_move_track_down.setToolTip("在同类型轨道中把当前轨道下移一层")
         self._btn_move_track_down.clicked.connect(
             lambda: self._on_reorder_track(1)
         )
-        toolbar.addWidget(self._btn_move_track_down)
+        track_toolbar.addWidget(self._btn_move_track_down)
         self._btn_delete_track = QPushButton("删除轨道")
+        self._btn_delete_track.setAccessibleName("删除选中轨道")
         self._btn_delete_track.setToolTip(
             "删除空轨道；有片段时必须确认，关联片段会一并处理"
         )
         self._btn_delete_track.clicked.connect(self._on_delete_track)
-        toolbar.addWidget(self._btn_delete_track)
+        track_toolbar.addWidget(self._btn_delete_track)
+        track_toolbar.addStretch(1)
         toolbar.addStretch(1)
         self._btn_focus_timeline = QPushButton("专注时间线")
         self._btn_focus_timeline.setToolTip("隐藏素材区和预览，让轨道使用全部可用空间")
@@ -671,6 +784,7 @@ class TimelineEditorWindow(QMainWindow):
         self._btn_fit_timeline.clicked.connect(self._fit_timeline)
         toolbar.addWidget(self._btn_fit_timeline)
         layout.addLayout(toolbar)
+        layout.addLayout(track_toolbar)
         selection_row = QHBoxLayout()
         self._selection_summary = QLabel("未选择片段")
         self._selection_summary.setObjectName("pageSubtitle")
@@ -709,8 +823,11 @@ class TimelineEditorWindow(QMainWindow):
         self._timeline_canvas.track_lock_requested.connect(
             self._on_track_lock_requested
         )
-        self._timeline_canvas.material_drop_requested.connect(
-            self._on_material_drop_requested
+        self._timeline_canvas.set_material_drop_planner(
+            self._preview_material_drop_candidate
+        )
+        self._timeline_canvas.material_drop_commit_requested.connect(
+            self._on_material_drop_commit_requested
         )
         self._timeline_canvas.invalid_drop.connect(self._show_timeline_error)
         self._timeline_canvas.zoom_changed.connect(self._on_canvas_zoom_changed)
@@ -743,6 +860,10 @@ class TimelineEditorWindow(QMainWindow):
         self._clip_inspector.hide()
         self._current_materials = []
         self._session = session
+        self._timeline_canvas.set_editing_fps(
+            self._project_editing_fps()
+        )
+        self._sync_frame_time_controls(force=True)
         self._apply_recording_status(
             bool(getattr(session, "recording_active", False))
         )
@@ -912,6 +1033,10 @@ class TimelineEditorWindow(QMainWindow):
                     else "FPS 未知"
                 )
                 preview_path = material.preview_path
+                has_video = bool(
+                    (material.width and material.height)
+                    or Path(file_path).suffix.lower() == ".mp4"
+                )
             else:
                 snapshot = material.metadata_snapshot
                 material_id = str(material.material_id)
@@ -936,6 +1061,16 @@ class TimelineEditorWindow(QMainWindow):
                     else "FPS 未知"
                 )
                 preview_path = None
+                media_type = str(
+                    snapshot.get("media_type", "video")
+                ).lower()
+                has_video = bool(
+                    media_type != "audio"
+                    and (
+                        (width and height)
+                        or Path(file_path).suffix.lower() == ".mp4"
+                    )
+                )
             item = QListWidgetItem(
                 f"{file_name}\n"
                 f"{float(duration or 0):.1f} 秒 · {dimensions} · "
@@ -949,6 +1084,7 @@ class TimelineEditorWindow(QMainWindow):
                 str(audio or "none").lower()
                 not in {"", "none", "off", "silent", "无声"},
             )
+            item.setData(_MATERIAL_HAS_VIDEO_ROLE, has_video)
             item.setData(_MATERIAL_PATH_ROLE, file_path)
             item.setData(_MATERIAL_AVAILABLE_ROLE, available)
             item.setToolTip(file_path)
@@ -1085,6 +1221,7 @@ class TimelineEditorWindow(QMainWindow):
         )
         self._btn_delete_track.setEnabled(has_track and len(peers) > 1)
         self._btn_delete_clip.setEnabled(selected_clip_delete_editable)
+        self._btn_ripple_delete.setEnabled(selected_clip_delete_editable)
         self._btn_clip_inspector.setEnabled(selected_clip_viewable)
         block_reason = self._clip_edit_block_reason(
             selected_clip,
@@ -1093,10 +1230,77 @@ class TimelineEditorWindow(QMainWindow):
             writable=writable,
         )
         self._btn_delete_clip.setToolTip(
-            "预览影响后，从时间线删除当前片段并执行全局波纹（Delete）"
+            "从时间线删除当前片段并保留原时间空隙（Delete）"
             if selected_clip_delete_editable
             else block_reason
         )
+        self._btn_ripple_delete.setToolTip(
+            "删除当前片段并全局移动后续片段（Shift+Delete）"
+            if selected_clip_delete_editable
+            else block_reason
+        )
+        linked = bool(
+            selected_clip is not None and selected_clip.link_group_id
+        )
+        linked_members = (
+            [
+                item
+                for item in timeline.clips
+                if selected_clip is not None
+                and selected_clip.link_group_id
+                and item.link_group_id == selected_clip.link_group_id
+            ]
+            if timeline is not None
+            else []
+        )
+        linked_tracks = [
+            self._track_by_id(item.track_id)
+            for item in linked_members
+        ]
+        linked_tracks_unlocked = all(
+            track is not None and not track.locked
+            for track in linked_tracks
+        )
+        link_editable = bool(
+            selected_clip_base_editable
+            and selected_health is not None
+            and selected_health.status != "link_error"
+            and (
+                (linked and linked_tracks_unlocked)
+                or (not linked and selected_health.status != "missing")
+            )
+        )
+        if selected_health is None and selected_clip_base_editable:
+            link_editable = linked_tracks_unlocked if linked else True
+        self._btn_link_clip.setText(
+            "解绑音视频" if linked else "重新关联"
+        )
+        self._btn_link_clip.setAccessibleName(
+            "解绑关联音视频" if linked else "重新关联音视频"
+        )
+        self._btn_link_clip.setEnabled(link_editable)
+        if link_editable:
+            self._btn_link_clip.setToolTip(
+                (
+                    "清除关联组，之后可独立移动、裁剪、分割和删除"
+                    "（Ctrl+L）"
+                )
+                if linked
+                else (
+                    "选择素材、时间位置和源范围完全一致的兼容片段"
+                    "（Ctrl+L）"
+                )
+            )
+        else:
+            self._btn_link_clip.setToolTip(
+                "素材缺失时不能重新关联；恢复素材后再试"
+                if (
+                    not linked
+                    and selected_health is not None
+                    and selected_health.status == "missing"
+                )
+                else block_reason
+            )
         self._btn_clip_inspector.setToolTip(
             "打开片段属性；当前状态仅允许查看，不能裁剪"
             if selected_clip_viewable and not selected_clip_range_editable
@@ -1186,6 +1390,10 @@ class TimelineEditorWindow(QMainWindow):
         self._zoom_label.setText(_format_zoom(float(state.zoom)))
         self._time_label.setText(
             f"{_format_us(int(state.playhead_us))} / 00:00.000"
+        )
+        self._sync_frame_time_controls(
+            int(state.playhead_us),
+            force=True,
         )
         self._timeline_canvas.set_playhead(int(state.playhead_us))
         self._timeline_canvas.set_zoom(float(state.zoom))
@@ -1293,6 +1501,67 @@ class TimelineEditorWindow(QMainWindow):
         )
         self._apply_command_result(result, success_text="素材已加入并自动保存")
 
+    def _preview_material_drop_candidate(
+        self,
+        payload: dict[str, object],
+        raw_start_us: int,
+        hovered_track_id: str | None,
+        snap_enabled: bool,
+        transaction_id: str,
+    ) -> TimelineDragCandidate:
+        commands = getattr(self._session, "commands", None)
+        if commands is None:
+            return TimelineDragCandidate.invalid(
+                transaction_id=transaction_id,
+                material_id=str(payload.get("material_id", "")),
+                raw_start_us=max(0, int(raw_start_us)),
+                start_us=max(0, int(raw_start_us)),
+                conflict_code="timeline_unavailable",
+                conflict_reason="时间线命令服务不可用",
+                has_video=bool(payload.get("has_video", True)),
+                has_audio=bool(payload.get("has_audio", False)),
+                hovered_track_id=str(hovered_track_id or ""),
+            )
+        state = getattr(self._session, "view_state", None)
+        return commands.preview_material_drop(
+            str(payload.get("material_id", "")),
+            has_video=bool(payload.get("has_video", True)),
+            has_audio=bool(payload.get("has_audio", False)),
+            raw_start_us=max(0, int(raw_start_us)),
+            hovered_track_id=hovered_track_id,
+            playhead_us=int(getattr(state, "playhead_us", 0)),
+            pixels_per_second=(
+                self._timeline_canvas.scale.pixels_per_second
+            ),
+            transaction_id=transaction_id,
+            snap_enabled=bool(snap_enabled),
+        )
+
+    def _on_material_drop_commit_requested(
+        self,
+        candidate: TimelineDragCandidate,
+    ) -> None:
+        commands = getattr(self._session, "commands", None)
+        if commands is None:
+            self._show_timeline_error("时间线命令服务不可用")
+            return
+        result = commands.commit_material_drop(candidate)
+        detail = []
+        if candidate.auto_track_kinds:
+            kinds = "、".join(
+                "视频轨" if kind == "video" else "音频轨"
+                for kind in candidate.auto_track_kinds
+            )
+            detail.append(f"已自动新建{kinds}")
+        if candidate.has_video and candidate.has_audio:
+            detail.append("音视频保持关联")
+        suffix = f"（{'；'.join(detail)}）" if detail else ""
+        self._apply_command_result(
+            result,
+            success_text=f"素材已拖入时间线并自动保存{suffix}",
+            preferred_clip_ids=candidate.created_clip_ids,
+        )
+
     def _on_material_drop_requested(
         self,
         material_id: str,
@@ -1332,6 +1601,251 @@ class TimelineEditorWindow(QMainWindow):
                 commands.redo(),
                 success_text="已重做并自动保存",
             )
+
+    def _dispatch_shortcut_command(
+        self,
+        command: TimelineShortcutCommand,
+    ) -> ShortcutDispatchResult:
+        available = self._shortcut_command_availability(command)
+        if not available.executed:
+            if available.reason:
+                self._save_status.setText(available.reason)
+            return available
+        if command == TimelineShortcutCommand.TOGGLE_PLAYBACK:
+            self._toggle_playback()
+        elif command == TimelineShortcutCommand.PREVIOUS_FRAME:
+            self._navigate_playhead_frames(-1)
+        elif command == TimelineShortcutCommand.NEXT_FRAME:
+            self._navigate_playhead_frames(1)
+        elif command == TimelineShortcutCommand.PREVIOUS_SECOND:
+            self._navigate_playhead_frames(-self._project_editing_fps())
+        elif command == TimelineShortcutCommand.NEXT_SECOND:
+            self._navigate_playhead_frames(self._project_editing_fps())
+        elif command == TimelineShortcutCommand.SPLIT_CLIP:
+            self._on_split_clip()
+        elif command == TimelineShortcutCommand.DELETE_CLIP:
+            self._on_delete_clip()
+        elif command == TimelineShortcutCommand.RIPPLE_DELETE_CLIP:
+            self._on_ripple_delete_clip()
+        elif command == TimelineShortcutCommand.TOGGLE_LINK:
+            self._on_toggle_clip_link()
+        elif command == TimelineShortcutCommand.UNDO:
+            self._on_undo()
+        elif command == TimelineShortcutCommand.REDO:
+            self._on_redo()
+        elif command == TimelineShortcutCommand.CANCEL_INTERACTION:
+            return self._cancel_shortcut_interaction()
+        return ShortcutDispatchResult(True)
+
+    def _shortcut_command_availability(
+        self,
+        command: TimelineShortcutCommand,
+    ) -> ShortcutDispatchResult:
+        if command == TimelineShortcutCommand.CANCEL_INTERACTION:
+            return ShortcutDispatchResult(True)
+        session = self._session
+        if session is None or not bool(getattr(session, "ready", False)):
+            return ShortcutDispatchResult(False, "当前项目时间线不可用")
+        if bool(getattr(session, "recording_active", False)):
+            return ShortcutDispatchResult(False, "录制中暂不可执行时间线快捷键")
+        if command == TimelineShortcutCommand.TOGGLE_PLAYBACK:
+            if self._playback_runtime is None or not self._btn_play.isEnabled():
+                return ShortcutDispatchResult(False, "当前时间线没有可播放内容")
+            return ShortcutDispatchResult(True)
+        if command in {
+            TimelineShortcutCommand.PREVIOUS_FRAME,
+            TimelineShortcutCommand.NEXT_FRAME,
+            TimelineShortcutCommand.PREVIOUS_SECOND,
+            TimelineShortcutCommand.NEXT_SECOND,
+        }:
+            return ShortcutDispatchResult(True)
+
+        commands = getattr(session, "commands", None)
+        if commands is None:
+            return ShortcutDispatchResult(False, "时间线命令服务不可用")
+        if bool(getattr(commands, "has_pending_save", False)):
+            return ShortcutDispatchResult(False, "请先处理尚未保存的时间线修改")
+        if bool(getattr(session, "read_only", False)) or not bool(
+            getattr(self, "_writable", False)
+        ):
+            return ShortcutDispatchResult(False, "当前项目时间线只读")
+        if command == TimelineShortcutCommand.UNDO:
+            if not bool(getattr(commands, "undo_depth", 0)):
+                return ShortcutDispatchResult(False, "没有可撤销的时间线操作")
+            return ShortcutDispatchResult(True)
+        if command == TimelineShortcutCommand.REDO:
+            if not bool(getattr(commands, "redo_depth", 0)):
+                return ShortcutDispatchResult(False, "没有可重做的时间线操作")
+            return ShortcutDispatchResult(True)
+        if command == TimelineShortcutCommand.TOGGLE_LINK:
+            clip_id = self._timeline_canvas.selected_clip_id()
+            if clip_id is None:
+                return ShortcutDispatchResult(False, "请先选择一个片段")
+            clip = self._clip_by_id(clip_id)
+            track = (
+                self._track_by_id(clip.track_id)
+                if clip is not None
+                else None
+            )
+            health = self._clip_health.get(clip_id)
+            if clip is None or track is None:
+                return ShortcutDispatchResult(
+                    False,
+                    "当前片段或轨道已经失效",
+                )
+            if track.locked:
+                return ShortcutDispatchResult(False, "当前轨道已锁定")
+            if health is not None and health.status == "link_error":
+                return ShortcutDispatchResult(
+                    False,
+                    health.reason or "关联组异常，不能修改",
+                )
+            if (
+                clip.link_group_id is None
+                and health is not None
+                and health.status == "missing"
+            ):
+                return ShortcutDispatchResult(
+                    False,
+                    "素材缺失时不能重新关联；恢复素材后再试",
+                )
+            if not self._btn_link_clip.isEnabled():
+                return ShortcutDispatchResult(
+                    False,
+                    self._btn_link_clip.toolTip()
+                    or "当前片段不能修改关联状态",
+                )
+            return ShortcutDispatchResult(True)
+
+        clip_id = self._timeline_canvas.selected_clip_id()
+        if clip_id is None:
+            return ShortcutDispatchResult(False, "请先选择一个片段")
+        health = self._clip_health.get(clip_id)
+        if command == TimelineShortcutCommand.SPLIT_CLIP:
+            if health is not None and not health.range_editable:
+                return ShortcutDispatchResult(
+                    False,
+                    health.reason or "当前片段不可分割",
+                )
+        elif health is not None and not health.delete_editable:
+            return ShortcutDispatchResult(
+                False,
+                health.reason or "当前片段不可删除",
+            )
+        return ShortcutDispatchResult(True)
+
+    def _navigate_playhead_frames(self, frame_delta: int) -> None:
+        session = self._session
+        state = getattr(session, "view_state", None)
+        if state is None:
+            return
+        runtime = self._playback_runtime
+        if (
+            runtime is not None
+            and runtime.snapshot().state == PlaybackState.PLAYING
+        ):
+            self._render_playback_snapshot(runtime.pause())
+        target = navigate_frame_position(
+            int(state.playhead_us),
+            int(frame_delta),
+            self._project_editing_fps(),
+            maximum_us=self._playhead_navigation_limit_us(),
+        )
+        self._on_playhead_requested(target)
+
+    def _project_editing_fps(self) -> int:
+        value = getattr(self._session, "editing_fps", 30)
+        return value if value in {30, 60, 120} else 30
+
+    def _playhead_navigation_limit_us(self) -> int:
+        duration = self._timeline_end_us()
+        return duration if duration > 0 else 60_000_000
+
+    def _toggle_time_input_mode(self) -> None:
+        self._time_input_mode = (
+            "frames"
+            if self._time_input_mode == "timecode"
+            else "timecode"
+        )
+        if self._time_input_mode == "timecode":
+            self._btn_time_input_mode.setText("时间码")
+            self._btn_time_input_mode.setToolTip(
+                "当前按 HH:MM:SS:FF 输入；点击切换为总帧号输入"
+            )
+            self._timecode_input.setToolTip(
+                "输入当前项目帧率下的 HH:MM:SS:FF，按 Enter 跳转；"
+                "120 FPS 使用三位帧号"
+            )
+        else:
+            self._btn_time_input_mode.setText("总帧")
+            self._btn_time_input_mode.setToolTip(
+                "当前按从零开始的总帧号输入；点击切换为时间码输入"
+            )
+            self._timecode_input.setToolTip(
+                "输入非负整数总帧号，按 Enter 跳转；不会写入项目"
+            )
+        self._sync_frame_time_controls(force=True)
+
+    def _on_timecode_submitted(self) -> None:
+        text = self._timecode_input.text()
+        fps = self._project_editing_fps()
+        try:
+            if self._time_input_mode == "frames":
+                target_us = parse_total_frame_number(text, fps)
+            else:
+                target_us = parse_frame_time(text, fps)
+        except ValueError as exc:
+            label = "总帧号" if self._time_input_mode == "frames" else "时间码"
+            self._save_status.setText(f"{label}无效：{exc}")
+            self._sync_frame_time_controls(force=True)
+            return
+        limit_us = self._playhead_navigation_limit_us()
+        clamped_us = min(target_us, limit_us)
+        if clamped_us != target_us:
+            self._save_status.setText("输入位置超过时间线范围，已限制到末端")
+        self._on_playhead_requested(clamped_us)
+
+    def _sync_frame_time_controls(
+        self,
+        position_us: int | None = None,
+        *,
+        force: bool = False,
+    ) -> None:
+        fps = self._project_editing_fps()
+        self._editing_fps_label.setText(f"{fps} FPS")
+        width_sample = "88:88:88:888" if fps == 120 else "88:88:88:88"
+        minimum_width = (
+            self._timecode_input.fontMetrics().horizontalAdvance(
+                width_sample
+            )
+            + 24
+        )
+        self._timecode_input.setMinimumWidth(minimum_width)
+        if self._timecode_input.hasFocus() and not force:
+            return
+        if position_us is None:
+            state = getattr(self._session, "view_state", None)
+            position_us = int(getattr(state, "playhead_us", 0))
+        if self._time_input_mode == "frames":
+            text = str(
+                microseconds_to_nearest_frame(position_us, fps)
+            )
+        else:
+            text = format_frame_time(position_us, fps)
+        self._timecode_input.setText(text)
+
+    def _cancel_shortcut_interaction(self) -> ShortcutDispatchResult:
+        active = bool(
+            self._inspector_candidate is not None
+            or self._timeline_canvas.trim_active
+            or self._timeline_canvas.material_drop_candidate is not None
+        )
+        self._timeline_canvas.cancel_material_drop()
+        self._cancel_edit_preview()
+        if active:
+            self._save_status.setText("已取消当前临时操作，项目未改变")
+            return ShortcutDispatchResult(True)
+        return ShortcutDispatchResult(False, "当前没有可取消的临时操作")
 
     def _on_add_track(self, kind: str) -> None:
         commands = getattr(self._session, "commands", None)
@@ -1415,7 +1929,73 @@ class TimelineEditorWindow(QMainWindow):
             success_text="轨道已删除并自动保存",
         )
 
+    def _on_toggle_clip_link(self) -> None:
+        clip_id = self._timeline_canvas.selected_clip_id()
+        commands = getattr(self._session, "commands", None)
+        clip = self._clip_by_id(clip_id)
+        if clip_id is None or commands is None or clip is None:
+            self._show_timeline_error("请先选择一个片段")
+            return
+        self._pause_for_edit()
+        if clip.link_group_id:
+            candidate = commands.preview_unlink_clip(clip_id)
+            self._confirm_and_commit_edit(
+                candidate,
+                title="解绑关联音视频",
+                confirm_text="确认解绑",
+                success_text=(
+                    "音视频已解绑，可分别移动、裁剪、分割和删除"
+                ),
+            )
+            return
+
+        options = commands.relink_candidates(clip_id)
+        if not options:
+            self._show_timeline_error(
+                "没有兼容的重新关联候选；素材、时间位置、"
+                "源范围和时长必须完全一致"
+            )
+            return
+        candidate_clip_id = TimelineRelinkDialog.choose(self, options)
+        if candidate_clip_id is None:
+            self._save_status.setText(
+                "已取消重新关联，时间线没有发生变化"
+            )
+            return
+        candidate = commands.preview_relink_clip(
+            clip_id,
+            candidate_clip_id,
+        )
+        if not candidate.valid:
+            self._show_edit_candidate_error(candidate)
+            return
+        self._commit_edit_candidate(
+            candidate,
+            success_text="音视频已重新关联并自动保存",
+        )
+
     def _on_delete_clip(self) -> None:
+        clip_id = self._timeline_canvas.selected_clip_id()
+        commands = getattr(self._session, "commands", None)
+        if clip_id is None or commands is None:
+            self._show_timeline_error("请先选择一个片段")
+            return
+        health = self._clip_health.get(clip_id)
+        if health is not None and not health.delete_editable:
+            self._show_timeline_error(health.reason or "当前片段不可删除")
+            return
+        self._pause_for_edit()
+        candidate = commands.preview_delete_clip(clip_id)
+        self._confirm_and_commit_edit(
+            candidate,
+            title="删除片段并保留空隙",
+            confirm_text="删除并保留空隙",
+            success_text=(
+                "片段已删除；其他片段位置未改变，原空隙已保留"
+            ),
+        )
+
+    def _on_ripple_delete_clip(self) -> None:
         clip_id = self._timeline_canvas.selected_clip_id()
         commands = getattr(self._session, "commands", None)
         if clip_id is None or commands is None:
@@ -1433,11 +2013,6 @@ class TimelineEditorWindow(QMainWindow):
             confirm_text="从时间线删除并波纹",
             success_text="片段已删除，全局波纹已应用并自动保存",
         )
-
-    def _on_delete_shortcut(self) -> None:
-        if isinstance(QApplication.focusWidget(), QLineEdit):
-            return
-        self._on_delete_clip()
 
     def _on_split_clip(self) -> None:
         clip_id = self._timeline_canvas.selected_clip_id()
@@ -1563,15 +2138,42 @@ class TimelineEditorWindow(QMainWindow):
         split_action = menu.addAction("在播放头处分割\tCtrl+B")
         assert split_action is not None
         split_action.setEnabled(self._btn_split_clip.isEnabled())
-        split_action.triggered.connect(self._on_split_clip)
+        split_action.triggered.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.SPLIT_CLIP
+            )
+        )
         properties_action = menu.addAction("片段属性")
         assert properties_action is not None
         properties_action.setEnabled(self._btn_clip_inspector.isEnabled())
         properties_action.triggered.connect(self._open_clip_inspector)
-        delete_action = menu.addAction("删除片段并执行全局波纹\tDelete")
+        link_action = menu.addAction(
+            f"{self._btn_link_clip.text()}\tCtrl+L"
+        )
+        assert link_action is not None
+        link_action.setEnabled(self._btn_link_clip.isEnabled())
+        link_action.setToolTip(self._btn_link_clip.toolTip())
+        link_action.triggered.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.TOGGLE_LINK
+            )
+        )
+        delete_action = menu.addAction("删除片段并保留空隙\tDelete")
         assert delete_action is not None
         delete_action.setEnabled(self._btn_delete_clip.isEnabled())
-        delete_action.triggered.connect(self._on_delete_clip)
+        delete_action.triggered.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.DELETE_CLIP
+            )
+        )
+        ripple_action = menu.addAction("全局波纹删除\tShift+Delete")
+        assert ripple_action is not None
+        ripple_action.setEnabled(self._btn_ripple_delete.isEnabled())
+        ripple_action.triggered.connect(
+            lambda: self._dispatch_shortcut_command(
+                TimelineShortcutCommand.RIPPLE_DELETE_CLIP
+            )
+        )
         menu.exec_(global_position)
 
     def _confirm_and_commit_edit(
@@ -1689,6 +2291,7 @@ class TimelineEditorWindow(QMainWindow):
             f"已选 {clip.clip_id} · 源 "
             f"{_format_us(clip.source_start_us)}–"
             f"{_format_us(clip.source_start_us + clip.source_duration_us)}"
+            f" · {'已关联' if clip.link_group_id else '未关联'}"
             if clip is not None
             else "未选择片段"
         )
@@ -1708,8 +2311,14 @@ class TimelineEditorWindow(QMainWindow):
         self._sync_command_controls()
 
     def _on_playhead_requested(self, value_us: int) -> None:
+        value_us = max(
+            0,
+            min(int(value_us), self._playhead_navigation_limit_us()),
+        )
         if self._session is not None:
             self._session.update_view_state(playhead_us=value_us)
+        self._timeline_canvas.set_playhead(value_us)
+        self._sync_frame_time_controls(value_us)
         self._sync_command_controls()
         runtime = self._playback_runtime
         if (
@@ -1847,6 +2456,7 @@ class TimelineEditorWindow(QMainWindow):
         self._time_label.setText(
             f"{_format_us(state.playhead_us)} / {_format_us(self._timeline_end_us())}"
         )
+        self._sync_frame_time_controls(int(state.playhead_us))
         self._set_editor_enabled(
             not bool(getattr(self._session, "read_only", False))
             and str(getattr(self._session, "status", ""))
@@ -2159,6 +2769,7 @@ class TimelineEditorWindow(QMainWindow):
         self._time_label.setText(
             f"{_format_us(position_us)} / {_format_us(duration)}"
         )
+        self._sync_frame_time_controls(position_us)
 
     def _toggle_playback(self) -> None:
         runtime = self._playback_runtime
@@ -2217,6 +2828,7 @@ class TimelineEditorWindow(QMainWindow):
             f"{_format_us(snapshot.position_us)} / "
             f"{_format_us(snapshot.duration_us)}"
         )
+        self._sync_frame_time_controls(snapshot.position_us)
 
         frame = snapshot.frame
         if frame.video_status == "ready" and frame.video_frame is not None:
@@ -2434,6 +3046,7 @@ class TimelineEditorWindow(QMainWindow):
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self._shortcut_router.detach()
         self._release_playback()
         self.close()
 

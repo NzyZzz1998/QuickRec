@@ -10,7 +10,13 @@ import numpy as np
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtCore import Qt  # noqa: E402
+from PyQt5.QtTest import QTest  # noqa: E402
+from PyQt5.QtWidgets import (  # noqa: E402
+    QApplication,
+    QDialog,
+    QMenu,
+)
 
 from services.playback_backend import (  # noqa: E402
     BackendCapabilities,
@@ -167,6 +173,116 @@ def test_play_pause_button_uses_matching_icons(monkeypatch) -> None:
         window._btn_play.click()
         assert window._btn_play.text() == "播放"
         assert play_icon_names()[-1] == "play"
+        window.shutdown()
+
+
+def test_space_toggles_playback_when_timeline_canvas_has_focus() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir))
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        window.show()
+        window._timeline_canvas.setFocus()
+        APP.processEvents()
+
+        QTest.keyClick(window._timeline_canvas, Qt.Key_Space)
+        APP.processEvents()
+
+        assert backend.calls.count("play") == 1
+        assert window._btn_play.text() == "暂停"
+        window.shutdown()
+
+
+def test_space_stays_native_when_text_input_has_focus() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir))
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        window.show()
+        window._material_search.setText("素材")
+        window._material_search.setFocus()
+        APP.processEvents()
+
+        QTest.keyClick(window._material_search, Qt.Key_Space)
+        APP.processEvents()
+
+        assert window._material_search.text() == "素材 "
+        assert "play" not in backend.calls
+        window.shutdown()
+
+
+def test_space_activates_focused_button_without_toggling_playback() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir))
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        window.show()
+        window._btn_collapse_materials.setFocus()
+        APP.processEvents()
+        assert window._btn_collapse_materials.text() == "收起"
+
+        QTest.keyClick(window._btn_collapse_materials, Qt.Key_Space)
+        APP.processEvents()
+
+        assert window._btn_collapse_materials.text() == "展开"
+        assert "play" not in backend.calls
+        window.shutdown()
+
+
+def test_space_does_not_toggle_playback_for_menu_or_dialog_focus() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        session = _session(Path(temp_dir))
+        backend = FakePlaybackBackend()
+        window = TimelineEditorWindow(
+            playback_runtime_factory=lambda project, timeline: PlaybackRuntime(
+                project,
+                timeline,
+                backend,
+            )
+        )
+        window.set_session(session)
+        window.show()
+
+        menu = QMenu(window)
+        menu.addAction("测试操作")
+        menu.show()
+        menu.setFocus()
+        APP.processEvents()
+        QTest.keyClick(menu, Qt.Key_Space)
+        APP.processEvents()
+        menu.close()
+
+        dialog = QDialog(window)
+        dialog.setModal(True)
+        dialog.show()
+        dialog.setFocus()
+        APP.processEvents()
+        QTest.keyClick(dialog, Qt.Key_Space)
+        APP.processEvents()
+        dialog.close()
+
+        assert "play" not in backend.calls
         window.shutdown()
 
 

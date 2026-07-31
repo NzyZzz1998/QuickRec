@@ -16,8 +16,19 @@ from cli.commands import (
 )
 from cli.contracts import CliExitCode, CliFailure
 from cli.isolation import CliIsolation
-from utils.project_store import ProjectFile, ProjectMaterialRef, save_project
-from utils.timeline_model import create_empty_timeline, with_project_timeline
+from services.project_editing_profile import EDITING_EXTENSION_KEY
+from utils.project_store import (
+    ProjectFile,
+    ProjectMaterialRef,
+    load_project,
+    save_project,
+)
+from utils.timeline_model import (
+    TimelineClip,
+    create_empty_timeline,
+    load_project_timeline,
+    with_project_timeline,
+)
 
 
 def _project(path: Path, *, with_timeline: bool = True) -> Path:
@@ -105,6 +116,102 @@ def test_timeline_validate_reports_schema_and_counts(tmp_path: Path) -> None:
     assert outcome.result["track_count"] == 2
     assert outcome.result["clip_count"] == 0
     assert outcome.result["read_only"] is False
+
+
+def test_validate_reports_editing_profile_and_unlinked_clips(
+    tmp_path: Path,
+) -> None:
+    project_path = _project(tmp_path / "project.qrproj")
+    loaded = load_project(project_path)
+    assert loaded.ok and loaded.project is not None
+    project = loaded.project
+    timeline_result = load_project_timeline(project)
+    assert timeline_result.ok and timeline_result.timeline is not None
+    timeline = timeline_result.timeline
+    timeline.clips = [
+        TimelineClip(
+            "video-unlinked",
+            "material-1",
+            timeline.tracks[0].track_id,
+            0,
+            2_000_000,
+            0,
+            2_000_000,
+            None,
+        ),
+        TimelineClip(
+            "audio-unlinked",
+            "material-1",
+            timeline.tracks[1].track_id,
+            0,
+            2_000_000,
+            0,
+            2_000_000,
+            None,
+        ),
+    ]
+    project.extensions[EDITING_EXTENSION_KEY] = {
+        "schema_version": 1,
+        "editing_fps": 60,
+        "fps_locked": True,
+        "future_field": "keep",
+    }
+    assert save_project(
+        project_path,
+        with_project_timeline(project, timeline),
+    ).ok
+
+    project_outcome = run_project_validate(
+        CliCommandContext(timeout=30.0),
+        project_path,
+    )
+    timeline_outcome = run_timeline_validate(
+        CliCommandContext(timeout=30.0),
+        project_path,
+    )
+
+    assert project_outcome.result["editing_present"] is True
+    assert project_outcome.result["editing_schema"] == 1
+    assert project_outcome.result["editing_status"] == "ready"
+    assert project_outcome.result["editing_fps"] == 60
+    assert project_outcome.result["editing_read_only"] is False
+    assert timeline_outcome.result["unlinked_clip_count"] == 2
+    assert timeline_outcome.result["linked_clip_count"] == 0
+    assert timeline_outcome.result["link_group_count"] == 0
+    assert timeline_outcome.result["editing_status"] == "ready"
+
+
+def test_validate_reports_unknown_editing_schema_without_mutating_project(
+    tmp_path: Path,
+) -> None:
+    project_path = _project(tmp_path / "future-project.qrproj")
+    loaded = load_project(project_path)
+    assert loaded.ok and loaded.project is not None
+    project = loaded.project
+    project.extensions[EDITING_EXTENSION_KEY] = {
+        "schema_version": 99,
+        "editing_fps": 120,
+        "future_field": {"keep": True},
+    }
+    assert save_project(project_path, project).ok
+    before = project_path.read_bytes()
+
+    project_outcome = run_project_validate(
+        CliCommandContext(timeout=30.0),
+        project_path,
+    )
+    timeline_outcome = run_timeline_validate(
+        CliCommandContext(timeout=30.0),
+        project_path,
+    )
+
+    assert project_outcome.result["editing_schema"] == 99
+    assert project_outcome.result["editing_status"] == "unsupported"
+    assert project_outcome.result["editing_read_only"] is True
+    assert timeline_outcome.result["editing_schema"] == 99
+    assert timeline_outcome.result["editing_status"] == "unsupported"
+    assert timeline_outcome.result["editing_read_only"] is True
+    assert project_path.read_bytes() == before
 
 
 def test_probe_reports_media_metadata_hash_and_no_absolute_path(

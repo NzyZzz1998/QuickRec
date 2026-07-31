@@ -231,6 +231,18 @@ def test_initialize_pauses_queue_and_maps_active_jobs_to_interrupted(
     tmp_path: Path,
 ) -> None:
     plan = _plan(tmp_path, "plan-active")
+    output_directory = Path(plan.output.directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    interrupted_part = (
+        output_directory / ".quickrec-export-attempt-old.part.mp4"
+    )
+    interrupted_graph = (
+        output_directory / ".quickrec-export-attempt-old.filter.txt"
+    )
+    unrelated = output_directory / "用户保留文件.txt"
+    interrupted_part.write_bytes(b"partial")
+    interrupted_graph.write_text("graph", encoding="utf-8")
+    unrelated.write_text("keep", encoding="utf-8")
     active = ExportJob(
         job_id="job-active",
         plan=plan,
@@ -277,6 +289,67 @@ def test_initialize_pauses_queue_and_maps_active_jobs_to_interrupted(
     assert service.job("job-active").status == ExportStage.INTERRUPTED
     assert service.job("job-queued").status == ExportStage.QUEUED
     assert recovery_calls == [Path(plan.output.directory)]
+    assert not interrupted_part.exists()
+    assert not interrupted_graph.exists()
+    assert unrelated.exists()
+
+
+def test_terminal_success_and_cancel_cleanup_owned_attempt_artifacts(
+    tmp_path: Path,
+) -> None:
+    class ArtifactRunner(_Runner):
+        def __init__(self, result: ExportAttemptResult) -> None:
+            super().__init__([result])
+            self.artifacts: list[Path] = []
+
+        def run(
+            self,
+            plan: ExportPlan,
+            *,
+            attempt_id: str,
+            cancel_token: CancellationToken,
+            on_progress,
+            on_stage,
+        ) -> ExportAttemptResult:
+            directory = Path(plan.output.directory)
+            directory.mkdir(parents=True, exist_ok=True)
+            self.artifacts = [
+                directory / f".quickrec-export-{attempt_id}.part.mp4",
+                directory / f".quickrec-export-{attempt_id}.filter.txt",
+            ]
+            self.artifacts[0].write_bytes(b"partial")
+            self.artifacts[1].write_text("graph", encoding="utf-8")
+            return super().run(
+                plan,
+                attempt_id=attempt_id,
+                cancel_token=cancel_token,
+                on_progress=on_progress,
+                on_stage=on_stage,
+            )
+
+    for index, result in enumerate(
+        (
+            ExportAttemptResult(
+                ExportStage.SUCCEEDED,
+                target_path=tmp_path / "success.mp4",
+            ),
+            ExportAttemptResult(
+                ExportStage.CANCELLED,
+                failure_kind=ExportFailureKind.CANCELLED,
+                message="cancelled",
+            ),
+        )
+    ):
+        runner = ArtifactRunner(result)
+        service = _service(tmp_path / f"case-{index}", runner)
+        assert service.initialize().ok
+        assert service.enqueue(_plan(tmp_path / f"case-{index}", "plan")).ok
+        assert service.resume().ok
+
+        service.run_next()
+
+        assert runner.artifacts
+        assert all(not path.exists() for path in runner.artifacts)
 
 
 def test_resume_runs_jobs_fifo_and_persists_attempt_history(tmp_path: Path) -> None:

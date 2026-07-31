@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
 from PyQt5.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from services.project_library import ProjectLibraryService  # noqa: E402
@@ -423,6 +424,7 @@ def test_editor_split_lock_and_ripple_delete_use_v193_commands():
         assert window._selection_summary.text() == (
             f"已选 {selected_clip.clip_id} · 源 "
             f"00:01.000–00:10.000"
+            " · 未关联"
         )
         track_id = next(
             item.track_id
@@ -503,12 +505,14 @@ def test_delete_shortcut_does_not_delete_clip_while_editing_timecode():
         APP.processEvents()
 
         with patch.object(window, "_on_delete_clip") as delete_clip:
-            window._on_delete_shortcut()
+            QTest.keyClick(window._clip_inspector._source_in, Qt.Key_Delete)
+            APP.processEvents()
             delete_clip.assert_not_called()
 
             window._timeline_canvas.setFocus()
             APP.processEvents()
-            window._on_delete_shortcut()
+            QTest.keyClick(window._timeline_canvas, Qt.Key_Delete)
+            APP.processEvents()
             delete_clip.assert_called_once_with()
 
         window.shutdown()

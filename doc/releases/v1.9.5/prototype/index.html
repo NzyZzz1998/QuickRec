@@ -1,0 +1,2657 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuickRec Full v1.9.5 剪辑交互高保真原型</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="timeline.css">
+  <link rel="stylesheet" href="export.css">
+  <link rel="stylesheet" href="v195.css">
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-record" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="7"></circle>
+      <circle cx="12" cy="12" r="3" class="fill-current"></circle>
+    </symbol>
+    <symbol id="i-library" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="7" height="7" rx="1"></rect>
+      <rect x="14" y="4" width="7" height="7" rx="1"></rect>
+      <rect x="3" y="15" width="7" height="5" rx="1"></rect>
+      <rect x="14" y="15" width="7" height="5" rx="1"></rect>
+    </symbol>
+    <symbol id="i-project" viewBox="0 0 24 24">
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H10l2 2.5h5.5A2.5 2.5 0 0 1 20 8v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3Z"></path>
+      <path d="M8 11h8M8 15h5"></path>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14"></path>
+    </symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24">
+      <path d="m4 16-.8 4.8L8 20l11-11-4-4Z"></path>
+      <path d="m13 7 4 4"></path>
+    </symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24">
+      <path d="M4 7h16v13H4Z"></path>
+      <path d="M3 3h18v4H3ZM9 11h6"></path>
+    </symbol>
+    <symbol id="i-link" viewBox="0 0 24 24">
+      <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2"></path>
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"></path>
+    </symbol>
+    <symbol id="i-unlink" viewBox="0 0 24 24">
+      <path d="M9.5 14.5 7 17a4 4 0 0 1-5.7-5.7l3-3A4 4 0 0 1 9 7.6"></path>
+      <path d="m14.5 9.5 2.5-2.5a4 4 0 0 1 5.7 5.7l-3 3a4 4 0 0 1-4.7.7"></path>
+      <path d="m3 3 18 18"></path>
+    </symbol>
+    <symbol id="i-frame-prev" viewBox="0 0 24 24">
+      <path d="M7 5v14"></path>
+      <path d="m18 6-8 6 8 6z"></path>
+    </symbol>
+    <symbol id="i-frame-next" viewBox="0 0 24 24">
+      <path d="M17 5v14"></path>
+      <path d="m6 6 8 6-8 6z"></path>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"></path>
+      <circle cx="16" cy="6" r="2"></circle>
+      <circle cx="8" cy="12" r="2"></circle>
+      <circle cx="13" cy="18" r="2"></circle>
+    </symbol>
+    <symbol id="i-diagnostic" viewBox="0 0 24 24">
+      <path d="M3 12h4l2-5 4 10 2-5h6"></path>
+      <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"></path>
+    </symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="13" rx="2"></rect>
+      <path d="M8 21h8M12 17v4"></path>
+    </symbol>
+    <symbol id="i-region" viewBox="0 0 24 24">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"></path>
+      <rect x="7" y="7" width="10" height="10" rx="1"></rect>
+    </symbol>
+    <symbol id="i-window" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <path d="M3 9h18M7 6.5h.01M10 6.5h.01"></path>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7"></circle>
+      <path d="m20 20-4-4"></path>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+      <rect x="8" y="8" width="12" height="12" rx="2"></rect>
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+    </symbol>
+    <symbol id="i-export" viewBox="0 0 24 24">
+      <path d="M12 3v12M7 8l5-5 5 5"></path>
+      <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"></path>
+    </symbol>
+    <symbol id="i-save" viewBox="0 0 24 24">
+      <path d="M5 3h12l4 4v14H3V3Z"></path>
+      <path d="M7 3v6h10V3M7 21v-8h10v8"></path>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 7v5h-5"></path>
+      <path d="M19 12a7 7 0 1 0-2 5"></path>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24">
+      <path d="m8 5 11 7-11 7Z"></path>
+    </symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24">
+      <path d="M8 5v14M16 5v14"></path>
+    </symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24">
+      <rect x="6" y="6" width="12" height="12" rx="1"></rect>
+    </symbol>
+    <symbol id="i-x" viewBox="0 0 24 24">
+      <path d="M6 6l12 12M18 6 6 18"></path>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="m5 12 4 4L19 6"></path>
+    </symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24">
+      <path d="M12 3 2.8 19h18.4Z"></path>
+      <path d="M12 9v4M12 17h.01"></path>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="M12 11v6M12 7h.01"></path>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24">
+      <path d="m9 18 6-6-6-6"></path>
+    </symbol>
+    <symbol id="i-more" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="1" class="fill-current"></circle>
+      <circle cx="12" cy="12" r="1" class="fill-current"></circle>
+      <circle cx="19" cy="12" r="1" class="fill-current"></circle>
+    </symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24">
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path>
+      <circle cx="12" cy="12" r="2.5"></circle>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24">
+      <path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14"></path>
+      <path d="M10 11v6M14 11v6"></path>
+    </symbol>
+    <symbol id="i-timeline" viewBox="0 0 24 24">
+      <path d="M4 5v14M8 7h12M8 12h8M8 17h10"></path>
+      <circle cx="4" cy="7" r="1.5" class="fill-current"></circle>
+      <circle cx="4" cy="12" r="1.5" class="fill-current"></circle>
+      <circle cx="4" cy="17" r="1.5" class="fill-current"></circle>
+    </symbol>
+    <symbol id="i-video" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="14" height="14" rx="2"></rect>
+      <path d="m17 10 4-2v8l-4-2Z"></path>
+    </symbol>
+    <symbol id="i-audio" viewBox="0 0 24 24">
+      <path d="M9 18V6l10-2v12"></path>
+      <circle cx="6" cy="18" r="3"></circle>
+      <circle cx="16" cy="16" r="3"></circle>
+    </symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24">
+      <path d="m9 7-5 5 5 5"></path>
+      <path d="M4 12h9a6 6 0 0 1 6 6"></path>
+    </symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24">
+      <path d="m15 7 5 5-5 5"></path>
+      <path d="M20 12h-9a6 6 0 0 0-6 6"></path>
+    </symbol>
+    <symbol id="i-zoom-in" viewBox="0 0 24 24">
+      <circle cx="10.5" cy="10.5" r="6.5"></circle>
+      <path d="m16 16 5 5M10.5 7v7M7 10.5h7"></path>
+    </symbol>
+    <symbol id="i-zoom-out" viewBox="0 0 24 24">
+      <circle cx="10.5" cy="10.5" r="6.5"></circle>
+      <path d="m16 16 5 5M7 10.5h7"></path>
+    </symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24">
+      <path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"></path>
+      <path d="M8 12h8"></path>
+    </symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24">
+      <circle cx="9" cy="6" r="1" class="fill-current"></circle>
+      <circle cx="15" cy="6" r="1" class="fill-current"></circle>
+      <circle cx="9" cy="12" r="1" class="fill-current"></circle>
+      <circle cx="15" cy="12" r="1" class="fill-current"></circle>
+      <circle cx="9" cy="18" r="1" class="fill-current"></circle>
+      <circle cx="15" cy="18" r="1" class="fill-current"></circle>
+    </symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24">
+      <path d="m14 7-5 5 5 5"></path>
+      <path d="M19 4v16"></path>
+    </symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="M12 7v5l3 2"></path>
+    </symbol>
+    <symbol id="i-scissors" viewBox="0 0 24 24">
+      <circle cx="6" cy="7" r="3"></circle>
+      <circle cx="6" cy="17" r="3"></circle>
+      <path d="m8.7 8.4 11.3 6.1M8.7 15.6 20 9.5"></path>
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24">
+      <rect x="4" y="10" width="16" height="11" rx="2"></rect>
+      <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path>
+    </symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24">
+      <rect x="4" y="10" width="16" height="11" rx="2"></rect>
+      <path d="M8 10V7a4 4 0 0 1 7-2.6M12 14v3"></path>
+    </symbol>
+    <symbol id="i-split" viewBox="0 0 24 24">
+      <path d="M12 3v18M4 7h5M15 7h5M4 17h5M15 17h5"></path>
+      <circle cx="12" cy="12" r="2"></circle>
+    </symbol>
+  </svg>
+
+  <header class="prototype-toolbar" aria-label="原型控制">
+    <div class="prototype-title">
+      <strong>QuickRec Full v1.9.5</strong>
+      <span>剪辑交互 · 轨道控制 · 帧级时间 · 完整版本演进标注</span>
+    </div>
+    <div class="prototype-controls">
+      <label>
+        页面状态
+        <select id="prototypeState" data-prototype-control>
+          <option value="default">默认</option>
+          <option value="recording">录制中</option>
+          <option value="success">保存成功</option>
+          <option value="index-failed">入库失败</option>
+          <option value="empty">空状态</option>
+          <option value="error">错误状态</option>
+          <option value="missing">文件缺失</option>
+          <option value="project-empty">项目空状态</option>
+          <option value="project-archived">项目已归档</option>
+          <option value="project-missing">项目文件缺失</option>
+          <option value="project-corrupt">项目文件损坏</option>
+          <option value="project-conflict">外部修改冲突</option>
+          <option value="project-delete-failure">删除部分失败</option>
+          <option value="preview-loading">预览生成中</option>
+          <option value="preview-failed">预览生成失败</option>
+          <option value="preview-missing">素材文件缺失</option>
+          <option value="preview-rebuild">项目预览重建</option>
+          <option value="timeline-playing">时间线播放中</option>
+          <option value="timeline-buffering">播放缓冲中</option>
+          <option value="timeline-missing">时间线素材缺失</option>
+          <option value="timeline-decode-error">视频解码失败</option>
+          <option value="timeline-audio-unavailable">音频设备不可用</option>
+          <option value="timeline-saving">时间线保存中</option>
+          <option value="timeline-save-failed">时间线保存失败</option>
+          <option value="timeline-readonly">归档项目只读</option>
+          <option value="timeline-corrupt">时间线数据损坏</option>
+          <option value="timeline-unknown">未知时间线版本</option>
+          <option value="timeline-conflict">项目外部修改冲突</option>
+          <option value="timeline-empty">空时间线</option>
+          <option value="timeline-trimming">裁剪手柄操作中</option>
+          <option value="timeline-ripple-preview">全局波纹影响预览</option>
+          <option value="timeline-ripple-conflict">全局波纹存在锁定冲突</option>
+          <option value="timeline-track-locked">轨道锁定</option>
+          <option value="timeline-save-rollback">剪辑保存失败并回滚</option>
+          <option value="timeline-unlink-candidate">解绑影响确认</option>
+          <option value="timeline-unlinked">音视频已解绑</option>
+          <option value="timeline-relink-candidates">重新关联候选</option>
+          <option value="timeline-relink-empty">无兼容关联候选</option>
+          <option value="timeline-delete-gap">普通删除保留空隙</option>
+          <option value="timeline-drag-existing">拖入现有轨道</option>
+          <option value="timeline-drag-auto-video">拖入并自动新建视频轨</option>
+          <option value="timeline-drag-auto-pair">拖入并自动新建音视频轨</option>
+          <option value="timeline-drag-invalid">拖入位置无效</option>
+          <option value="timeline-track-limit">轨道达到 8+8 上限</option>
+          <option value="timeline-fps-30">项目编辑帧率 30 FPS</option>
+          <option value="timeline-fps-60">项目编辑帧率 60 FPS</option>
+          <option value="timeline-fps-120">项目编辑帧率 120 FPS</option>
+          <option value="timeline-shortcut-focus">快捷键焦点冲突保护</option>
+          <option value="export-empty">导出队列空状态</option>
+          <option value="export-preflight-pass">导出预检通过</option>
+          <option value="export-preflight-warning">导出预检警告</option>
+          <option value="export-preflight-failed">导出预检失败</option>
+          <option value="export-disk-notice">磁盘空间提示</option>
+          <option value="export-disk-warning">磁盘空间警告</option>
+          <option value="export-disk-blocked">磁盘空间不足</option>
+          <option value="export-conflict-safe">文件名安全避让</option>
+          <option value="export-overwrite">覆盖文件二次确认</option>
+          <option value="export-queued">任务排队中</option>
+          <option value="export-validating">任务校验中</option>
+          <option value="export-running">任务导出中</option>
+          <option value="export-stalled">进度疑似停滞</option>
+          <option value="export-verifying">输出验证中</option>
+          <option value="export-committing">输出提交中</option>
+          <option value="export-succeeded">导出成功</option>
+          <option value="export-failed">导出失败</option>
+          <option value="export-cancelled">任务已取消</option>
+          <option value="export-interrupted">任务被中断</option>
+          <option value="export-ingest-failed">导出成功但入库失败</option>
+          <option value="export-exit-prompt">运行中退出应用</option>
+          <option value="export-limit">未完成任务达到上限</option>
+          <option value="export-queue-corrupt">队列文件损坏恢复</option>
+          <option value="export-queue-unknown">未知队列版本只读</option>
+        </select>
+      </label>
+      <label>
+        浮动界面
+        <select id="floatingState" data-prototype-control>
+          <option value="none">不显示</option>
+          <option value="area">区域选择</option>
+          <option value="window">窗口选择</option>
+          <option value="countdown">倒计时</option>
+          <option value="toolbar">录制工具栏</option>
+          <option value="paused">暂停工具栏</option>
+          <option value="saving">保存中</option>
+          <option value="result">保存结果</option>
+          <option value="result-failed">入库失败结果</option>
+        </select>
+      </label>
+      <button type="button" class="prototype-button" id="toggleAnnotations" title="显示或隐藏每个产品控件的编号；点击编号控件可查看完整开发合同" data-prototype-control>开发标注</button>
+      <button type="button" class="prototype-button" id="toggleVersionHistory" title="显示当前页面、组件和控件的首次加入版本与后续优化记录" data-prototype-control>版本脉络</button>
+      <button type="button" class="prototype-button" id="showFlow" title="打开从录制、素材、项目、剪辑到导出的页面与数据关系图" data-prototype-control>页面关系</button>
+      <button type="button" class="prototype-button" id="playFloatingDemo" title="按区域选择、倒计时、录制、保存和结果条顺序播放浮动窗口演示" data-prototype-control>播放浮动动画</button>
+    </div>
+  </header>
+
+  <main class="prototype-stage">
+    <section class="workbench-window" id="workbench">
+      <div class="native-titlebar">
+        <div class="window-product">
+          <span class="product-mark" aria-hidden="true"></span>
+          <span>QuickRec Full</span>
+        </div>
+        <div class="window-controls" aria-hidden="true">
+          <span>—</span><span>□</span><span>×</span>
+        </div>
+      </div>
+
+      <div class="workbench-body">
+        <aside class="sidebar">
+          <div class="brand-block">
+            <span class="brand-mark"><span></span></span>
+            <div>
+              <strong>QuickRec</strong>
+              <small>Full v1.9.4</small>
+            </div>
+          </div>
+
+          <nav class="primary-nav" aria-label="工作台导航">
+            <button class="nav-button is-active" type="button" data-page="record" data-contract="nav.record">
+              <svg><use href="#i-record"></use></svg>
+              <span>录制</span>
+            </button>
+            <button class="nav-button" type="button" data-page="library" data-contract="nav.library">
+              <svg><use href="#i-library"></use></svg>
+              <span>素材库</span>
+              <span class="nav-count">3</span>
+            </button>
+            <button class="nav-button" type="button" data-page="projects" data-contract="nav.projects">
+              <svg><use href="#i-project"></use></svg>
+              <span>项目</span>
+              <span class="nav-count">3</span>
+            </button>
+            <button class="nav-button" type="button" data-page="exports" data-contract="nav.exports">
+              <svg><use href="#i-export"></use></svg>
+              <span>导出</span>
+              <span class="nav-count export-nav-count">3</span>
+            </button>
+            <button class="nav-button" type="button" data-page="settings" data-contract="nav.settings">
+              <svg><use href="#i-settings"></use></svg>
+              <span>设置</span>
+            </button>
+            <button class="nav-button" type="button" data-page="diagnostics" data-contract="nav.diagnostics">
+              <svg><use href="#i-diagnostic"></use></svg>
+              <span>诊断</span>
+              <span class="status-dot status-ok" title="诊断状态正常"></span>
+            </button>
+          </nav>
+
+          <div class="sidebar-status">
+            <div class="sidebar-status-row">
+              <span class="status-dot status-ok"></span>
+              <span>空闲</span>
+            </div>
+            <p>托盘持续运行。关闭工作台不会退出 QuickRec。</p>
+          </div>
+        </aside>
+
+        <section class="content-shell">
+          <header class="content-topbar">
+            <div>
+              <h1 id="pageTitle">录制</h1>
+              <p id="pageSubtitle">选择模式并开始一次新的屏幕录制。</p>
+            </div>
+            <div class="topbar-actions">
+              <span class="environment-chip">
+                <svg><use href="#i-monitor"></use></svg>
+                2560×1440 · 300Hz
+              </span>
+              <button class="icon-button" type="button" aria-label="查看更多工作台操作" title="更多" data-contract="top.more">
+                <svg><use href="#i-more"></use></svg>
+              </button>
+            </div>
+          </header>
+
+          <div class="page-stack">
+            <section class="page is-active" data-page-panel="record">
+              <div class="record-status-panel" id="recordStatusPanel">
+                <div class="record-status-copy">
+                  <span class="eyebrow">当前录制配置</span>
+                  <h2 id="recordStatusTitle">准备就绪</h2>
+                  <p id="recordStatusText">1080p · 60 FPS · 系统声音 + 麦克风</p>
+                </div>
+                <div class="record-status-actions">
+                  <button type="button" class="button button-secondary" data-page-target="settings" data-contract="record.open-settings">
+                    <svg><use href="#i-settings"></use></svg>
+                    录制设置
+                  </button>
+                  <button type="button" class="button button-primary" id="chooseRecordMode" data-contract="record.choose-mode">
+                    <svg><use href="#i-chevron"></use></svg>
+                    选择录制模式
+                  </button>
+                </div>
+              </div>
+
+              <section class="page-section">
+                <div class="section-heading">
+                  <div>
+                    <h2>录制模式</h2>
+                    <p>三种模式使用同一套保存、音频和素材入库流程。</p>
+                  </div>
+                </div>
+                <div class="mode-grid" id="recordModeGrid">
+                  <article class="mode-card">
+                    <div class="mode-icon mode-icon-blue"><svg><use href="#i-monitor"></use></svg></div>
+                    <div class="mode-copy">
+                      <h3>全屏录制</h3>
+                      <p>录制当前单显示器。通过能力检测后可使用 120 FPS。</p>
+                      <span class="mode-meta">当前有效：1080p · 60 FPS</span>
+                    </div>
+                    <button type="button" class="button button-secondary mode-action" data-contract="record.fullscreen">
+                      <svg><use href="#i-monitor"></use></svg>
+                      开始全屏
+                    </button>
+                  </article>
+
+                  <article class="mode-card">
+                    <div class="mode-icon mode-icon-green"><svg><use href="#i-region"></use></svg></div>
+                    <div class="mode-copy">
+                      <h3>区域录制</h3>
+                      <p>框选屏幕中的固定区域，最小范围为 100×100。</p>
+                      <span class="mode-meta">最高 60 FPS</span>
+                    </div>
+                    <button type="button" class="button button-secondary mode-action" data-contract="record.region">
+                      <svg><use href="#i-region"></use></svg>
+                      开始区域
+                    </button>
+                  </article>
+
+                  <article class="mode-card">
+                    <div class="mode-icon mode-icon-amber"><svg><use href="#i-window"></use></svg></div>
+                    <div class="mode-copy">
+                      <h3>窗口录制</h3>
+                      <p>从当前可见窗口中选择目标，移动时保持既有冻结策略。</p>
+                      <span class="mode-meta">最高 60 FPS · 不录制光标</span>
+                    </div>
+                    <button type="button" class="button button-secondary mode-action" data-contract="record.window">
+                      <svg><use href="#i-window"></use></svg>
+                      开始窗口
+                    </button>
+                  </article>
+                </div>
+              </section>
+
+              <section class="page-section capability-section">
+                <div class="section-heading">
+                  <div>
+                    <h2>120 FPS 能力</h2>
+                    <p>120 FPS 只用于全屏录制，首次启用前需完成约 5 秒真实硬件检测。</p>
+                  </div>
+                  <span class="badge badge-neutral" id="capabilityBadge">尚未检测</span>
+                </div>
+                <div class="capability-row">
+                  <div class="capability-metric">
+                    <span>显示环境</span>
+                    <strong>单显示器 · 300Hz</strong>
+                    <small>刷新率达到 119Hz 门槛</small>
+                  </div>
+                  <div class="capability-metric">
+                    <span>当前配置</span>
+                    <strong>60 FPS</strong>
+                    <small>新安装默认 30 FPS</small>
+                  </div>
+                  <div class="capability-metric">
+                    <span>检测缓存</span>
+                    <strong id="capabilityCacheText">无有效结果</strong>
+                    <small>环境变化后自动失效</small>
+                  </div>
+                  <button type="button" class="button button-secondary" id="runCapabilityCheck" data-contract="record.capability-check">
+                    <svg><use href="#i-refresh"></use></svg>
+                    开始检测
+                  </button>
+                </div>
+              </section>
+
+              <section class="page-section latest-result-section" id="latestResultSection">
+                <div class="section-heading">
+                  <div>
+                    <h2>最近一次录制</h2>
+                    <p>保存与素材入库是两条独立结果，视频保存成功不会被索引失败改写。</p>
+                  </div>
+                </div>
+                <div class="result-row">
+                  <div class="file-icon"><svg><use href="#i-play"></use></svg></div>
+                  <div class="result-main">
+                    <strong>QuickRec_20260723_214512.mp4</strong>
+                    <span>E:\Videos\QuickRec · 00:52 · 1920×1080 · 60 FPS</span>
+                  </div>
+                  <span class="badge badge-success">已加入素材库</span>
+                  <button type="button" class="button button-quiet" data-contract="record.open-file">打开</button>
+                  <button type="button" class="button button-quiet" data-contract="record.open-folder">打开目录</button>
+                  <button type="button" class="button button-secondary" data-page-target="library" data-contract="record.open-library">在素材库查看</button>
+                </div>
+              </section>
+            </section>
+
+            <section class="page" data-page-panel="library">
+              <div class="library-toolbar">
+                <label class="search-control">
+                  <svg><use href="#i-search"></use></svg>
+                  <input type="search" id="materialSearch" placeholder="搜索文件名或完整路径" data-contract="library.search">
+                </label>
+                <span class="result-count" id="materialResultCount">匹配 3 / 共 3 条</span>
+                <button type="button" class="button button-secondary" id="resetFilters" data-contract="library.reset">
+                  <svg><use href="#i-refresh"></use></svg>
+                  重置条件
+                </button>
+                <button type="button" class="button button-secondary" data-contract="library.import">
+                  <svg><use href="#i-export"></use></svg>
+                  导入旧目录
+                </button>
+                <button type="button" class="button button-primary" id="rebuildDirectory" data-contract="library.rebuild">
+                  <svg><use href="#i-folder"></use></svg>
+                  重建目录
+                </button>
+              </div>
+
+              <div class="project-return-banner" id="projectReturnBanner" hidden>
+                <div>
+                  <svg><use href="#i-project"></use></svg>
+                  <span>来自项目 <strong id="projectReturnName">录屏教程：素材库入门</strong></span>
+                  <small>已定位并选中“素材库总览_20260726.mp4”</small>
+                </div>
+                <button type="button" class="button button-secondary" id="returnToProject" data-contract="library.return-project">
+                  <svg class="flip"><use href="#i-chevron"></use></svg>
+                  返回项目
+                </button>
+              </div>
+
+              <div class="filter-row">
+                <label>
+                  <span>状态</span>
+                  <select data-contract="library.filter-status">
+                    <option>全部状态</option>
+                    <option>可用</option>
+                    <option>待入库</option>
+                    <option>文件缺失</option>
+                    <option>信息不完整</option>
+                  </select>
+                </label>
+                <label>
+                  <span>模式</span>
+                  <select data-contract="library.filter-mode">
+                    <option>全部模式</option>
+                    <option>全屏录制</option>
+                    <option>区域录制</option>
+                    <option>窗口录制</option>
+                  </select>
+                </label>
+                <label>
+                  <span>音频</span>
+                  <select data-contract="library.filter-audio">
+                    <option>全部音频</option>
+                    <option>无声</option>
+                    <option>系统声音</option>
+                    <option>麦克风</option>
+                    <option>系统声音 + 麦克风</option>
+                  </select>
+                </label>
+                <label>
+                  <span>时间</span>
+                  <select data-contract="library.filter-time">
+                    <option>全部时间</option>
+                    <option>今天</option>
+                    <option>最近 7 天</option>
+                    <option>最近 30 天</option>
+                  </select>
+                </label>
+                <label class="sort-control">
+                  <span>排序</span>
+                  <select data-contract="library.sort">
+                    <option>录制时间：最新优先</option>
+                    <option>录制时间：最早优先</option>
+                    <option>时长：最长优先</option>
+                    <option>文件大小：最大优先</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="inline-notice notice-warning" id="libraryNotice" hidden>
+                <svg><use href="#i-alert"></use></svg>
+                <div>
+                  <strong>有 1 条录制等待加入素材库</strong>
+                  <span>视频文件已保存，可在详情中重试入库。</span>
+                </div>
+                <button type="button" class="button button-quiet" data-contract="library.notice-dismiss">关闭</button>
+              </div>
+
+              <div class="library-layout">
+                <div class="library-list-pane">
+                  <div class="table-wrap" id="materialTableWrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>文件</th>
+                          <th>录制时间</th>
+                          <th>时长</th>
+                          <th>分辨率</th>
+                          <th>大小</th>
+                          <th>状态</th>
+                        </tr>
+                      </thead>
+                      <tbody id="materialRows">
+                        <tr class="is-selected" tabindex="0" data-contract="library.row">
+                          <td><strong>QuickRec_20260723_214512.mp4</strong><small>E:\Videos\QuickRec</small></td>
+                          <td>今天 21:45</td>
+                          <td>00:52</td>
+                          <td>1920×1080</td>
+                          <td>84.6 MB</td>
+                          <td><span class="badge badge-success">可用</span></td>
+                        </tr>
+                        <tr tabindex="0" data-contract="library.row">
+                          <td><strong>中文 演示_20260723_210804.mp4</strong><small>E:\课程素材\演示</small></td>
+                          <td>今天 21:08</td>
+                          <td>00:19</td>
+                          <td>1280×720</td>
+                          <td>18.7 MB</td>
+                          <td><span class="badge badge-success">可用</span></td>
+                        </tr>
+                        <tr tabindex="0" data-contract="library.row">
+                          <td><strong>窗口问题复现_20260722_225210.mp4</strong><small>E:\Videos\QuickRec</small></td>
+                          <td>昨天 22:52</td>
+                          <td>00:41</td>
+                          <td>1600×900</td>
+                          <td>41.2 MB</td>
+                          <td><span class="badge badge-danger">文件缺失</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div class="empty-state" id="libraryEmptyState" hidden>
+                    <div class="empty-state-icon"><svg><use href="#i-library"></use></svg></div>
+                    <h3>暂无符合条件的素材</h3>
+                    <p>调整搜索或筛选条件，也可以完成一次录制或重建保存目录。</p>
+                    <div class="empty-state-actions">
+                      <button type="button" class="button button-secondary" data-contract="library.empty-reset">重置条件</button>
+                      <button type="button" class="button button-primary" data-page-target="record" data-contract="library.empty-record">开始录制</button>
+                    </div>
+                  </div>
+
+                  <div class="error-state" id="libraryErrorState" hidden>
+                    <div class="error-state-icon"><svg><use href="#i-alert"></use></svg></div>
+                    <h3>素材索引暂时无法读取</h3>
+                    <p>上一次有效查询结果仍被保留。请查看诊断信息后重试。</p>
+                    <div class="empty-state-actions">
+                      <button type="button" class="button button-secondary" data-page-target="diagnostics" data-contract="library.error-diagnostics">查看诊断</button>
+                      <button type="button" class="button button-primary" data-contract="library.error-retry">重新加载</button>
+                    </div>
+                  </div>
+
+                  <div class="library-pagination">
+                    <span>显示 1–3 / 3 条</span>
+                    <div>
+                      <button type="button" class="icon-button" aria-label="上一页" disabled data-contract="library.previous-page">
+                        <svg class="flip"><use href="#i-chevron"></use></svg>
+                      </button>
+                      <span class="page-indicator">第 1 页</span>
+                      <button type="button" class="icon-button" aria-label="下一页" disabled data-contract="library.next-page">
+                        <svg><use href="#i-chevron"></use></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <aside class="detail-pane">
+                  <div class="detail-header">
+                    <span class="detail-type"><svg><use href="#i-play"></use></svg></span>
+                    <div>
+                      <h2>QuickRec_20260723_214512.mp4</h2>
+                      <span class="badge badge-success" id="detailStatus">可用</span>
+                    </div>
+                  </div>
+                  <dl class="detail-grid">
+                    <div><dt>录制时间</dt><dd>2026-07-23 21:45:12</dd></div>
+                    <div><dt>时长</dt><dd>00:52</dd></div>
+                    <div><dt>画面</dt><dd>1920×1080 · 60 FPS</dd></div>
+                    <div><dt>模式</dt><dd>全屏录制</dd></div>
+                    <div><dt>音频</dt><dd>系统声音 + 麦克风</dd></div>
+                    <div><dt>大小</dt><dd>84.6 MB</dd></div>
+                    <div class="detail-wide"><dt>路径</dt><dd>E:\Videos\QuickRec\QuickRec_20260723_214512.mp4</dd></div>
+                    <div class="detail-wide"><dt>来源</dt><dd>新录制 · 中央素材索引</dd></div>
+                  </dl>
+                  <div class="detail-actions">
+                    <button type="button" class="button button-primary" data-contract="library.open">
+                      <svg><use href="#i-play"></use></svg>
+                      打开
+                    </button>
+                    <button type="button" class="button button-secondary" data-contract="library.add-project">
+                      <svg><use href="#i-project"></use></svg>
+                      加入项目
+                    </button>
+                    <button type="button" class="button button-secondary" data-contract="library.open-folder">
+                      <svg><use href="#i-folder"></use></svg>
+                      打开目录
+                    </button>
+                    <button type="button" class="button button-secondary" data-contract="library.copy-path">
+                      <svg><use href="#i-copy"></use></svg>
+                      复制路径
+                    </button>
+                    <button type="button" class="button button-secondary" id="relinkButton" disabled data-contract="library.relink">
+                      <svg><use href="#i-refresh"></use></svg>
+                      重新定位
+                    </button>
+                  </div>
+                  <div class="detail-management">
+                    <button type="button" class="button button-quiet" data-contract="library.remove-index">从素材库移除</button>
+                    <button type="button" class="button button-danger-quiet" data-contract="library.recycle">
+                      <svg><use href="#i-trash"></use></svg>
+                      移入回收站
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            </section>
+
+            <section class="page" data-page-panel="projects">
+              <div class="project-toolbar">
+                <label class="search-control project-search">
+                  <svg><use href="#i-search"></use></svg>
+                  <input type="search" id="projectSearch" placeholder="搜索项目名称或描述" data-contract="projects.search">
+                </label>
+                <div class="segmented-control" role="group" aria-label="项目范围">
+                  <button type="button" class="is-active" data-project-scope="active" data-contract="projects.scope-active">活跃项目</button>
+                  <button type="button" data-project-scope="archived" data-contract="projects.scope-archived">已归档</button>
+                </div>
+                <button type="button" class="button button-secondary" data-contract="projects.open-file">
+                  <svg><use href="#i-folder"></use></svg>
+                  打开项目文件
+                </button>
+                <button type="button" class="button button-primary" id="createProject" data-contract="projects.create">
+                  <svg><use href="#i-plus"></use></svg>
+                  新建项目
+                </button>
+              </div>
+
+              <div class="project-status-banner" id="projectStatusBanner" hidden>
+                <svg><use href="#i-alert"></use></svg>
+                <div>
+                  <strong id="projectStatusTitle">项目状态需要处理</strong>
+                  <span id="projectStatusText">处理完成前不会修改项目文件或素材。</span>
+                </div>
+                <button type="button" class="button button-secondary" id="projectStatusAction" data-contract="projects.status-action">处理</button>
+              </div>
+
+              <div class="project-layout timeline-active" id="projectDefaultState">
+                <aside class="project-list-pane">
+                  <div class="project-list-heading">
+                    <div>
+                      <strong>活跃项目</strong>
+                      <span id="projectCount">3 个项目</span>
+                    </div>
+                    <span class="list-sort">最近更新</span>
+                  </div>
+
+                  <div class="project-list" id="projectList">
+                    <button type="button" class="project-list-item is-selected" data-project="course" data-contract="projects.select">
+                      <span class="project-list-icon"><svg><use href="#i-project"></use></svg></span>
+                      <span class="project-list-copy">
+                        <strong>录屏教程：素材库入门</strong>
+                        <small>8 个素材 · 今天 22:18</small>
+                      </span>
+                      <span class="badge badge-success">活跃</span>
+                    </button>
+                    <button type="button" class="project-list-item" data-project="release" data-contract="projects.select">
+                      <span class="project-list-icon is-green"><svg><use href="#i-project"></use></svg></span>
+                      <span class="project-list-copy">
+                        <strong>v1.9 发布演示</strong>
+                        <small>4 个素材 · 今天 19:42</small>
+                      </span>
+                      <span class="badge badge-success">活跃</span>
+                    </button>
+                    <button type="button" class="project-list-item" data-project="missing" data-contract="projects.select">
+                      <span class="project-list-icon is-warning"><svg><use href="#i-alert"></use></svg></span>
+                      <span class="project-list-copy">
+                        <strong>窗口录制问题复盘</strong>
+                        <small>项目文件已移动</small>
+                      </span>
+                      <span class="badge badge-danger">缺失</span>
+                    </button>
+                  </div>
+
+                  <div class="project-list-footer">
+                    <span>默认位置</span>
+                    <strong>%USERPROFILE%\Videos\QuickRec\Projects</strong>
+                    <button type="button" class="button button-quiet" data-page-target="settings" data-contract="projects.change-default-path">修改</button>
+                  </div>
+                </aside>
+
+                <section class="project-detail-pane timeline-mode">
+                  <header class="project-detail-header">
+                    <div class="project-detail-title">
+                      <div class="project-hero-icon"><svg><use href="#i-project"></use></svg></div>
+                      <div>
+                        <div class="project-title-line">
+                          <h2 id="projectName">录屏教程：素材库入门</h2>
+                          <span class="badge badge-success" id="projectHealth">活跃</span>
+                        </div>
+                        <p id="projectDescription">面向新用户的中央素材库与项目整理功能演示。</p>
+                        <span class="project-path" id="projectPath">E:\Videos\QuickRec\Projects\9f31…\project.qrproj</span>
+                      </div>
+                    </div>
+                    <div class="project-header-actions">
+                      <button type="button" class="button button-secondary" id="renameProject" data-contract="projects.rename">
+                        <svg><use href="#i-edit"></use></svg>
+                        重命名
+                      </button>
+                      <button type="button" class="button button-secondary" id="archiveProject" data-contract="projects.archive">
+                        <svg><use href="#i-archive"></use></svg>
+                        归档
+                      </button>
+                      <button type="button" class="button button-secondary" id="restoreProject" data-contract="projects.restore" hidden>
+                        <svg><use href="#i-refresh"></use></svg>
+                        恢复项目
+                      </button>
+                      <button type="button" class="icon-button" aria-label="更多项目操作" title="更多项目操作" data-contract="projects.more">
+                        <svg><use href="#i-more"></use></svg>
+                      </button>
+                    </div>
+                  </header>
+
+                  <div class="project-view-tabs" role="tablist" aria-label="项目二级视图">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected="false"
+                      data-project-view="materials"
+                      data-contract="timeline.view-materials"
+                    >
+                      <svg><use href="#i-library"></use></svg>
+                      素材
+                    </button>
+                    <button
+                      type="button"
+                      class="is-active"
+                      role="tab"
+                      aria-selected="true"
+                      data-project-view="timeline"
+                      data-contract="timeline.view-timeline"
+                    >
+                      <svg><use href="#i-timeline"></use></svg>
+                      进入剪辑
+                      <span class="badge badge-neutral">4 个片段</span>
+                    </button>
+                  </div>
+
+                  <div class="project-metrics">
+                    <div><span>素材</span><strong id="projectMaterialCount">8</strong><small>2 个共享素材</small></div>
+                    <div><span>最近更新</span><strong>今天 22:18</strong><small>项目文件已保存</small></div>
+                    <div><span>项目大小</span><strong>12.6 KB</strong><small>只保存引用，不复制视频</small></div>
+                    <div><span>文件健康</span><strong class="metric-success">正常</strong><small>备份可用</small></div>
+                  </div>
+
+                  <div class="project-material-heading">
+                    <div>
+                      <h3>项目素材</h3>
+                      <p>预览图来自全局素材，不写入项目文件；移出项目不会删除视频。</p>
+                    </div>
+                    <div class="project-material-actions">
+                      <button type="button" class="button button-secondary" id="rebuildProjectPreviews" data-contract="projects.preview-rebuild">
+                        <svg><use href="#i-refresh"></use></svg>
+                        重建预览
+                      </button>
+                      <button type="button" class="button button-secondary" id="addProjectMaterial" data-contract="projects.add-material">
+                        <svg><use href="#i-plus"></use></svg>
+                        添加素材
+                      </button>
+                      <button type="button" class="button button-primary" id="recordToProject" data-contract="projects.record">
+                        <svg><use href="#i-record"></use></svg>
+                        录制到此项目
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="project-material-browser">
+                    <div class="project-preview-list" id="projectPreviewList" role="listbox" aria-label="项目素材">
+                      <button
+                        type="button"
+                        class="project-preview-item is-selected"
+                        data-preview-item="library"
+                        data-name="素材库总览_20260726.mp4"
+                        data-path="E:\课程素材\QuickRec\素材库总览_20260726.mp4"
+                        data-duration="02:18"
+                        data-frame="1920×1080"
+                        data-fps="60 FPS"
+                        data-mode="全屏录制"
+                        data-audio="系统声音 + 麦克风"
+                        data-size="218.4 MB"
+                        data-status="available"
+                        data-contract="projects.preview-select"
+                        role="option"
+                        aria-selected="true"
+                      >
+                        <span class="project-preview-thumb">
+                          <img src="assets/material-library.png" alt="">
+                          <span class="preview-duration">02:18</span>
+                        </span>
+                        <span class="project-preview-copy">
+                          <strong>素材库总览_20260726.mp4</strong>
+                          <small>1920×1080 · 60 FPS · 全屏录制</small>
+                          <span><span class="badge badge-success">可用</span><em>仅本项目</em></span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="project-preview-item"
+                        data-preview-item="diagnostics"
+                        data-name="诊断导出示例.mp4"
+                        data-path="E:\共享 演示\诊断\诊断导出示例.mp4"
+                        data-duration="00:46"
+                        data-frame="1280×720"
+                        data-fps="30 FPS"
+                        data-mode="区域录制"
+                        data-audio="系统声音"
+                        data-size="48.7 MB"
+                        data-status="available"
+                        data-contract="projects.preview-select"
+                        role="option"
+                        aria-selected="false"
+                      >
+                        <span class="project-preview-thumb">
+                          <img src="assets/material-diagnostics.png" alt="">
+                          <span class="preview-duration">00:46</span>
+                        </span>
+                        <span class="project-preview-copy">
+                          <strong>诊断导出示例.mp4</strong>
+                          <small>1280×720 · 30 FPS · 区域录制</small>
+                          <span><span class="badge badge-success">可用</span><em>2 个项目共享</em></span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="project-preview-item"
+                        data-preview-item="missing"
+                        data-name="窗口选择流程.mp4"
+                        data-path="E:\Videos\QuickRec\窗口选择流程.mp4"
+                        data-duration="01:07"
+                        data-frame="1600×900"
+                        data-fps="60 FPS"
+                        data-mode="窗口录制"
+                        data-audio="无声"
+                        data-size="63.2 MB"
+                        data-status="missing"
+                        data-contract="projects.preview-select"
+                        role="option"
+                        aria-selected="false"
+                      >
+                        <span class="project-preview-thumb is-missing">
+                          <img src="assets/material-recording.png" alt="">
+                          <span class="preview-overlay"><svg><use href="#i-alert"></use></svg>文件缺失</span>
+                          <span class="preview-duration">01:07</span>
+                        </span>
+                        <span class="project-preview-copy">
+                          <strong>窗口选择流程.mp4</strong>
+                          <small>1600×900 · 60 FPS · 窗口录制</small>
+                          <span><span class="badge badge-danger">文件缺失</span><em>保留历史预览</em></span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="project-preview-item"
+                        data-preview-item="failed"
+                        data-name="损坏样本_无法解析.mp4"
+                        data-path="E:\课程素材\异常样本\损坏样本_无法解析.mp4"
+                        data-duration="--:--"
+                        data-frame="未知"
+                        data-fps="未知"
+                        data-mode="未知"
+                        data-audio="未知"
+                        data-size="4.1 KB"
+                        data-status="failed"
+                        data-contract="projects.preview-select"
+                        role="option"
+                        aria-selected="false"
+                      >
+                        <span class="project-preview-thumb is-placeholder">
+                          <svg><use href="#i-play"></use></svg>
+                          <span class="preview-overlay"><svg><use href="#i-alert"></use></svg>生成失败</span>
+                        </span>
+                        <span class="project-preview-copy">
+                          <strong>损坏样本_无法解析.mp4</strong>
+                          <small>无法读取画面元数据</small>
+                          <span><span class="badge badge-warning">预览失败</span><em>素材记录未改变</em></span>
+                        </span>
+                      </button>
+                    </div>
+
+                    <aside class="project-preview-detail" id="projectPreviewDetail">
+                      <div class="project-preview-stage" id="projectPreviewStage">
+                        <img id="projectPreviewImage" src="assets/material-library.png" alt="素材静态预览">
+                        <div class="preview-stage-placeholder" id="projectPreviewPlaceholder" hidden>
+                          <svg><use href="#i-play"></use></svg>
+                          <strong id="projectPreviewPlaceholderTitle">正在生成预览</strong>
+                          <span id="projectPreviewPlaceholderText">项目仍可正常操作</span>
+                        </div>
+                        <span class="preview-state-chip badge badge-success" id="projectPreviewState">预览可用</span>
+                        <span class="preview-position">视频 10% 位置</span>
+                      </div>
+
+                      <div class="project-preview-title-row">
+                        <div>
+                          <h4 id="previewDetailName">素材库总览_20260726.mp4</h4>
+                          <span id="previewDetailPath">E:\课程素材\QuickRec\素材库总览_20260726.mp4</span>
+                        </div>
+                        <button type="button" class="icon-button" aria-label="更多素材操作" title="更多素材操作" data-contract="projects.material-more">
+                          <svg><use href="#i-more"></use></svg>
+                        </button>
+                      </div>
+
+                      <dl class="project-preview-meta">
+                        <div><dt>时长</dt><dd id="previewDetailDuration">02:18</dd></div>
+                        <div><dt>画面</dt><dd id="previewDetailFrame">1920×1080 · 60 FPS</dd></div>
+                        <div><dt>模式</dt><dd id="previewDetailMode">全屏录制</dd></div>
+                        <div><dt>音频</dt><dd id="previewDetailAudio">系统声音 + 麦克风</dd></div>
+                        <div><dt>大小</dt><dd id="previewDetailSize">218.4 MB</dd></div>
+                        <div><dt>缓存</dt><dd id="previewDetailCache">JPEG · 320×180</dd></div>
+                      </dl>
+
+                      <div class="project-preview-actions">
+                        <button type="button" class="button button-primary" id="openProjectMaterial" data-contract="projects.preview-open">
+                          <svg><use href="#i-play"></use></svg>
+                          打开文件
+                        </button>
+                        <button type="button" class="button button-secondary" id="openProjectMaterialFolder" data-contract="projects.preview-folder">
+                          <svg><use href="#i-folder"></use></svg>
+                          打开目录
+                        </button>
+                        <button type="button" class="button button-secondary" id="locateProjectMaterial" data-contract="projects.preview-library">
+                          <svg><use href="#i-library"></use></svg>
+                          在素材库中查看
+                        </button>
+                        <button type="button" class="button button-quiet" id="refreshProjectPreview" data-contract="projects.preview-refresh">
+                          <svg><use href="#i-refresh"></use></svg>
+                          刷新预览
+                        </button>
+                      </div>
+
+                      <div class="project-preview-feedback" id="projectPreviewFeedback">
+                        <svg><use href="#i-info"></use></svg>
+                        <span>预览缓存是可再生数据，不会写入项目文件或中央素材索引。</span>
+                      </div>
+                    </aside>
+                  </div>
+
+                  <div class="timeline-workspace" id="timelineWorkspace">
+                    <div class="timeline-window-titlebar">
+                      <div class="window-product">
+                        <span class="product-mark" aria-hidden="true"></span>
+                        <span>QuickRec 剪辑工作台</span>
+                      </div>
+                      <div class="timeline-window-state">
+                        <span class="timeline-window-maximized">默认最大化</span>
+                        <span aria-hidden="true">—</span>
+                        <span aria-hidden="true">□</span>
+                        <span aria-hidden="true">×</span>
+                      </div>
+                    </div>
+
+                    <section class="version-evolution-strip" id="versionEvolutionStrip" hidden aria-label="当前界面版本演进">
+                      <div class="version-evolution-intro">
+                        <span>界面演进</span>
+                        <strong>当前剪辑工作台由 4 个连续版本增量形成</strong>
+                      </div>
+                      <ol>
+                        <li><b>v1.9.2</b><span>独立剪辑工作台、多轨播放、缩放与面板布局</span></li>
+                        <li><b>v1.9.3</b><span>裁剪、分割、轨道锁与全局波纹</span></li>
+                        <li><b>v1.9.4</b><span>正式导出入口、持久队列与恢复</span></li>
+                        <li class="is-current"><b>v1.9.5</b><span>统一快捷键、解绑/重关联、双删除、智能拖放与帧级时间</span></li>
+                      </ol>
+                    </section>
+
+                    <header class="timeline-window-commandbar">
+                      <div class="timeline-window-context">
+                        <button
+                          type="button"
+                          class="button button-secondary timeline-back-button"
+                          id="exitTimelineWorkspace"
+                          data-contract="timeline.exit-workbench"
+                        >
+                          <svg><use href="#i-chevron"></use></svg>
+                          返回项目
+                        </button>
+                        <div>
+                          <span>剪辑工作台</span>
+                          <strong>录屏教程：素材库入门</strong>
+                          <small>项目素材与时间线编排 · 主工作台继续在后台运行</small>
+                        </div>
+                      </div>
+                      <div class="timeline-window-actions">
+                        <div class="timeline-save-indicator" id="timelineSaveIndicator">
+                          <svg><use href="#i-save"></use></svg>
+                          <span>已自动保存</span>
+                        </div>
+                        <button
+                          type="button"
+                          class="button button-secondary"
+                          id="openMaterialWorkbench"
+                          data-contract="timeline.open-material-workbench"
+                        >
+                          <svg><use href="#i-library"></use></svg>
+                          素材工作台
+                        </button>
+                        <button
+                          type="button"
+                          class="button button-secondary"
+                          id="exportFromTimeline"
+                          data-contract="timeline.export"
+                        >
+                          <svg><use href="#i-export"></use></svg>
+                          导出项目
+                        </button>
+                        <button
+                          type="button"
+                          class="button button-primary"
+                          id="recordFromTimeline"
+                          data-contract="timeline.start-recording"
+                        >
+                          <svg><use href="#i-record"></use></svg>
+                          开始录制
+                        </button>
+                        <button
+                          type="button"
+                          class="icon-button"
+                          id="closeTimelineWorkspace"
+                          aria-label="关闭剪辑工作台"
+                          title="关闭剪辑工作台，QuickRec 继续驻留"
+                          data-contract="timeline.close-workbench"
+                        >
+                          <svg><use href="#i-x"></use></svg>
+                        </button>
+                      </div>
+                    </header>
+
+                    <div class="timeline-state-banner" id="timelineStateBanner" hidden>
+                      <svg><use href="#i-alert"></use></svg>
+                      <div>
+                        <strong id="timelineStateTitle">时间线状态需要处理</strong>
+                        <span id="timelineStateText">处理前不会覆盖最后一次成功保存的项目数据。</span>
+                      </div>
+                      <button type="button" class="button button-secondary" id="timelineStateAction" data-contract="timeline.state-action">处理</button>
+                    </div>
+
+                    <section class="timeline-preview-zone" data-component-version="v1.9.2" data-component-updated="v1.9.5 帧级播放与快捷键焦点">
+                      <aside class="timeline-material-rail" id="timelineMaterialRail">
+                        <header>
+                          <div>
+                            <strong>项目素材</strong>
+                            <span id="timelineMaterialCount">3 个可用 · 1 个缺失</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="collapseTimelineMaterials"
+                            aria-label="折叠项目素材区"
+                            title="折叠项目素材区"
+                            data-contract="timeline.material-collapse"
+                          >
+                            <svg><use href="#i-collapse"></use></svg>
+                          </button>
+                        </header>
+                        <label class="search-control timeline-material-search">
+                          <svg><use href="#i-search"></use></svg>
+                          <input
+                            type="search"
+                            id="timelineMaterialSearch"
+                            placeholder="搜索名称或路径"
+                            data-contract="timeline.material-search"
+                          >
+                          <button
+                            type="button"
+                            class="search-clear"
+                            id="clearTimelineMaterialSearch"
+                            aria-label="清空素材搜索"
+                            title="清空素材搜索"
+                            disabled
+                            data-contract="timeline.material-clear"
+                          >
+                            <svg><use href="#i-x"></use></svg>
+                          </button>
+                        </label>
+                        <div class="timeline-material-list" id="timelineMaterialList">
+                          <article
+                            class="timeline-material-card is-selected"
+                            data-timeline-material="course"
+                            data-search-text="素材库总览 课程素材 quickrec"
+                          >
+                            <button
+                              type="button"
+                              class="timeline-material-select"
+                              data-contract="timeline.material-select"
+                            >
+                              <span class="timeline-material-thumb">
+                                <img src="assets/material-library.png" alt="">
+                                <span>02:18</span>
+                              </span>
+                              <span class="timeline-material-copy">
+                                <strong>素材库总览_20260726.mp4</strong>
+                                <small>1080p · 60 FPS · 含音频</small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="icon-button timeline-material-add"
+                              aria-label="把素材库总览加入时间线"
+                              title="加入时间线"
+                              data-contract="timeline.material-add"
+                            >
+                              <svg><use href="#i-plus"></use></svg>
+                            </button>
+                          </article>
+                          <article
+                            class="timeline-material-card"
+                            data-timeline-material="diagnostics"
+                            data-search-text="诊断导出 共享 演示"
+                          >
+                            <button
+                              type="button"
+                              class="timeline-material-select"
+                              data-contract="timeline.material-select"
+                            >
+                              <span class="timeline-material-thumb">
+                                <img src="assets/material-diagnostics.png" alt="">
+                                <span>00:46</span>
+                              </span>
+                              <span class="timeline-material-copy">
+                                <strong>诊断导出示例.mp4</strong>
+                                <small>720p · 30 FPS · 含音频</small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="icon-button timeline-material-add"
+                              aria-label="把诊断导出示例加入时间线"
+                              title="加入时间线"
+                              data-contract="timeline.material-add"
+                            >
+                              <svg><use href="#i-plus"></use></svg>
+                            </button>
+                          </article>
+                          <article
+                            class="timeline-material-card"
+                            data-timeline-material="recording"
+                            data-search-text="窗口选择流程 videos quickrec"
+                          >
+                            <button
+                              type="button"
+                              class="timeline-material-select"
+                              data-contract="timeline.material-select"
+                            >
+                              <span class="timeline-material-thumb">
+                                <img src="assets/material-recording.png" alt="">
+                                <span>01:07</span>
+                              </span>
+                              <span class="timeline-material-copy">
+                                <strong>窗口选择流程.mp4</strong>
+                                <small>900p · 60 FPS · 无声</small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="icon-button timeline-material-add"
+                              aria-label="把窗口选择流程加入时间线"
+                              title="加入时间线"
+                              data-contract="timeline.material-add"
+                            >
+                              <svg><use href="#i-plus"></use></svg>
+                            </button>
+                          </article>
+                          <article
+                            class="timeline-material-card is-missing"
+                            data-timeline-material="missing"
+                            data-search-text="片尾演示 文件缺失"
+                          >
+                            <button
+                              type="button"
+                              class="timeline-material-select"
+                              data-contract="timeline.material-select"
+                            >
+                              <span class="timeline-material-thumb">
+                                <img src="assets/material-recording.png" alt="">
+                                <span class="timeline-material-missing"><svg><use href="#i-alert"></use></svg></span>
+                              </span>
+                              <span class="timeline-material-copy">
+                                <strong>片尾演示_已移动.mp4</strong>
+                                <small>文件缺失 · 保留项目引用</small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="icon-button timeline-material-add"
+                              aria-label="重新定位缺失素材"
+                              title="重新定位"
+                              data-contract="timeline.material-relink"
+                            >
+                              <svg><use href="#i-refresh"></use></svg>
+                            </button>
+                          </article>
+                        </div>
+                        <div class="timeline-material-quick-actions">
+                          <span id="timelineMaterialSelection">已选：素材库总览</span>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineMaterialOpen"
+                            aria-label="使用默认播放器打开所选素材"
+                            title="打开文件"
+                            data-contract="timeline.material-open"
+                          >
+                            <svg><use href="#i-play"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineMaterialFolder"
+                            aria-label="在资源管理器中定位所选素材"
+                            title="打开目录"
+                            data-contract="timeline.material-folder"
+                          >
+                            <svg><use href="#i-folder"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineMaterialRelink"
+                            aria-label="重新定位所选缺失素材"
+                            title="重新定位"
+                            disabled
+                            data-contract="timeline.material-relink"
+                          >
+                            <svg><use href="#i-refresh"></use></svg>
+                          </button>
+                        </div>
+                        <footer>
+                          <button type="button" class="button button-quiet" data-project-view="materials" data-contract="timeline.open-material-view">
+                            在素材视图管理全部素材
+                            <svg><use href="#i-chevron"></use></svg>
+                          </button>
+                        </footer>
+                      </aside>
+
+                      <section class="timeline-monitor">
+                        <header class="timeline-monitor-header">
+                          <div>
+                            <strong>时间线预览</strong>
+                            <span id="timelinePreviewRule">完整画面自适应 · 最高视频轨覆盖 · 固定音频混合</span>
+                          </div>
+                          <div class="timeline-monitor-actions">
+                            <span class="badge badge-warning" title="最终播放后端需通过 libmpv / PyAV 技术门禁">播放后端待技术门禁</span>
+                            <button
+                              type="button"
+                              class="icon-button"
+                              id="toggleTimelinePreviewMaximize"
+                              aria-label="放大视频预览"
+                              aria-pressed="false"
+                              title="放大视频预览"
+                              data-contract="timeline.preview-maximize"
+                            >
+                              <svg><use href="#i-fit"></use></svg>
+                            </button>
+                          </div>
+                        </header>
+                        <div class="timeline-preview-stage" id="timelinePreviewStage">
+                          <img src="assets/material-library.png" id="timelinePreviewImage" alt="时间线预览画面">
+                          <div class="timeline-preview-badge">
+                            <svg><use href="#i-video"></use></svg>
+                            V2 · 诊断导出示例
+                          </div>
+                          <div class="timeline-preview-placeholder" id="timelinePreviewPlaceholder" hidden>
+                            <svg><use href="#i-alert"></use></svg>
+                            <strong id="timelinePreviewPlaceholderTitle">素材无法解码</strong>
+                            <span id="timelinePreviewPlaceholderText">播放时钟继续，错误不会静默露出下层画面。</span>
+                            <div>
+                              <button type="button" class="button button-secondary" id="retryTimelinePlayback" data-contract="timeline.preview-retry">重试播放</button>
+                              <button type="button" class="button button-quiet" data-contract="timeline.preview-diagnostics">查看诊断</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="timeline-transport">
+                          <button
+                            type="button"
+                            class="transport-play"
+                            id="timelinePlayPause"
+                            aria-label="播放时间线"
+                            title="播放时间线"
+                            data-contract="timeline.play"
+                          >
+                            <svg><use href="#i-play"></use></svg>
+                          </button>
+                          <span class="timeline-timecode" id="timelineCurrentTime">00:00:12.480</span>
+                          <input
+                            type="range"
+                            id="timelineSeek"
+                            min="0"
+                            max="58000"
+                            value="12480"
+                            aria-label="时间线播放位置"
+                            data-contract="timeline.seek"
+                          >
+                          <span class="timeline-timecode timeline-duration">00:00:58.000</span>
+                          <span class="timeline-audio-state" id="timelineAudioState">
+                            <svg><use href="#i-audio"></use></svg>
+                            音频正常
+                          </span>
+                        </div>
+                      </section>
+                    </section>
+
+                    <div
+                      class="timeline-splitter"
+                      id="timelineSplitter"
+                      role="separator"
+                      aria-label="调整视频预览和时间线高度"
+                      aria-orientation="horizontal"
+                      aria-valuemin="180"
+                      aria-valuemax="520"
+                      aria-valuenow="310"
+                      tabindex="0"
+                      data-contract="timeline.resize-panels"
+                    >
+                      <span aria-hidden="true"></span>
+                      <small>拖动调整预览高度 · 双击恢复默认</small>
+                    </div>
+
+                    <section class="timeline-editor" data-component-version="v1.9.2" data-component-updated="v1.9.3 剪辑；v1.9.4 导出；v1.9.5 交互与轨道控制">
+                      <header class="timeline-editor-toolbar">
+                        <div class="timeline-toolbar-group">
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineUndo"
+                            aria-label="撤销最近一次时间线操作"
+                            title="撤销 Ctrl+Z"
+                            data-contract="timeline.undo"
+                          >
+                            <svg><use href="#i-undo"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineRedo"
+                            aria-label="重做最近撤销的时间线操作"
+                            title="重做 Ctrl+Y"
+                            disabled
+                            data-contract="timeline.redo"
+                          >
+                            <svg><use href="#i-redo"></use></svg>
+                          </button>
+                          <span class="toolbar-separator"></span>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelinePreviousFrame"
+                            aria-label="播放头向前移动一帧"
+                            title="前一帧 Left"
+                            data-contract="timeline.previous-frame"
+                          >
+                            <svg><use href="#i-frame-prev"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineNextFrame"
+                            aria-label="播放头向后移动一帧"
+                            title="后一帧 Right"
+                            data-contract="timeline.next-frame"
+                          >
+                            <svg><use href="#i-frame-next"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="button button-secondary button-compact"
+                            id="splitClipAtPlayhead"
+                            title="在播放头处分割 Ctrl+B"
+                            data-contract="timeline.split"
+                          >
+                            <svg><use href="#i-split"></use></svg>
+                            分割
+                          </button>
+                          <div class="split-action" id="deleteActionGroup">
+                            <button
+                              type="button"
+                              class="button button-secondary button-compact split-action-main"
+                              id="deleteTimelineClip"
+                              title="普通删除并保留空隙 Delete"
+                              data-contract="timeline.delete-gap"
+                            >
+                              <svg><use href="#i-trash"></use></svg>
+                              删除
+                            </button>
+                            <button
+                              type="button"
+                              class="button button-secondary button-compact split-action-menu"
+                              id="openRippleDeleteMenu"
+                              aria-label="打开全局波纹删除菜单"
+                              aria-expanded="false"
+                              title="全局波纹删除 Shift+Delete"
+                              data-contract="timeline.ripple-menu"
+                            >
+                              <svg><use href="#i-chevron"></use></svg>
+                            </button>
+                            <div class="timeline-action-popover" id="rippleDeletePopover" hidden>
+                              <button type="button" id="rippleDeleteTimelineClip" data-contract="timeline.ripple-delete-v195">
+                                <svg><use href="#i-link"></use></svg>
+                                <span><strong>全局波纹删除</strong><small>Shift+Delete · 删除后收拢全部未锁定轨</small></span>
+                              </button>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            class="button button-secondary button-compact"
+                            id="toggleClipLink"
+                            title="解绑或重新关联 Ctrl+L"
+                            data-contract="timeline.unlink"
+                          >
+                            <svg><use href="#i-unlink"></use></svg>
+                            <span id="toggleClipLinkLabel">解绑</span>
+                          </button>
+                          <span class="toolbar-separator"></span>
+                          <button type="button" class="button button-secondary button-compact" id="addVideoTrack" data-contract="timeline.add-video-track">
+                            <svg><use href="#i-video"></use></svg>
+                            视频轨
+                          </button>
+                          <button type="button" class="button button-secondary button-compact" id="addAudioTrack" data-contract="timeline.add-audio-track">
+                            <svg><use href="#i-audio"></use></svg>
+                            音频轨
+                          </button>
+                        </div>
+                        <div class="timeline-clip-summary" id="timelineClipSummary">
+                          <span class="badge badge-neutral">已选 V2</span>
+                          <strong>诊断导出示例</strong>
+                          <span id="timelineClipDetail">源 00:12.000–00:33.000 · 关联音频 A2</span>
+                          <span class="link-state-chip is-linked" id="timelineLinkState">
+                            <svg><use href="#i-link"></use></svg>
+                            A2 已关联
+                          </span>
+                          <button
+                            type="button"
+                            class="button button-quiet button-compact"
+                            id="toggleClipInspector"
+                            aria-expanded="false"
+                            data-contract="timeline.inspector-toggle"
+                          >
+                            <svg><use href="#i-edit"></use></svg>
+                            片段属性
+                          </button>
+                        </div>
+                        <div class="timeline-toolbar-group timeline-zoom-controls">
+                          <label class="editing-fps-control" data-contract="timeline.editing-fps">
+                            <span>项目编辑帧率</span>
+                            <select id="timelineEditingFps" aria-label="项目编辑帧率" disabled>
+                              <option value="30">30 FPS</option>
+                              <option value="60" selected>60 FPS</option>
+                              <option value="120">120 FPS</option>
+                            </select>
+                            <small>已有片段后锁定</small>
+                          </label>
+                          <button
+                            type="button"
+                            class="button button-secondary button-compact timeline-focus-button"
+                            id="toggleTimelineFocus"
+                            aria-pressed="false"
+                            title="收起素材与预览区，让轨道画布使用完整编辑高度"
+                            data-contract="timeline.focus-mode"
+                          >
+                            <svg><use href="#i-timeline"></use></svg>
+                            <span>专注时间线</span>
+                          </button>
+                          <span class="toolbar-separator"></span>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineZoomOut"
+                            aria-label="缩小时间线"
+                            title="缩小时间线"
+                            data-contract="timeline.zoom-out"
+                          >
+                            <svg><use href="#i-zoom-out"></use></svg>
+                          </button>
+                          <span id="timelineZoomLabel">100%</span>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineZoomIn"
+                            aria-label="放大时间线"
+                            title="放大时间线"
+                            data-contract="timeline.zoom-in"
+                          >
+                            <svg><use href="#i-zoom-in"></use></svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="timelineFit"
+                            aria-label="适配完整时间线"
+                            title="适配完整时间线"
+                            data-contract="timeline.fit"
+                          >
+                            <svg><use href="#i-fit"></use></svg>
+                          </button>
+                        </div>
+                      </header>
+
+                      <div class="timeline-scroll" id="timelineScroll">
+                        <div class="timeline-grid" id="timelineGrid">
+                          <div class="timeline-ruler-label">
+                            <span>轨道</span>
+                            <small>拖动片段调整位置</small>
+                          </div>
+                          <button type="button" class="timeline-ruler" id="timelineRuler" data-contract="timeline.ruler-seek">
+                            <span style="left:0%">00:00</span>
+                            <span style="left:17.24%">00:10</span>
+                            <span style="left:34.48%">00:20</span>
+                            <span style="left:51.72%">00:30</span>
+                            <span style="left:68.96%">00:40</span>
+                            <span style="left:86.2%">00:50</span>
+                            <i class="timeline-playhead-marker" id="timelinePlayheadMarker" style="left:21.52%"></i>
+                          </button>
+
+                          <div class="timeline-track-row" data-track-id="video-2" data-track-kind="video" data-locked="false">
+                            <div class="timeline-track-header">
+                              <button type="button" class="track-grip" aria-label="调整视频 2 轨道顺序" title="调整轨道顺序" data-contract="timeline.track-reorder"><svg><use href="#i-grip"></use></svg></button>
+                              <span class="track-kind-icon"><svg><use href="#i-video"></use></svg></span>
+                              <button type="button" class="track-name" data-contract="timeline.track-rename">视频 2</button>
+                              <span class="track-status is-active">当前画面</span>
+                              <button type="button" class="track-lock" aria-label="锁定视频 2" title="锁定轨道" aria-pressed="false" data-contract="timeline.track-lock"><svg><use href="#i-unlock"></use></svg></button>
+                              <button type="button" class="track-delete" aria-label="删除视频 2" title="删除轨道" data-contract="timeline.track-delete"><svg><use href="#i-trash"></use></svg></button>
+                            </div>
+                            <div class="timeline-lane video-lane">
+                              <button
+                                type="button"
+                                class="timeline-clip clip-video clip-blue is-selected"
+                                data-clip-id="clip-v2"
+                                data-start="20.6896551724"
+                                data-duration="36.2068965517"
+                                data-source-start-ms="12000"
+                                data-source-end-ms="33000"
+                                data-material-duration-ms="46000"
+                                draggable="true"
+                                data-contract="timeline.clip"
+                              >
+                                <span class="clip-trim-handle is-left" data-trim-edge="in" data-contract="timeline.trim-handle-in" aria-label="调整片段源入点"></span>
+                                <span class="clip-grip"><svg><use href="#i-grip"></use></svg></span>
+                                <span class="clip-copy"><strong>诊断导出示例</strong><small>00:12.000 · 21 秒</small></span>
+                                <span class="clip-link" data-link-group="A2"><svg><use href="#i-link"></use></svg>A2</span>
+                                <span class="clip-trim-handle is-right" data-trim-edge="out" data-contract="timeline.trim-handle-out" aria-label="调整片段源出点"></span>
+                              </button>
+                              <i class="timeline-playhead-line" style="left:21.52%"></i>
+                            </div>
+                          </div>
+
+                          <div class="timeline-track-row" data-track-id="video-1" data-track-kind="video" data-locked="false">
+                            <div class="timeline-track-header">
+                              <button type="button" class="track-grip" aria-label="调整视频 1 轨道顺序" title="调整轨道顺序" data-contract="timeline.track-reorder"><svg><use href="#i-grip"></use></svg></button>
+                              <span class="track-kind-icon"><svg><use href="#i-video"></use></svg></span>
+                              <button type="button" class="track-name" data-contract="timeline.track-rename">视频 1</button>
+                              <span class="track-status">底层画面</span>
+                              <button type="button" class="track-lock" aria-label="锁定视频 1" title="锁定轨道" aria-pressed="false" data-contract="timeline.track-lock"><svg><use href="#i-unlock"></use></svg></button>
+                              <button type="button" class="track-delete" aria-label="删除视频 1" title="删除轨道" data-contract="timeline.track-delete"><svg><use href="#i-trash"></use></svg></button>
+                            </div>
+                            <div class="timeline-lane video-lane">
+                              <button
+                                type="button"
+                                class="timeline-clip clip-video clip-green"
+                                data-clip-id="clip-v1-a"
+                                data-start="0"
+                                data-duration="17.2413793103"
+                                data-source-start-ms="0"
+                                data-source-end-ms="10000"
+                                data-material-duration-ms="138000"
+                                draggable="true"
+                                data-contract="timeline.clip"
+                              >
+                                <span class="clip-grip"><svg><use href="#i-grip"></use></svg></span>
+                                <span class="clip-copy"><strong>素材库总览</strong><small>00:00.000 · 10 秒</small></span>
+                                <span class="clip-link"><svg><use href="#i-link"></use></svg>A1</span>
+                              </button>
+                              <button
+                                type="button"
+                                class="timeline-clip clip-video clip-amber"
+                                data-clip-id="clip-v1-b"
+                                data-start="58.6206896552"
+                                data-duration="32.7586206897"
+                                data-source-start-ms="34000"
+                                data-source-end-ms="53000"
+                                data-material-duration-ms="67000"
+                                draggable="true"
+                                data-contract="timeline.clip"
+                              >
+                                <span class="clip-grip"><svg><use href="#i-grip"></use></svg></span>
+                                <span class="clip-copy"><strong>窗口选择流程</strong><small>00:34.000 · 19 秒</small></span>
+                              </button>
+                              <i class="timeline-playhead-line" style="left:21.52%"></i>
+                            </div>
+                          </div>
+
+                          <div class="timeline-track-row" data-track-id="audio-1" data-track-kind="audio" data-locked="false">
+                            <div class="timeline-track-header">
+                              <button type="button" class="track-grip" aria-label="调整音频 1 轨道顺序" title="调整轨道顺序" data-contract="timeline.track-reorder"><svg><use href="#i-grip"></use></svg></button>
+                              <span class="track-kind-icon is-audio"><svg><use href="#i-audio"></use></svg></span>
+                              <button type="button" class="track-name" data-contract="timeline.track-rename">音频 1</button>
+                              <span class="track-status">固定增益</span>
+                              <button type="button" class="track-lock" aria-label="锁定音频 1" title="锁定轨道" aria-pressed="false" data-contract="timeline.track-lock"><svg><use href="#i-unlock"></use></svg></button>
+                              <button type="button" class="track-delete" aria-label="删除音频 1" title="删除轨道" data-contract="timeline.track-delete"><svg><use href="#i-trash"></use></svg></button>
+                            </div>
+                            <div class="timeline-lane audio-lane">
+                              <button
+                                type="button"
+                                class="timeline-clip clip-audio clip-green"
+                                data-clip-id="clip-a1"
+                                data-start="0"
+                                data-duration="17.2413793103"
+                                data-source-start-ms="0"
+                                data-source-end-ms="10000"
+                                data-material-duration-ms="138000"
+                                draggable="true"
+                                data-contract="timeline.clip"
+                              >
+                                <span class="clip-wave" aria-hidden="true"></span>
+                                <span class="clip-copy"><strong>素材库总览 · 音频</strong><small>关联 V1</small></span>
+                              </button>
+                              <i class="timeline-playhead-line" style="left:21.52%"></i>
+                            </div>
+                          </div>
+
+                          <div class="timeline-track-row" data-track-id="audio-2" data-track-kind="audio" data-locked="false">
+                            <div class="timeline-track-header">
+                              <button type="button" class="track-grip" aria-label="调整音频 2 轨道顺序" title="调整轨道顺序" data-contract="timeline.track-reorder"><svg><use href="#i-grip"></use></svg></button>
+                              <span class="track-kind-icon is-audio"><svg><use href="#i-audio"></use></svg></span>
+                              <button type="button" class="track-name" data-contract="timeline.track-rename">音频 2</button>
+                              <span class="track-status is-active">正在混合</span>
+                              <button type="button" class="track-lock" aria-label="锁定音频 2" title="锁定轨道" aria-pressed="false" data-contract="timeline.track-lock"><svg><use href="#i-unlock"></use></svg></button>
+                              <button type="button" class="track-delete" aria-label="删除音频 2" title="删除轨道" data-contract="timeline.track-delete"><svg><use href="#i-trash"></use></svg></button>
+                            </div>
+                            <div class="timeline-lane audio-lane">
+                              <button
+                                type="button"
+                                class="timeline-clip clip-audio clip-blue"
+                                data-clip-id="clip-a2"
+                                data-start="20.6896551724"
+                                data-duration="36.2068965517"
+                                data-source-start-ms="12000"
+                                data-source-end-ms="33000"
+                                data-material-duration-ms="46000"
+                                draggable="true"
+                                data-contract="timeline.clip"
+                              >
+                                <span class="clip-wave" aria-hidden="true"></span>
+                                <span class="clip-copy"><strong>诊断导出 · 音频</strong><small>关联 V2</small></span>
+                                <span class="clip-link" data-link-group="A2"><svg><use href="#i-link"></use></svg>V2</span>
+                              </button>
+                              <i class="timeline-playhead-line" style="left:21.52%"></i>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <aside class="clip-inspector" id="clipInspector" hidden aria-label="片段属性检查器">
+                        <header>
+                          <div>
+                            <strong>片段属性</strong>
+                            <span>诊断导出示例 · 视频 2 · 关联 A2</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="icon-button"
+                            id="closeClipInspector"
+                            aria-label="关闭片段属性"
+                            title="关闭片段属性"
+                            data-contract="timeline.inspector-close"
+                          >
+                            <svg><use href="#i-x"></use></svg>
+                          </button>
+                        </header>
+                        <div class="clip-inspector-content">
+                          <div class="inspector-readonly-row">
+                            <span>时间线起点</span>
+                            <strong id="inspectorTimelineStart">00:12.000</strong>
+                          </div>
+                          <label class="inspector-field">
+                            <span>源入点</span>
+                            <input id="trimSourceIn" type="text" value="00:00:12.000" inputmode="decimal" data-contract="timeline.trim-source-in">
+                            <small id="trimSourceInError">按素材帧边界归一化</small>
+                          </label>
+                          <label class="inspector-field">
+                            <span>源出点</span>
+                            <input id="trimSourceOut" type="text" value="00:00:33.000" inputmode="decimal" data-contract="timeline.trim-source-out">
+                            <small id="trimSourceOutError">不得超过素材总时长 00:46.000</small>
+                          </label>
+                          <div class="inspector-readonly-row">
+                            <span>有效时长</span>
+                            <strong id="inspectorDuration">00:21.000</strong>
+                          </div>
+                          <div class="inspector-readonly-row">
+                            <span>关联编辑</span>
+                            <strong>视频 V2 + 音频 A2</strong>
+                          </div>
+                          <div class="ripple-impact-inline" id="inspectorRippleImpact">
+                            <svg><use href="#i-link"></use></svg>
+                            <div>
+                              <strong>全局波纹影响</strong>
+                              <span>当前无变化；修改后将预检全部未锁定轨道。</span>
+                            </div>
+                          </div>
+                        </div>
+                        <footer>
+                          <button type="button" class="button button-primary" id="applyTrimValues" disabled data-contract="timeline.trim-apply">
+                            <svg><use href="#i-check"></use></svg>
+                            应用
+                          </button>
+                          <button type="button" class="button button-secondary" id="cancelTrimValues" data-contract="timeline.trim-cancel">取消</button>
+                        </footer>
+                      </aside>
+
+                      <div class="drag-contract-overlay" id="timelineDragOverlay" hidden aria-live="polite">
+                        <div class="drag-contract-card">
+                          <svg><use href="#i-video"></use></svg>
+                          <div>
+                            <span id="dragContractEyebrow">吸附到现有轨道</span>
+                            <strong id="dragContractTitle">视频 1 · 00:00:34:12</strong>
+                            <small id="dragContractDetail">吸附片段尾部；同时加入关联音频 A2</small>
+                          </div>
+                          <span class="drag-contract-status" id="dragContractStatus">可放置</span>
+                        </div>
+                      </div>
+
+                      <footer class="timeline-editor-footer">
+                        <span><svg><use href="#i-info"></use></svg>Delete 保留空隙；Shift+Delete 执行全局波纹。关联音视频可解绑后独立编辑。</span>
+                        <span id="timelineFooterStatus">timeline schema v2 · editing 60 FPS · 微秒存储 · 撤销历史 1 / 50 · 总时长 00:58:00</span>
+                      </footer>
+                    </section>
+                  </div>
+
+                  <footer class="project-detail-footer">
+                    <span><svg><use href="#i-save"></use></svg>每次离散剪辑命令原子保存；失败时模型、历史与项目文件保持原状态。</span>
+                    <button type="button" class="button button-danger-quiet" id="deleteProject" data-contract="projects.delete">
+                      <svg><use href="#i-trash"></use></svg>
+                      删除项目
+                    </button>
+                  </footer>
+                </section>
+              </div>
+
+              <div class="project-empty-state" id="projectEmptyState" hidden>
+                <div class="empty-state-icon"><svg><use href="#i-project"></use></svg></div>
+                <h2>还没有项目</h2>
+                <p>项目用于组织多次录制和已有素材。视频继续保存在原位置，项目只保存引用。</p>
+                <div class="empty-state-actions">
+                  <button type="button" class="button button-secondary" data-contract="projects.open-file">
+                    <svg><use href="#i-folder"></use></svg>
+                    打开项目文件
+                  </button>
+                  <button type="button" class="button button-primary" data-contract="projects.create">
+                    <svg><use href="#i-plus"></use></svg>
+                    创建第一个项目
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="page export-page" data-page-panel="exports">
+              <div class="export-page-toolbar">
+                <div class="export-page-summary">
+                  <div>
+                    <span>当前队列</span>
+                    <strong id="exportQueueSummary">1 个运行 · 2 个等待</strong>
+                  </div>
+                  <div>
+                    <span>输出磁盘</span>
+                    <strong id="exportDiskSummary">E: 可用 186 GB</strong>
+                  </div>
+                  <div>
+                    <span>当前执行</span>
+                    <strong id="exportWorkerSummary">单工作线程</strong>
+                  </div>
+                </div>
+                <div class="export-toolbar-actions">
+                  <button type="button" class="button button-secondary" id="openExportFolder" data-contract="exports.open-folder">
+                    <svg><use href="#i-folder"></use></svg>
+                    打开输出目录
+                  </button>
+                  <button type="button" class="button button-secondary" id="cleanExportHistory" data-contract="exports.clean-history">
+                    <svg><use href="#i-trash"></use></svg>
+                    清理历史
+                  </button>
+                  <button type="button" class="button button-primary" id="newExportTask" data-contract="exports.new">
+                    <svg><use href="#i-plus"></use></svg>
+                    新建导出
+                  </button>
+                </div>
+              </div>
+
+              <div class="export-health-banner" id="exportHealthBanner" hidden>
+                <svg><use href="#i-alert"></use></svg>
+                <div>
+                  <strong id="exportHealthTitle">导出队列需要处理</strong>
+                  <span id="exportHealthText">队列恢复前不会启动新任务，也不会修改已有输出文件。</span>
+                </div>
+                <button type="button" class="button button-secondary" id="exportHealthAction" data-contract="exports.health-action">查看恢复结果</button>
+              </div>
+
+              <div class="export-layout" id="exportDefaultState">
+                <aside class="export-list-pane">
+                  <div class="export-list-heading">
+                    <div>
+                      <h2>导出任务</h2>
+                      <p id="exportListCount">5 个任务 · 3 个未完成</p>
+                    </div>
+                    <button type="button" class="icon-button" id="refreshExportQueue" aria-label="刷新导出队列" title="刷新" data-contract="exports.refresh">
+                      <svg><use href="#i-refresh"></use></svg>
+                    </button>
+                  </div>
+                  <div class="export-filter-tabs" role="tablist" aria-label="导出任务筛选">
+                    <button type="button" class="is-active" data-export-filter="all" data-contract="exports.filter-all">全部</button>
+                    <button type="button" data-export-filter="unfinished" data-contract="exports.filter-unfinished">进行中</button>
+                    <button type="button" data-export-filter="failed" data-contract="exports.filter-failed">需处理</button>
+                    <button type="button" data-export-filter="finished" data-contract="exports.filter-finished">已完成</button>
+                  </div>
+                  <div class="export-job-list" id="exportJobList">
+                    <button type="button" class="export-job-card is-selected" data-export-job="running" data-contract="exports.select-job">
+                      <span class="export-job-icon is-running"><svg><use href="#i-export"></use></svg></span>
+                      <span class="export-job-copy">
+                        <strong>录屏教程：素材库入门</strong>
+                        <span>正在编码 · 1920×1080 · 60 FPS</span>
+                        <span class="export-mini-progress"><i style="width:42%"></i></span>
+                      </span>
+                      <span class="export-job-side"><b>42%</b><small>约 03:18</small></span>
+                    </button>
+                    <button type="button" class="export-job-card" data-export-job="queued" data-contract="exports.select-job">
+                      <span class="export-job-icon is-queued"><svg><use href="#i-clock"></use></svg></span>
+                      <span class="export-job-copy">
+                        <strong>产品发布演示</strong>
+                        <span>排队第 1 位 · 快照已冻结</span>
+                      </span>
+                      <span class="export-job-side"><b>等待</b><small>58 秒</small></span>
+                    </button>
+                    <button type="button" class="export-job-card" data-export-job="interrupted" data-contract="exports.select-job">
+                      <span class="export-job-icon is-warning"><svg><use href="#i-alert"></use></svg></span>
+                      <span class="export-job-copy">
+                        <strong>窗口录制教程</strong>
+                        <span>上次退出时中断 · 可重试</span>
+                      </span>
+                      <span class="export-job-side"><b>中断</b><small>尝试 1</small></span>
+                    </button>
+                    <button type="button" class="export-job-card" data-export-job="failed" data-contract="exports.select-job">
+                      <span class="export-job-icon is-danger"><svg><use href="#i-x"></use></svg></span>
+                      <span class="export-job-copy">
+                        <strong>诊断导出说明</strong>
+                        <span>源素材指纹不一致</span>
+                      </span>
+                      <span class="export-job-side"><b>失败</b><small>14:26</small></span>
+                    </button>
+                    <button type="button" class="export-job-card" data-export-job="succeeded" data-contract="exports.select-job">
+                      <span class="export-job-icon is-success"><svg><use href="#i-check"></use></svg></span>
+                      <span class="export-job-copy">
+                        <strong>QuickRec v1.9.3 回顾</strong>
+                        <span>已验证并原子提交</span>
+                      </span>
+                      <span class="export-job-side"><b>成功</b><small>128 MB</small></span>
+                    </button>
+                  </div>
+                  <footer class="export-list-footer">
+                    <span>未完成任务上限 20</span>
+                    <span id="exportLimitUsage">当前 3 / 20</span>
+                  </footer>
+                </aside>
+
+                <section class="export-detail-pane" id="exportDetailPane">
+                  <header class="export-detail-header">
+                    <div>
+                      <span class="export-detail-kicker">EXPORT-20260729-142812</span>
+                      <h2 id="exportDetailTitle">录屏教程：素材库入门</h2>
+                      <p id="exportDetailSubtitle">冻结于 14:28:12 · 项目 timeline schema v2 · 6 个片段</p>
+                    </div>
+                    <span class="export-status-badge is-running" id="exportStatusBadge">正在导出</span>
+                  </header>
+
+                  <div class="export-stage-card" id="exportStageCard">
+                    <div class="export-stage-row">
+                      <div>
+                        <strong id="exportStageTitle">正在编码视频与混合 4 路音频</strong>
+                        <span id="exportStageText">FFmpeg 正常输出；队列无持续停滞。</span>
+                      </div>
+                      <strong class="export-progress-value" id="exportProgressValue">42%</strong>
+                    </div>
+                    <div class="export-progress-track"><i id="exportProgressBar" style="width:42%"></i></div>
+                    <div class="export-progress-meta">
+                      <span id="exportElapsed">已用 02:17</span>
+                      <span id="exportEta">预计剩余 03:18</span>
+                      <span id="exportSpeed">0.72× 实时速度</span>
+                    </div>
+                  </div>
+
+                  <div class="export-plan-grid">
+                    <article>
+                      <span>输出画布</span>
+                      <strong>1920 × 1080</strong>
+                      <small>保持比例 · 黑场补齐 · 偶数尺寸</small>
+                    </article>
+                    <article>
+                      <span>帧率</span>
+                      <strong>60 FPS</strong>
+                      <small>固定输出时间基准</small>
+                    </article>
+                    <article>
+                      <span>视频</span>
+                      <strong>H.264</strong>
+                      <small>libx264 veryfast · CRF 20 · yuv420p</small>
+                    </article>
+                    <article>
+                      <span>音频</span>
+                      <strong>AAC 48 kHz</strong>
+                      <small>4 路 1/N 增益混合 · limiter</small>
+                    </article>
+                  </div>
+
+                  <section class="export-detail-section">
+                    <header>
+                      <div><h3>不可变导出计划</h3><p>任务创建后不再读取项目的后续编辑。</p></div>
+                      <button type="button" class="button button-quiet" id="viewExportPlan" data-contract="exports.view-plan">查看快照</button>
+                    </header>
+                    <div class="export-source-checks" id="exportSourceChecks">
+                      <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>6 个片段已冻结</strong><small>轨道顺序、源范围、时间位置和关联音频已写入 ExportPlan。</small></span></div>
+                      <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>4 个素材指纹匹配</strong><small>绝对路径仅保存在本地队列；诊断导出默认脱敏。</small></span></div>
+                      <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>目标文件受保护</strong><small>先写临时文件，FFprobe 通过后才原子提交。</small></span></div>
+                    </div>
+                  </section>
+
+                  <section class="export-detail-section">
+                    <header>
+                      <div><h3>尝试记录</h3><p>每次重试保留独立原因与时间，不改写原始计划。</p></div>
+                      <button type="button" class="button button-quiet" id="copyExportDiagnostic" data-contract="exports.copy-diagnostic">复制诊断摘要</button>
+                    </header>
+                    <div class="export-attempt-list" id="exportAttemptList">
+                      <div><span class="attempt-dot is-running"></span><strong>尝试 2 · 正在运行</strong><span>14:31:08 至今</span><small>重新校验通过，沿用安全输出名称。</small></div>
+                      <div><span class="attempt-dot is-warning"></span><strong>尝试 1 · 已中断</strong><span>14:28:12–14:30:41</span><small>应用正常退出；临时文件已清理，正式输出未提交。</small></div>
+                    </div>
+                  </section>
+
+                  <footer class="export-detail-actions" id="exportDetailActions">
+                    <button type="button" class="button button-secondary" id="pauseExportQueue" data-contract="exports.pause-queue">完成当前任务后暂停</button>
+                    <button type="button" class="button button-danger-quiet" id="cancelExportTask" data-contract="exports.cancel">取消任务</button>
+                    <span class="export-action-spacer"></span>
+                    <button type="button" class="button button-secondary" id="openExportDiagnostics" data-contract="exports.open-diagnostics">查看诊断</button>
+                    <button type="button" class="button button-primary" id="primaryExportAction" data-contract="exports.primary-action">打开输出文件</button>
+                  </footer>
+                </section>
+              </div>
+
+              <div class="export-empty-state" id="exportEmptyState" hidden>
+                <div class="empty-state-icon"><svg><use href="#i-export"></use></svg></div>
+                <h2>还没有导出任务</h2>
+                <p>从项目时间线创建导出任务。QuickRec 会冻结当前编排并在后台按顺序生成本地 MP4。</p>
+                <div class="empty-state-actions">
+                  <button type="button" class="button button-secondary" data-page-target="projects" data-contract="exports.empty-project">打开项目</button>
+                  <button type="button" class="button button-primary" data-contract="exports.new">新建导出</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="page" data-page-panel="settings">
+              <div class="settings-scroll">
+                <section class="settings-section">
+                  <div class="settings-section-heading">
+                    <h2>录制输出</h2>
+                    <p>保存路径、画质、帧率和音频会应用到下一次录制。</p>
+                  </div>
+                  <div class="form-grid">
+                    <label class="field field-wide">
+                      <span>保存路径</span>
+                      <div class="compound-field">
+                        <input type="text" value="E:\Videos\QuickRec" readonly data-contract="settings.save-path">
+                        <button type="button" class="button button-secondary" data-contract="settings.browse-save-path">
+                          <svg><use href="#i-folder"></use></svg>
+                          浏览
+                        </button>
+                      </div>
+                      <small>自检临时文件也会写入此目录，完成后自动删除。</small>
+                    </label>
+                    <label class="field field-wide">
+                      <span>默认项目位置</span>
+                      <div class="compound-field">
+                        <input type="text" value="%USERPROFILE%\Videos\QuickRec\Projects" readonly data-contract="settings.project-path">
+                        <button type="button" class="button button-secondary" data-contract="settings.browse-project-path">
+                          <svg><use href="#i-project"></use></svg>
+                          更改
+                        </button>
+                      </div>
+                      <small>新建项目默认使用此位置；创建时仍可为单个项目选择其他目录。</small>
+                    </label>
+                    <label class="field">
+                      <span>画质</span>
+                      <select data-contract="settings.quality">
+                        <option>原生（2560×1440）</option>
+                        <option selected>高（1080p）</option>
+                        <option>中（720p）</option>
+                        <option>低（480p）</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>帧率</span>
+                      <select id="fpsSelect" data-contract="settings.fps">
+                        <option>30 FPS</option>
+                        <option selected>60 FPS</option>
+                        <option>120 FPS（需要检测）</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>音频源</span>
+                      <select data-contract="settings.audio">
+                        <option>无声</option>
+                        <option>系统声音</option>
+                        <option>麦克风</option>
+                        <option selected>系统声音 + 麦克风</option>
+                      </select>
+                    </label>
+                    <div class="field capability-field">
+                      <span>120 FPS 能力</span>
+                      <div class="capability-setting">
+                        <span class="badge badge-neutral">尚未检测</span>
+                        <button type="button" class="button button-secondary" id="settingsCapabilityCheck" data-contract="settings.capability-check">开始检测</button>
+                      </div>
+                      <small>通过后自动选中 120 FPS，但必须点击“保存更改”才生效。</small>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="settings-section-heading">
+                    <h2>录制行为</h2>
+                    <p>这些选项只改变交互，不改变视频编码能力。</p>
+                  </div>
+                  <div class="switch-list">
+                    <label class="switch-row">
+                      <span>
+                        <strong>开机自启</strong>
+                        <small>登录 Windows 后在系统托盘启动 QuickRec。</small>
+                      </span>
+                      <input type="checkbox" data-contract="settings.autostart">
+                      <i aria-hidden="true"></i>
+                    </label>
+                    <label class="switch-row">
+                      <span>
+                        <strong>录制倒计时</strong>
+                        <small>开始录制前显示浮动倒计时。</small>
+                      </span>
+                      <div class="switch-row-control">
+                        <select data-contract="settings.countdown-seconds">
+                          <option>1 秒</option><option>2 秒</option><option selected>3 秒</option>
+                          <option>5 秒</option><option>10 秒</option>
+                        </select>
+                        <input type="checkbox" checked data-contract="settings.countdown">
+                        <i aria-hidden="true"></i>
+                      </div>
+                    </label>
+                    <label class="switch-row">
+                      <span>
+                        <strong>鼠标点击高亮</strong>
+                        <small>仅在桌面实时显示点击反馈，不写入输出视频。</small>
+                      </span>
+                      <input type="checkbox" data-contract="settings.click-highlight">
+                      <i aria-hidden="true"></i>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="settings-section">
+                  <div class="settings-section-heading">
+                    <h2>快捷键</h2>
+                    <p>点击输入框后按下新的组合键；冲突或无效组合不会覆盖已保存配置。</p>
+                  </div>
+                  <div class="shortcut-grid">
+                    <label><span>开始录制</span><input type="text" value="Ctrl+Shift+R" readonly data-contract="settings.shortcut-start"></label>
+                    <label><span>停止录制</span><input type="text" value="Ctrl+Shift+S" readonly data-contract="settings.shortcut-stop"></label>
+                    <label><span>暂停/继续</span><input type="text" value="Ctrl+Shift+P" readonly data-contract="settings.shortcut-pause"></label>
+                    <label><span>区域录制</span><input type="text" value="Ctrl+Shift+A" readonly data-contract="settings.shortcut-region"></label>
+                    <label><span>窗口录制</span><input type="text" value="Ctrl+Shift+W" readonly data-contract="settings.shortcut-window"></label>
+                  </div>
+                </section>
+              </div>
+
+              <footer class="settings-footer">
+                <div class="dirty-indicator" id="dirtyIndicator">
+                  <span class="status-dot status-warning"></span>
+                  <span>有未保存的更改</span>
+                </div>
+                <button type="button" class="button button-secondary" id="discardSettings" data-contract="settings.discard">放弃更改</button>
+                <button type="button" class="button button-primary" id="saveSettings" data-contract="settings.save">
+                  <svg><use href="#i-save"></use></svg>
+                  保存更改
+                </button>
+              </footer>
+            </section>
+
+            <section class="page" data-page-panel="diagnostics">
+              <div class="diagnostic-summary">
+                <div>
+                  <span class="eyebrow">诊断状态</span>
+                  <h2>QuickRec 运行正常</h2>
+                  <p>最近一次录制、FFmpeg、音频和素材索引均无未处理错误。</p>
+                </div>
+                <span class="diagnostic-health"><svg><use href="#i-check"></use></svg>正常</span>
+              </div>
+
+              <section class="page-section diagnostic-section">
+                <div class="section-heading">
+                  <div>
+                    <h2>诊断文件</h2>
+                    <p>诊断只保存在本地，不上传；导出前不会修改现有日志。</p>
+                  </div>
+                </div>
+                <label class="field field-wide">
+                  <span>诊断目录</span>
+                  <div class="compound-field">
+                    <input type="text" value="E:\Videos\QuickRec\QuickRecDiagnostics" readonly data-contract="diagnostics.path">
+                    <button type="button" class="button button-secondary" data-contract="diagnostics.browse">
+                      <svg><use href="#i-folder"></use></svg>
+                      更改目录
+                    </button>
+                  </div>
+                </label>
+                <div class="diagnostic-actions">
+                  <button type="button" class="button button-secondary" data-contract="diagnostics.copy">
+                    <svg><use href="#i-copy"></use></svg>
+                    复制诊断信息
+                  </button>
+                  <button type="button" class="button button-secondary" data-contract="diagnostics.open-dir">
+                    <svg><use href="#i-folder"></use></svg>
+                    打开日志目录
+                  </button>
+                  <button type="button" class="button button-primary" data-contract="diagnostics.export">
+                    <svg><use href="#i-export"></use></svg>
+                    导出诊断文件
+                  </button>
+                </div>
+              </section>
+
+              <section class="page-section diagnostic-section">
+                <div class="section-heading">
+                  <div>
+                    <h2>120 FPS 检测</h2>
+                    <p>检测摘要不包含硬件序列号、完整保存路径或云端信息。</p>
+                  </div>
+                  <button type="button" class="button button-secondary" id="diagnosticCapabilityCheck" data-contract="diagnostics.capability-check">
+                    <svg><use href="#i-refresh"></use></svg>
+                    重新检测
+                  </button>
+                </div>
+                <div class="diagnostic-metrics">
+                  <div><span>最近检测</span><strong>尚未检测</strong><small>无有效缓存</small></div>
+                  <div><span>显示环境</span><strong>2560×1440 · 300Hz</strong><small>单显示器</small></div>
+                  <div><span>平均 / 最低 FPS</span><strong>— / —</strong><small>通过后显示</small></div>
+                  <div><span>FFmpeg</span><strong>8.0.1</strong><small>libx264 · superfast</small></div>
+                </div>
+              </section>
+
+              <section class="page-section diagnostic-section log-section">
+                <div class="section-heading">
+                  <div>
+                    <h2>最近事件</h2>
+                    <p>仅展示排查所需的阶段与结果，完整日志保存在诊断目录。</p>
+                  </div>
+                  <button type="button" class="button button-quiet" data-contract="diagnostics.refresh-events">
+                    <svg><use href="#i-refresh"></use></svg>
+                    刷新
+                  </button>
+                </div>
+                <div class="event-list">
+                  <div class="event-row"><span class="status-dot status-ok"></span><time>21:46:04</time><strong>素材入库成功</strong><span>material_id=7f1…</span></div>
+                  <div class="event-row"><span class="status-dot status-ok"></span><time>21:46:03</time><strong>视频保存完成</strong><span>duration=52.4s</span></div>
+                  <div class="event-row"><span class="status-dot status-ok"></span><time>21:45:12</time><strong>全屏录制开始</strong><span>1920×1080 · 60 FPS</span></div>
+                </div>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <aside class="contract-inspector" id="contractInspector">
+          <header>
+            <div>
+              <span>开发交互契约</span>
+              <strong id="contractTitle">开始全屏录制</strong>
+            </div>
+            <button type="button" class="icon-button" id="closeInspector" aria-label="关闭开发标注" data-prototype-control>
+              <svg><use href="#i-x"></use></svg>
+            </button>
+          </header>
+          <dl>
+            <div class="contract-version-row"><dt>首次加入</dt><dd id="contractIntroduced"></dd></div>
+            <div class="contract-version-row"><dt>后续优化</dt><dd id="contractOptimized"></dd></div>
+            <div><dt>触发条件</dt><dd id="contractTrigger"></dd></div>
+            <div><dt>即时结果</dt><dd id="contractAction"></dd></div>
+            <div><dt>成功反馈</dt><dd id="contractSuccess"></dd></div>
+            <div><dt>失败反馈</dt><dd id="contractFailure"></dd></div>
+            <div><dt>禁用规则</dt><dd id="contractDisabled"></dd></div>
+            <div><dt>取消 / 关闭</dt><dd id="contractCancel"></dd></div>
+            <div><dt>数据影响</dt><dd id="contractDataImpact"></dd></div>
+            <div><dt>撤销 / 恢复</dt><dd id="contractUndo"></dd></div>
+            <div><dt>快捷键</dt><dd id="contractShortcut"></dd></div>
+          </dl>
+          <p class="contract-hint">点击任一带蓝色编号的控件，查看完整开发规则与版本演进。没有写入影响的按钮也必须明确标注。</p>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <section class="floating-stage" id="floatingStage" hidden aria-live="polite">
+    <div class="desktop-backdrop">
+      <div class="desktop-window desktop-window-left">
+        <span></span><span></span><span></span>
+      </div>
+      <div class="desktop-window desktop-window-right">
+        <span></span><span></span>
+      </div>
+    </div>
+
+    <div class="area-overlay floating-view" data-floating-view="area">
+      <div class="selection-rect">
+        <span class="selection-size">1280 × 720</span>
+        <div class="selection-actions">
+          <button type="button" class="button button-primary" data-contract="floating.area-start">
+            <svg><use href="#i-record"></use></svg>
+            开始录制
+          </button>
+          <button type="button" class="button button-secondary dark-button" data-contract="floating.area-cancel">
+            <svg><use href="#i-x"></use></svg>
+            取消
+          </button>
+        </div>
+      </div>
+      <p class="overlay-help">拖动鼠标选择区域 · Esc 或右键取消</p>
+    </div>
+
+    <div class="window-picker floating-panel floating-view" data-floating-view="window">
+      <header class="floating-panel-title">
+        <div>
+          <strong>选择录制窗口</strong>
+          <small>仅显示当前可录制的顶层窗口</small>
+        </div>
+        <button type="button" class="icon-button" aria-label="关闭窗口选择器" title="关闭窗口选择器" data-contract="floating.window-close"><svg><use href="#i-x"></use></svg></button>
+      </header>
+      <div class="window-picker-summary">
+        <span><strong>3</strong> 个可录制窗口</span>
+        <span>窗口移动期间保持最后一帧，停止后继续更新</span>
+      </div>
+      <div class="window-list">
+        <button type="button" class="window-list-item is-selected" data-contract="floating.window-row"><span class="window-app-icon"></span><span><strong>演示文档 - PowerPoint</strong><small>Microsoft PowerPoint</small></span><span class="window-size">1920 × 1080</span><svg><use href="#i-check"></use></svg></button>
+        <button type="button" class="window-list-item" data-contract="floating.window-row"><span class="window-app-icon green"></span><span><strong>素材清单.xlsx</strong><small>Microsoft Excel</small></span><span class="window-size">1440 × 900</span><svg><use href="#i-check"></use></svg></button>
+        <button type="button" class="window-list-item" data-contract="floating.window-row"><span class="window-app-icon amber"></span><span><strong>QuickRec v1.8 PRD</strong><small>PyCharm</small></span><span class="window-size">1600 × 1000</span><svg><use href="#i-check"></use></svg></button>
+      </div>
+      <footer>
+        <button type="button" class="button button-quiet" data-contract="floating.window-refresh"><svg><use href="#i-refresh"></use></svg>刷新列表</button>
+        <span class="window-selection-hint">已选择：演示文档 - PowerPoint</span>
+        <button type="button" class="button button-secondary" data-contract="floating.window-cancel">取消</button>
+        <button type="button" class="button button-primary" data-contract="floating.window-select">选择窗口</button>
+      </footer>
+    </div>
+
+    <div class="toolbar-transition-shell" id="toolbarTransitionShell" hidden>
+      <div class="record-toolbar floating-view" data-floating-view="countdown">
+        <span class="toolbar-dot toolbar-dot-warning"></span>
+        <strong class="countdown-number">3</strong>
+        <span class="toolbar-message">准备录制</span>
+        <button type="button" class="toolbar-button" data-contract="floating.countdown-cancel"><svg><use href="#i-x"></use></svg>取消</button>
+      </div>
+
+      <div class="record-toolbar floating-view" data-floating-view="toolbar">
+        <span class="toolbar-dot toolbar-dot-danger"></span>
+        <strong class="toolbar-time">00:42</strong>
+        <span class="toolbar-message">全屏录制 · 60 FPS</span>
+        <button type="button" class="toolbar-button" data-contract="floating.pause"><svg><use href="#i-pause"></use></svg>暂停</button>
+        <button type="button" class="toolbar-button" data-contract="floating.stop"><svg><use href="#i-stop"></use></svg>停止</button>
+        <button type="button" class="toolbar-button toolbar-button-danger" data-contract="floating.cancel"><svg><use href="#i-x"></use></svg>取消</button>
+      </div>
+
+      <div class="record-toolbar floating-view" data-floating-view="paused">
+        <span class="toolbar-dot toolbar-dot-warning"></span>
+        <strong class="toolbar-time">00:42</strong>
+        <span class="toolbar-message">录制已暂停</span>
+        <button type="button" class="toolbar-button" data-contract="floating.resume"><svg><use href="#i-play"></use></svg>继续</button>
+        <button type="button" class="toolbar-button" data-contract="floating.stop"><svg><use href="#i-stop"></use></svg>停止</button>
+        <button type="button" class="toolbar-button toolbar-button-danger" data-contract="floating.cancel"><svg><use href="#i-x"></use></svg>取消</button>
+      </div>
+
+      <div class="record-toolbar floating-view" data-floating-view="saving">
+        <span class="toolbar-spinner"></span>
+        <strong>正在保存</strong>
+        <span class="toolbar-message">编码与音频混合即将完成…</span>
+        <button type="button" class="toolbar-button" disabled data-contract="floating.saving-disabled">请稍候</button>
+      </div>
+
+      <div class="record-toolbar result-toolbar floating-view" data-floating-view="result">
+        <span class="toolbar-result-icon"><svg><use href="#i-check"></use></svg></span>
+        <div class="result-toolbar-copy"><strong>录制已保存</strong><span>84.6 MB · 已加入素材库</span></div>
+        <button type="button" class="toolbar-button" data-contract="floating.result-open"><svg><use href="#i-play"></use></svg>打开</button>
+        <button type="button" class="toolbar-button" data-contract="floating.result-folder"><svg><use href="#i-folder"></use></svg>目录</button>
+        <button type="button" class="toolbar-button" data-contract="floating.result-library"><svg><use href="#i-library"></use></svg>素材库</button>
+        <button type="button" class="toolbar-icon-button" aria-label="关闭录制成功结果条" title="关闭录制成功结果条" data-contract="floating.result-close"><svg><use href="#i-x"></use></svg></button>
+      </div>
+
+      <div class="record-toolbar result-toolbar floating-view" data-floating-view="result-failed">
+        <span class="toolbar-result-icon warning"><svg><use href="#i-alert"></use></svg></span>
+        <div class="result-toolbar-copy"><strong>视频已保存，入库失败</strong><span>文件不会丢失，可立即重试或查看诊断</span></div>
+        <button type="button" class="toolbar-button" data-contract="floating.retry-index"><svg><use href="#i-refresh"></use></svg>重试入库</button>
+        <button type="button" class="toolbar-button" data-contract="floating.result-folder"><svg><use href="#i-folder"></use></svg>目录</button>
+        <button type="button" class="toolbar-icon-button" aria-label="关闭入库失败结果条" title="关闭入库失败结果条" data-contract="floating.result-close"><svg><use href="#i-x"></use></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <div class="export-config-layer" id="exportConfigLayer" hidden>
+    <section class="export-config-dialog" role="dialog" aria-modal="true" aria-labelledby="exportConfigTitle">
+      <header class="export-config-header">
+        <div>
+          <span>新建导出任务</span>
+          <h2 id="exportConfigTitle">录屏教程：素材库入门</h2>
+          <p>基于当前已保存的 timeline schema v2 创建不可变 ExportPlan。</p>
+        </div>
+        <button type="button" class="icon-button" id="closeExportConfig" aria-label="关闭导出配置" title="关闭" data-contract="export-config.close">
+          <svg><use href="#i-x"></use></svg>
+        </button>
+      </header>
+
+      <div class="export-config-steps" aria-label="导出配置步骤">
+        <span class="is-active" data-export-step-indicator="config"><b>1</b>输出设置</span>
+        <i></i>
+        <span data-export-step-indicator="preflight"><b>2</b>预检与确认</span>
+        <i></i>
+        <span data-export-step-indicator="queued"><b>3</b>加入队列</span>
+      </div>
+
+      <div class="export-config-body" data-export-config-view="config">
+        <section class="export-config-section">
+          <div class="export-config-section-title">
+            <div><h3>项目快照</h3><p>只读取最后一次成功保存的时间线；提交后不跟随项目继续变化。</p></div>
+            <span class="badge badge-success">可导出</span>
+          </div>
+          <div class="export-snapshot-summary">
+            <div><span>时间线</span><strong>00:58.000</strong><small>6 个片段 · 4 个素材</small></div>
+            <div><span>视频轨</span><strong>2 条</strong><small>固定高轨覆盖</small></div>
+            <div><span>音频轨</span><strong>4 / 8 条</strong><small>1/N 混合 + limiter</small></div>
+            <div><span>项目状态</span><strong>已保存</strong><small>无外部冲突</small></div>
+          </div>
+        </section>
+
+        <section class="export-config-section">
+          <div class="export-config-section-title">
+            <div><h3>画面与编码</h3><p>提供最小正式预设；不暴露高级编码器参数。</p></div>
+          </div>
+          <div class="export-form-grid">
+            <label class="field">
+              <span>分辨率</span>
+              <select id="exportResolution" data-contract="export-config.resolution">
+                <option value="source">跟随项目（2560×1440）</option>
+                <option value="1080" selected>1920×1080</option>
+                <option value="720">1280×720</option>
+                <option value="custom">自定义</option>
+              </select>
+              <small>最大 3840×2160；宽高必须为偶数。</small>
+            </label>
+            <label class="field">
+              <span>帧率</span>
+              <select id="exportFps" data-contract="export-config.fps">
+                <option>30 FPS</option>
+                <option selected>60 FPS</option>
+                <option>120 FPS</option>
+              </select>
+              <small id="exportFpsHint">120 FPS 仅允许最高 1920×1080。</small>
+            </label>
+            <label class="field">
+              <span>画面适配</span>
+              <select id="exportFit" data-contract="export-config.fit">
+                <option selected>保持宽高比并补黑边</option>
+                <option>裁切填满画布</option>
+              </select>
+              <small>空白时间段输出黑场，不透明。</small>
+            </label>
+            <label class="field">
+              <span>输出格式</span>
+              <input type="text" value="MP4 · H.264 · AAC" readonly data-contract="export-config.codec">
+              <small>libx264 veryfast / CRF 20 / yuv420p / faststart。</small>
+            </label>
+          </div>
+          <div class="export-custom-size" id="exportCustomSize" hidden>
+            <label class="field"><span>宽度</span><input type="number" min="320" max="3840" step="2" value="1920" data-contract="export-config.custom-width"></label>
+            <span>×</span>
+            <label class="field"><span>高度</span><input type="number" min="240" max="2160" step="2" value="1080" data-contract="export-config.custom-height"></label>
+          </div>
+        </section>
+
+        <section class="export-config-section">
+          <div class="export-config-section-title">
+            <div><h3>文件与入库</h3><p>默认不覆盖现有文件；输出验证通过后才提交正式名称。</p></div>
+          </div>
+          <div class="export-form-grid">
+            <label class="field field-wide">
+              <span>输出目录</span>
+              <div class="compound-field">
+                <input id="exportOutputDir" type="text" value="E:\Videos\QuickRec\Exports" readonly data-contract="export-config.output-dir">
+                <button type="button" class="button button-secondary" data-contract="export-config.browse-output"><svg><use href="#i-folder"></use></svg>浏览</button>
+              </div>
+              <small>临时文件与正式输出必须位于同一磁盘，确保可原子提交。</small>
+            </label>
+            <label class="field field-wide">
+              <span>文件名</span>
+              <div class="compound-field">
+                <input id="exportFilename" type="text" value="录屏教程-素材库入门.mp4" data-contract="export-config.filename">
+                <button type="button" class="button button-secondary" id="checkExportName" data-contract="export-config.check-name">检查名称</button>
+              </div>
+              <small id="exportFilenameHint">名称可用；若冲突，默认生成“录屏教程-素材库入门 (2).mp4”。</small>
+            </label>
+          </div>
+          <label class="setting-toggle export-toggle">
+            <input type="checkbox" id="allowExportOverwrite" data-contract="export-config.overwrite">
+            <span><strong>允许覆盖同名文件</strong><small>仅本次任务有效；提交前还会显示第二次确认。</small></span>
+          </label>
+          <label class="setting-toggle export-toggle">
+            <input type="checkbox" id="exportAddLibrary" checked data-contract="export-config.add-library">
+            <span><strong>成功后加入中央素材库</strong><small>入库失败不改变“导出成功”结论，可在任务详情重试。</small></span>
+          </label>
+          <label class="setting-toggle export-toggle">
+            <input type="checkbox" id="exportAddProject" data-contract="export-config.add-project">
+            <span><strong>同时加入当前项目</strong><small>仅在中央素材入库成功后建立项目引用，不复制输出文件。</small></span>
+          </label>
+        </section>
+
+        <aside class="export-capacity-card" id="exportCapacityCard">
+          <div>
+            <svg><use href="#i-info"></use></svg>
+            <span><strong id="exportCapacityTitle">空间充足</strong><small id="exportCapacityText">预计输出 480 MB，临时空间上限 1.6 GB；E: 可用 186 GB。</small></span>
+          </div>
+          <span class="badge badge-success" id="exportCapacityBadge">可继续</span>
+        </aside>
+      </div>
+
+      <div class="export-config-body" data-export-config-view="preflight" hidden>
+        <section class="export-preflight-summary" id="exportPreflightSummary">
+          <span class="export-preflight-icon is-success" id="exportPreflightIcon"><svg><use href="#i-check"></use></svg></span>
+          <div><h3 id="exportPreflightTitle">预检通过，可以加入队列</h3><p id="exportPreflightText">ExportPlan 已冻结；正式输出尚未创建。</p></div>
+        </section>
+        <div class="export-preflight-list" id="exportPreflightList">
+          <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>项目与时间线</strong><small>最后成功保存版本可读；timeline schema v2。</small></span><b>通过</b></div>
+          <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>素材与指纹</strong><small>4 个素材存在、可解析且指纹匹配。</small></span><b>通过</b></div>
+          <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>FFmpeg / FFprobe</strong><small>包内依赖可执行；版本信息已写入计划。</small></span><b>通过</b></div>
+          <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>输出规则</strong><small>1920×1080 · 60 FPS · 目标路径可写。</small></span><b>通过</b></div>
+          <div class="is-success"><svg><use href="#i-check"></use></svg><span><strong>磁盘空间</strong><small>预计峰值 1.6 GB；当前可用 186 GB。</small></span><b>通过</b></div>
+        </div>
+        <div class="export-plan-freeze-note">
+          <svg><use href="#i-lock"></use></svg>
+          <span><strong>任务提交后冻结</strong><small>继续编辑项目不会改变该任务。需要新内容时请另建任务。</small></span>
+        </div>
+      </div>
+
+      <div class="export-config-body export-queued-confirmation" data-export-config-view="queued" hidden>
+        <span class="export-queued-icon"><svg><use href="#i-check"></use></svg></span>
+        <h3>任务已加入导出队列</h3>
+        <p>当前排队第 2 位。你可以继续编辑项目、浏览素材或录制；开始导出时会再次校验素材指纹。</p>
+        <div><span>任务编号</span><strong>EXPORT-20260729-151204</strong></div>
+      </div>
+
+      <footer class="export-config-actions">
+        <span id="exportConfigStatus">配置不会写入项目文件；只有加入队列后才持久化任务。</span>
+        <div>
+          <button type="button" class="button button-secondary is-cancel-action" id="cancelExportConfig" data-contract="export-config.cancel">取消</button>
+          <button type="button" class="button button-secondary" id="backExportConfig" data-contract="export-config.back" hidden>返回修改</button>
+          <button type="button" class="button button-primary" id="nextExportConfig" data-contract="export-config.preflight">开始预检</button>
+        </div>
+      </footer>
+    </section>
+  </div>
+
+  <div class="modal-layer" id="modalLayer" hidden>
+    <section class="modal-dialog" id="modalDialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-icon" id="modalIcon"><svg><use href="#i-info"></use></svg></div>
+      <div class="modal-copy">
+        <h2 id="modalTitle">提示</h2>
+        <p id="modalText"></p>
+        <div class="modal-detail" id="modalDetail" hidden></div>
+      </div>
+      <div class="modal-actions" id="modalActions"></div>
+    </section>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <section class="flow-layer" id="flowLayer" hidden>
+    <div class="flow-board">
+      <header>
+        <div><span>产品链路与版本演进</span><h2>从录制到 v1.9.5 剪辑交互的完整能力关系</h2></div>
+        <button type="button" class="icon-button" id="closeFlow" aria-label="关闭页面关系图" title="关闭页面关系图" data-prototype-control><svg><use href="#i-x"></use></svg></button>
+      </header>
+      <div class="flow-primary">
+        <div class="flow-node"><strong>主工作台 / 剪辑工作台</strong><small class="flow-version">首次 v1.8 · v1.9.2 增加独立剪辑工作台</small><span>共享协调器，均可进入既有录制链路</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><strong>选择与倒计时</strong><small class="flow-version">首次 v1.0 · v1.8 统一工作台协作</small><span>区域/窗口浮层，允许取消</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><strong>录制工具栏</strong><small class="flow-version">首次 v1.0 · v1.9.5 跟随录制屏幕并进入中上安全区</small><span>暂停、继续、停止、取消</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node flow-node-success"><strong>视频保存</strong><small class="flow-version">首次 v1.0 · v1.6 增加中央入库降级</small><span>MP4 成功独立于索引结果</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node flow-node-success"><strong>全局素材库</strong><small class="flow-version">首次 v1.6 · v1.7 增加搜索、筛选与排序</small><span>入库、查询、恢复与文件操作</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><strong>静态预览缓存</strong><small class="flow-version">首次 v1.9.1 · v1.9.2 成为时间线素材入口</small><span>后台生成 JPEG；失败不影响入库</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node"><strong>项目引用</strong><small class="flow-version">首次 v1.9 · v1.9.2 承接时间线</small><span>项目录制才自动关联；普通录制保持全局</span></div>
+      </div>
+      <div class="flow-branches">
+        <div class="flow-branch"><div class="flow-node"><strong>双顶级窗口</strong><small class="flow-version">首次 v1.9.2</small><span>主工作台与剪辑工作台同时存在</span></div><span>任务栏或入口切换</span><div class="flow-target">项目 / 素材 / 录制上下文保持</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>设置页</strong><small class="flow-version">首次 v1.0 · v1.8 显式保存 · v1.9.5 增加焦点保护</small><span>显式保存配置与 120 FPS 检测</span></div><span>影响下一次录制</span><div class="flow-target">录制页 / 快速校验</div></div>
+        <div class="flow-branch"><div class="flow-node flow-node-warning"><strong>保存或入库异常</strong><small class="flow-version">首次 v1.6</small><span>不覆盖“视频已保存”事实</span></div><span>记录上下文</span><div class="flow-target">诊断页 / 导出诊断</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>素材库操作</strong><small class="flow-version">首次 v1.6</small><span>重新定位、移除索引、回收站</span></div><span>必须确认</span><div class="flow-target">系统弹窗 / 结果反馈</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>项目生命周期</strong><small class="flow-version">首次 v1.9</small><span>创建、重命名、归档、恢复</span></div><span>原子写入</span><div class="flow-target">project.qrproj / projects.json</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>项目素材预览</strong><small class="flow-version">首次 v1.9.1</small><span>打开、定位、刷新与重建缓存</span></div><span>不写项目文件</span><div class="flow-target">全局素材库 / 系统播放器</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>智能拖放素材</strong><small class="flow-version">v1.9.2 首次加入 · v1.9.5 增加吸附、落点预览与自动建轨</small><span>类型校验后生成稳定片段身份</span></div><span>预览后原子提交</span><div class="flow-target">已有轨 / 自动视频轨 / 自动音视频轨</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>时间线命令</strong><small class="flow-version">首次 v1.9.2 · v1.9.3 加入剪辑命令</small><span>添加、移动、轨道锁和片段身份</span></div><span>原子保存</span><div class="flow-target">extensions["quickrec.timeline"] schema v2</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>裁剪 / 分割</strong><small class="flow-version">首次 v1.9.3 · v1.9.5 统一快捷键与焦点规则</small><span>先构建候选，不直接修改正式模型</span></div><span>校验源范围与关联组</span><div class="flow-target">TimelineEditService</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>关联 / 解绑</strong><small class="flow-version">首次 v1.9.5</small><span>Ctrl+L 严格匹配候选，身份、位置与源范围保持</span></div><span>成对或独立编辑</span><div class="flow-target">link_group_id / Command / Undo</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>普通删除 / 全局波纹</strong><small class="flow-version">v1.9.3 波纹 · v1.9.5 双删除语义</small><span>Delete 保留空隙；Shift+Delete 先展示影响</span></div><span>确认后一次提交</span><div class="flow-target">Command / Save / Undo</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>帧级时间表达</strong><small class="flow-version">首次 v1.9.5</small><span>30 / 60 / 120 FPS 显示、跳转和吸附；底层仍为整数微秒</span></div><span>同一时间基准</span><div class="flow-target">extensions["quickrec.editing"]</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>导出配置与预检</strong><small class="flow-version">首次 v1.9.4 · v1.9.5 回归解绑与帧级结果</small><span>画布、FPS、输出路径、素材指纹与磁盘</span></div><span>冻结项目版本</span><div class="flow-target">Immutable ExportPlan</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>持久导出队列</strong><small class="flow-version">首次 v1.9.4</small><span>单工作线程、取消、中断、重试与启动恢复</span></div><span>顺序执行</span><div class="flow-target">FFmpeg ExportExecutor</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>输出验证与提交</strong><small class="flow-version">首次 v1.9.4</small><span>FFprobe 校验、同磁盘临时文件与覆盖恢复</span></div><span>原子提交</span><div class="flow-target">正式 MP4 / 中央素材库</div></div>
+        <div class="flow-branch"><div class="flow-node flow-node-warning"><strong>导出异常</strong><small class="flow-version">首次 v1.9.4</small><span>正式输出事实与入库结果分离</span></div><span>保留尝试记录</span><div class="flow-target">任务详情 / 诊断 / 重试</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>内部自动化 CLI</strong><small class="flow-version">首次 v1.9.3 · v1.9.5 扩展交互数据门禁</small><span>doctor、probe、project/timeline validate、editing smoke</span></div><span>隔离目录与 JSON 合同</span><div class="flow-target">同一领域服务 / 候选包验证</div></div>
+        <div class="flow-branch"><div class="flow-node"><strong>统一播放时钟</strong><small class="flow-version">首次 v1.9.2 · v1.9.3 支持非零源范围</small><span>播放、暂停、跳转与固定覆盖/混合</span></div><span>只读媒体源</span><div class="flow-target">预览画面 / 音频设备</div></div>
+        <div class="flow-branch"><div class="flow-node flow-node-warning"><strong>播放或保存异常</strong><small class="flow-version">v1.9 起持续强化 · v1.9.5 保持事务回滚</small><span>保留最后有效项目与片段身份</span></div><span>明确恢复入口</span><div class="flow-target">重新定位 / 重试 / 诊断</div></div>
+        <div class="flow-branch"><div class="flow-node flow-node-warning"><strong>安全删除项目</strong><small class="flow-version">首次 v1.9</small><span>共享与不确定素材不可删除</span></div><span>默认不选视频</span><div class="flow-target">Windows 回收站 / 逐项结果</div></div>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+  <script src="export.js"></script>
+  <script src="v195.js"></script>
+  <script src="timeline.js"></script>
+</body>
+</html>

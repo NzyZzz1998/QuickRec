@@ -12,7 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QRect, Qt
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 app = QApplication.instance()
@@ -101,6 +102,42 @@ class TestRecordingToolbar(unittest.TestCase):
         flags = toolbar.windowFlags()
         self.assertTrue(bool(flags & Qt.FramelessWindowHint))
         self.assertTrue(bool(flags & Qt.WindowStaysOnTopHint))
+
+    def test_toolbar_uses_explicit_target_screen_available_geometry(self):
+        class FakeScreen:
+            @staticmethod
+            def availableGeometry():
+                return QRect(1920, 100, 1280, 900)
+
+        toolbar = RecordingToolbar(target_screen=FakeScreen())
+        toolbar.center_on_screen()
+
+        self.assertLessEqual(
+            abs(toolbar.geometry().center().x() - (1920 + 640)),
+            1,
+        )
+        self.assertEqual(toolbar.y(), 190)
+
+    def test_recording_start_keeps_top_safe_position_after_width_animation(self):
+        class FakeScreen:
+            @staticmethod
+            def availableGeometry():
+                return QRect(0, 0, 2560, 1392)
+
+        toolbar = RecordingToolbar(target_screen=FakeScreen())
+        toolbar.resize(640, 48)
+        toolbar.move(959, 672)
+        toolbar.show()
+
+        toolbar.start_recording_timer()
+        QTest.qWait(toolbar._resize_animation.duration() + 50)
+
+        self.assertEqual(toolbar.y(), 139)
+        self.assertLessEqual(
+            abs(toolbar.geometry().center().x() - 1280),
+            2,
+        )
+        toolbar.close()
 
     def test_toolbar_uses_semantic_indicator_and_nonempty_icons(self):
         toolbar = RecordingToolbar()

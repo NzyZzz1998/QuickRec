@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 from PyQt5.QtWidgets import QWidget
 
+from services.project_editing_profile import is_supported_editing_fps
+from services.timeline_drag_transaction import TimelineDragCandidate
 from services.timeline_edit_service import TimelineEditCandidate
+from services.timeline_frame_time import (
+    format_frame_time,
+    frame_to_microseconds,
+)
+from ui.timeline_drag_interaction import TimelineDragInteraction
 from ui.timeline_trim_interaction import TimelineTrimInteraction, TrimEdge
 from utils.timeline_model import Timeline, TimelineClip, TimelineTrack
 from utils.timeline_view import (
@@ -112,6 +120,7 @@ class TimelineCanvas(QWidget):
     clip_context_requested = pyqtSignal(str, object)
     track_lock_requested = pyqtSignal(str, bool)
     material_drop_requested = pyqtSignal(str, bool, int, str)
+    material_drop_commit_requested = pyqtSignal(object)
     invalid_drop = pyqtSignal(str)
     zoom_changed = pyqtSignal(float, int)
 
@@ -126,6 +135,7 @@ class TimelineCanvas(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAcceptDrops(True)
         self._timeline = Timeline("empty", [])
+        self._editing_fps = 30
         self._scale = TimelineScale(
             track_header_width=self.track_header_width
         )
@@ -135,12 +145,27 @@ class TimelineCanvas(QWidget):
         self._drag_clip_id: str | None = None
         self._drag_offset_us = 0
         self._drag_candidate: tuple[int, str, bool, str] | None = None
-        self._material_drop_candidate: tuple[
+        self._legacy_material_drop_candidate: tuple[
             int,
             str,
             bool,
             str,
         ] | None = None
+        self._material_drop_candidate: TimelineDragCandidate | None = None
+        self._material_drop_planner: (
+            Callable[
+                [
+                    dict[str, object],
+                    int,
+                    str | None,
+                    bool,
+                    str,
+                ],
+                TimelineDragCandidate,
+            ]
+            | None
+        ) = None
+        self._material_drop_interaction = TimelineDragInteraction()
         self._trim_interaction = TimelineTrimInteraction()
         self._editing_enabled = True
         self._clip_statuses: dict[str, str] = {}
@@ -159,11 +184,154 @@ class TimelineCanvas(QWidget):
         return self._scale
 
     @property
+    def editing_fps(self) -> int:
+        return self._editing_fps
+
+    @property
     def trim_active(self) -> bool:
         return self._trim_interaction.active
 
+    @property
+    def material_drop_candidate(self) -> TimelineDragCandidate | None:
+        return self._material_drop_candidate
+
+    def set_material_drop_planner(
+        self,
+        planner: Callable[
+            [dict[str, object], int, str | None, bool, str],
+            TimelineDragCandidate,
+        ]
+        | None,
+    ) -> None:
+        self.cancel_material_drop()
+        self._material_drop_planner = planner
+
+    def begin_material_drop(self, payload: dict[str, object]) -> bool:
+        material_id = str(payload.get("material_id", "")).strip()
+        if not material_id:
+            return False
+        self._material_drop_interaction.begin(
+            material_id=material_id,
+            has_video=bool(payload.get("has_video", True)),
+            has_audio=bool(payload.get("has_audio", False)),
+            origin="project_materials",
+        )
+        self._material_drop_candidate = None
+        self._legacy_material_drop_candidate = None
+        self.update()
+        return True
+
+    def preview_material_drop(
+        self,
+        payload: dict[str, object],
+        *,
+        x: float,
+        y: float,
+        snap_enabled: bool,
+    ) -> TimelineDragCandidate | None:
+        planner = self._material_drop_planner
+        if planner is None:
+            return None
+        material_id = str(payload.get("material_id", "")).strip()
+        context = self._material_drop_interaction.context
+        if (
+            context is None
+            or context.material_id != material_id
+            or context.has_video != bool(payload.get("has_video", True))
+            or context.has_audio != bool(payload.get("has_audio", False))
+        ):
+            if not self.begin_material_drop(payload):
+                return None
+            context = self._material_drop_interaction.context
+        assert context is not None
+        raw_start_us = self._scale.x_to_time(x)
+        track = self._track_at(y)
+        if float(x) < self.track_header_width:
+            candidate = TimelineDragCandidate.invalid(
+                transaction_id=context.transaction_id,
+                material_id=context.material_id,
+                raw_start_us=raw_start_us,
+                start_us=raw_start_us,
+                conflict_code="outside_timeline",
+                conflict_reason="请把素材拖到时间线内容区域",
+                has_video=context.has_video,
+                has_audio=context.has_audio,
+            )
+        else:
+            candidate = planner(
+                payload,
+                raw_start_us,
+                track.track_id if track is not None else None,
+                bool(snap_enabled),
+                context.transaction_id,
+            )
+        if not self._material_drop_interaction.update(candidate):
+            return None
+        self._material_drop_candidate = candidate
+        self.update()
+        return candidate
+
+    def commit_material_drop_preview(self) -> bool:
+        candidate = self._material_drop_interaction.finish()
+        self._material_drop_candidate = None
+        self._legacy_material_drop_candidate = None
+        self.update()
+        if candidate is None:
+            return False
+        if not candidate.valid:
+            self.invalid_drop.emit(_drop_conflict_message(candidate))
+            return False
+        self.material_drop_commit_requested.emit(candidate)
+        return True
+
+    def cancel_material_drop(self) -> bool:
+        active = self._material_drop_interaction.cancel()
+        had_candidate = (
+            self._material_drop_candidate is not None
+            or self._legacy_material_drop_candidate is not None
+        )
+        self._material_drop_candidate = None
+        self._legacy_material_drop_candidate = None
+        if active or had_candidate:
+            self.update()
+        return active or had_candidate
+
+    def material_drop_summary(self) -> str:
+        candidate = self._material_drop_candidate
+        if candidate is None:
+            return ""
+        if not candidate.valid:
+            return _drop_conflict_message(candidate)
+        targets: list[str] = []
+        if candidate.video_track_id:
+            track = self._track_by_id(candidate.video_track_id)
+            targets.append(track.name if track is not None else "新视频轨")
+        if candidate.audio_track_id:
+            track = self._track_by_id(candidate.audio_track_id)
+            targets.append(track.name if track is not None else "新音频轨")
+        details = [
+            format_frame_time(candidate.start_us, self._editing_fps),
+            " + ".join(targets) or "自动选择兼容轨道",
+        ]
+        if candidate.has_video and candidate.has_audio:
+            details.append("关联音视频")
+        details.extend(
+            f"自动新建{'视频轨' if kind == 'video' else '音频轨'}"
+            for kind in candidate.auto_track_kinds
+        )
+        snap_label = {
+            "playhead": "吸附播放头",
+            "clip_start": "吸附片段起点",
+            "clip_end": "吸附片段终点",
+            "frame": "吸附帧边界",
+        }.get(candidate.snap_source)
+        if snap_label:
+            details.append(snap_label)
+        return " · ".join(details)
+
     def set_timeline(self, timeline: Timeline) -> None:
         self.cancel_trim()
+        self.cancel_material_drop()
         self._timeline = copy.deepcopy(timeline)
         valid_clip_ids = {item.clip_id for item in timeline.clips}
         self._clip_statuses = {
@@ -205,12 +373,30 @@ class TimelineCanvas(QWidget):
         self._playhead_us = max(0, int(value_us))
         self.update()
 
+    def set_editing_fps(self, editing_fps: int) -> None:
+        if not is_supported_editing_fps(editing_fps):
+            raise ValueError("editing_fps must be 30, 60, or 120")
+        self._editing_fps = editing_fps
+        self.update()
+
+    def ruler_tick_spec(self) -> tuple[int, int]:
+        pixels_per_frame = (
+            self._scale.pixels_per_second / self._editing_fps
+        )
+        minor = _nice_frame_step(max(1, _ceil_ratio(2.0, pixels_per_frame)))
+        major = _nice_frame_step(
+            max(minor, _ceil_ratio(96.0, pixels_per_frame))
+        )
+        if major % minor:
+            major = ((major + minor - 1) // minor) * minor
+        return minor, major
+
     def set_editing_enabled(self, enabled: bool) -> None:
         self._editing_enabled = bool(enabled)
         if not self._editing_enabled:
             self._drag_clip_id = None
             self._drag_candidate = None
-            self._material_drop_candidate = None
+            self.cancel_material_drop()
             self.cancel_trim()
         self.update()
 
@@ -539,10 +725,14 @@ class TimelineCanvas(QWidget):
         event.accept()
 
     def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key_Escape and self._trim_interaction.active:
-            self.cancel_trim()
-            event.accept()
-            return
+        if event.key() == Qt.Key_Escape:
+            cancelled = self.cancel_material_drop()
+            if self._trim_interaction.active:
+                self.cancel_trim()
+                cancelled = True
+            if cancelled:
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     def focusOutEvent(self, event) -> None:
@@ -607,7 +797,9 @@ class TimelineCanvas(QWidget):
         return start_us, track.track_id, True, ""
 
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(self.MATERIAL_MIME_TYPE):
+        payload = self._decode_material_payload(event.mimeData())
+        if payload is not None:
+            self.begin_material_drop(payload)
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
@@ -617,27 +809,51 @@ class TimelineCanvas(QWidget):
         if payload is None:
             event.ignore()
             return
-        self._material_drop_candidate = self.material_drop_target(
-            event.pos().x(),
-            event.pos().y(),
-            has_audio=bool(payload.get("has_audio", False)),
-        )
-        if self._material_drop_candidate[2]:
-            event.acceptProposedAction()
+        if self._material_drop_planner is not None:
+            candidate = self.preview_material_drop(
+                payload,
+                x=event.pos().x(),
+                y=event.pos().y(),
+                snap_enabled=not bool(
+                    event.keyboardModifiers() & Qt.AltModifier
+                ),
+            )
+            if candidate is not None:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
         else:
-            event.ignore()
+            self._legacy_material_drop_candidate = self.material_drop_target(
+                event.pos().x(),
+                event.pos().y(),
+                has_audio=bool(payload.get("has_audio", False)),
+            )
+            if self._legacy_material_drop_candidate[2]:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
         self.update()
 
     def dragLeaveEvent(self, event) -> None:
-        self._material_drop_candidate = None
-        self.update()
+        self.cancel_material_drop()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event) -> None:
         payload = self._decode_material_payload(event.mimeData())
-        candidate = self._material_drop_candidate
-        self._material_drop_candidate = None
-        if payload is None or candidate is None:
+        if payload is None:
+            self.cancel_material_drop()
+            event.ignore()
+            return
+        if self._material_drop_planner is not None:
+            if self.commit_material_drop_preview():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+            return
+        candidate = self._legacy_material_drop_candidate
+        self._legacy_material_drop_candidate = None
+        self._material_drop_interaction.cancel()
+        if candidate is None:
             event.ignore()
             self.update()
             return
@@ -666,25 +882,41 @@ class TimelineCanvas(QWidget):
             QPointF(0, self.ruler_height - 1),
             QPointF(self.width(), self.ruler_height - 1),
         )
-        grid = self._grid_us()
-        start = (self._scale.origin_us // grid) * grid
-        end = self._scale.x_to_time(self.width())
+        minor_frames, major_frames = self.ruler_tick_spec()
+        start_frame = (
+            self._scale.origin_us * self._editing_fps // 1_000_000
+        )
+        end_us = self._scale.x_to_time(self.width())
+        end_frame = (
+            end_us * self._editing_fps + 999_999
+        ) // 1_000_000
         font = QFont()
         font.setPointSize(8)
         painter.setFont(font)
-        current = start
-        while current <= end + grid:
-            x = self._scale.time_to_x(current)
+        current_frame = (
+            start_frame // minor_frames
+        ) * minor_frames
+        while current_frame <= end_frame + minor_frames:
+            current_us = frame_to_microseconds(
+                current_frame,
+                self._editing_fps,
+            )
+            x = self._scale.time_to_x(current_us)
+            major = current_frame % major_frames == 0
             painter.drawLine(
-                QPointF(x, self.ruler_height - 8),
+                QPointF(
+                    x,
+                    self.ruler_height - (10 if major else 5),
+                ),
                 QPointF(x, self.ruler_height),
             )
-            painter.drawText(
-                QRectF(x + 3, 2, 70, self.ruler_height - 6),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                _format_ruler_time(current),
-            )
-            current += grid
+            if major:
+                painter.drawText(
+                    QRectF(x + 3, 2, 96, self.ruler_height - 6),
+                    Qt.AlignLeft | Qt.AlignVCenter,
+                    format_frame_time(current_us, self._editing_fps),
+                )
+            current_frame += minor_frames
 
     def _draw_tracks(self, painter: QPainter) -> None:
         for row, track in enumerate(self._ordered_tracks()):
@@ -773,7 +1005,14 @@ class TimelineCanvas(QWidget):
                 painter.drawText(
                     rect.adjusted(8, 20, -6, -2),
                     Qt.AlignLeft | Qt.AlignBottom,
-                    "关联",
+                    "已关联",
+                )
+            else:
+                painter.setPen(QColor("#7B8799"))
+                painter.drawText(
+                    rect.adjusted(8, 20, -6, -2),
+                    Qt.AlignLeft | Qt.AlignBottom,
+                    "未关联",
                 )
         if candidate_clip is not None and self._drag_candidate is not None:
             start, track_id, valid, _reason = self._drag_candidate
@@ -812,28 +1051,103 @@ class TimelineCanvas(QWidget):
         candidate = self._material_drop_candidate
         if candidate is None:
             return
-        start_us, track_id, valid, _reason = candidate
         rows = {
             track.track_id: index
             for index, track in enumerate(self._ordered_tracks())
         }
-        row = rows.get(track_id)
-        if row is None:
-            return
-        x = self._scale.time_to_x(start_us)
-        y = self.ruler_height + row * self.track_height + 5
-        rect = QRectF(x, y, 120, self.track_height - 10)
-        color = QColor("#168653" if valid else "#C73A35")
+        x = self._scale.time_to_x(candidate.start_us)
+        color = QColor("#168653" if candidate.valid else "#C73A35")
         color.setAlpha(55)
         painter.setBrush(color)
         painter.setPen(
             QPen(
-                QColor("#168653" if valid else "#C73A35"),
+                QColor("#168653" if candidate.valid else "#C73A35"),
                 2,
                 Qt.DashLine,
             )
         )
-        painter.drawRoundedRect(rect, 5, 5)
+        width = max(
+            90.0,
+            candidate.duration_us
+            / 1_000_000
+            * self._scale.pixels_per_second,
+        )
+        target_ids = tuple(
+            track_id
+            for track_id in (
+                candidate.video_track_id,
+                candidate.audio_track_id,
+            )
+            if track_id
+        )
+        for track_id in target_ids:
+            row = rows.get(track_id)
+            if row is None:
+                continue
+            track_rect = QRectF(
+                self.track_header_width + 1,
+                self.ruler_height + row * self.track_height + 1,
+                max(0, self.width() - self.track_header_width - 2),
+                self.track_height - 2,
+            )
+            painter.drawRect(track_rect)
+            painter.drawRoundedRect(
+                QRectF(
+                    x,
+                    self.ruler_height + row * self.track_height + 5,
+                    width,
+                    self.track_height - 10,
+                ),
+                5,
+                5,
+            )
+
+        for offset, kind in enumerate(candidate.auto_track_kinds):
+            label = "将自动新建视频轨" if kind == "video" else "将自动新建音频轨"
+            y = (
+                self.ruler_height + 2 + offset * 18
+                if kind == "video"
+                else max(
+                    self.ruler_height + 2,
+                    self.height() - 20 - offset * 18,
+                )
+            )
+            painter.setPen(
+                QPen(
+                    QColor("#168653" if candidate.valid else "#C73A35"),
+                    1,
+                    Qt.DashLine,
+                )
+            )
+            painter.drawRect(
+                QRectF(self.track_header_width + 4, y, 150, 16)
+            )
+            painter.drawText(
+                QRectF(self.track_header_width + 9, y, 140, 16),
+                Qt.AlignLeft | Qt.AlignVCenter,
+                label,
+            )
+
+        if candidate.snap_source != "none":
+            painter.setPen(QPen(QColor("#2563EB"), 1, Qt.DashLine))
+            painter.drawLine(
+                QPointF(x, self.ruler_height),
+                QPointF(x, self.height()),
+            )
+        painter.setFont(QFont(painter.font().family(), 8))
+        painter.setPen(
+            QColor("#168653" if candidate.valid else "#C73A35")
+        )
+        painter.drawText(
+            QRectF(
+                max(self.track_header_width + 4, x + 4),
+                2,
+                max(120, self.width() - x - 8),
+                self.ruler_height - 4,
+            ),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            self.material_drop_summary(),
+        )
 
     def _draw_trim_handles(self, painter: QPainter) -> None:
         for left, right in self.trim_handle_rects().values():
@@ -1012,3 +1326,36 @@ def _format_ruler_time(value_us: int) -> str:
     total_seconds = max(0, int(value_us)) // 1_000_000
     minutes, seconds = divmod(total_seconds, 60)
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _drop_conflict_message(candidate: TimelineDragCandidate) -> str:
+    return {
+        "outside_timeline": "请把素材拖到时间线内容区域",
+        "read_only": "当前项目为只读状态，不能拖入素材",
+        "save_pending": "存在待处理保存，请先解决后再拖入素材",
+        "timeline_unavailable": "当前项目时间线不可用",
+        "invalid_material": "素材缺失、损坏或没有可用媒体流",
+        "missing_track": "目标轨道已经不存在，请重新选择落点",
+        "locked_track": "目标轨道已锁定",
+        "incompatible_track": "素材类型与目标轨道不兼容",
+        "track_limit": "兼容轨道已满，且同类型轨道达到 8 条上限",
+        "candidate_invalid": "当前落点无法生成有效片段",
+    }.get(
+        candidate.conflict_code,
+        candidate.conflict_reason or "当前落点不可用",
+    )
+
+
+def _ceil_ratio(numerator: float, denominator: float) -> int:
+    return max(1, int((numerator + denominator - 1e-9) // denominator))
+
+
+def _nice_frame_step(minimum: int) -> int:
+    target = max(1, int(minimum))
+    scale = 1
+    while True:
+        for multiplier in (1, 2, 5):
+            candidate = multiplier * scale
+            if candidate >= target:
+                return candidate
+        scale *= 10

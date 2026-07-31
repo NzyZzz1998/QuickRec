@@ -37,6 +37,26 @@ GROUPS = (
         80.0,
     ),
     CoverageGroup(
+        "v1.9.5-domain-core",
+        (
+            "src/exporting/temp_cleanup.py",
+            "src/services/project_editing_profile.py",
+            "src/services/timeline_drag_transaction.py",
+            "src/services/timeline_frame_time.py",
+            "src/services/timeline_snap.py",
+        ),
+        85.0,
+    ),
+    CoverageGroup(
+        "v1.9.5-ui-coordination",
+        (
+            "src/ui/timeline_drag_interaction.py",
+            "src/ui/timeline_shortcut_router.py",
+            "src/ui/toolbar_placement.py",
+        ),
+        80.0,
+    ),
+    CoverageGroup(
         "quickrec-cli-core",
         (
             "src/cli/contracts.py",

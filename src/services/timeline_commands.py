@@ -12,16 +12,28 @@ from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 
+from services.project_editing_profile import (
+    EDITING_EXTENSION_KEY,
+    editing_profile_for_new_project,
+    is_supported_editing_fps,
+    resolve_project_editing_profile,
+    with_project_editing_profile,
+)
 from services.project_library import ProjectLibraryService
 from services.project_save_coordinator import (
     ProjectSaveCoordinator,
     ProjectSaveSnapshot,
+)
+from services.timeline_drag_transaction import (
+    TimelineDragCandidate,
+    TimelineDragTransactionService,
 )
 from services.timeline_edit_service import (
     TimelineEditCandidate,
     TimelineEditConflict,
     TimelineEditImpact,
     TimelineEditService,
+    TimelineRelinkOption,
     timeline_edit_fingerprint,
 )
 from services.timeline_history import (
@@ -110,6 +122,7 @@ class TimelineCommandService:
         self._redo: list[TimelineHistoryEntry] = []
         self._pending_save: _PendingSave | None = None
         self._edit_service = TimelineEditService()
+        self._drag_service = TimelineDragTransactionService()
         self._save_coordinator = (
             save_coordinator
             or ProjectSaveCoordinator(project_service, project_id)
@@ -127,6 +140,10 @@ class TimelineCommandService:
         self._last_migration_source: int | None = None
         self._last_migration_target: int | None = None
         self._last_migration_result = "not_run"
+        self._editing_profile = editing_profile_for_new_project(None)
+        self._editing_profile_persisted = False
+        self._editing_profile_status = "inferred"
+        self._editing_profile_error = ""
         self.reload()
 
     @property
@@ -136,6 +153,26 @@ class TimelineCommandService:
     @property
     def read_only(self) -> bool:
         return self._read_only or bool(self._runtime_read_only_reason)
+
+    @property
+    def editing_fps(self) -> int:
+        return self._editing_profile.editing_fps
+
+    @property
+    def editing_fps_locked(self) -> bool:
+        return self._editing_profile.fps_locked
+
+    @property
+    def editing_profile_persisted(self) -> bool:
+        return self._editing_profile_persisted
+
+    @property
+    def editing_profile_status(self) -> str:
+        return self._editing_profile_status
+
+    @property
+    def editing_profile_error(self) -> str:
+        return self._editing_profile_error
 
     def set_runtime_read_only(self, active: bool, *, reason: str = "") -> None:
         """临时阻止命令写入，不覆盖项目自身的只读状态。"""
@@ -209,6 +246,202 @@ class TimelineCommandService:
         self._remember_edit_preview(candidate)
         return candidate
 
+    def preview_delete_clip(
+        self,
+        clip_id: str,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("delete")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.delete_preserving_gap(
+            self._timeline,
+            self._project,
+            clip_id,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def preview_unlink_clip(
+        self,
+        clip_id: str,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("unlink")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.unlink(
+            self._timeline,
+            self._project,
+            clip_id,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def relink_candidates(
+        self,
+        clip_id: str,
+    ) -> tuple[TimelineRelinkOption, ...]:
+        if (
+            self._pending_save is not None
+            or not self.ready
+            or self.read_only
+        ):
+            return ()
+        assert self._timeline is not None
+        assert self._project is not None
+        return self._edit_service.relink_options(
+            self._timeline,
+            self._project,
+            clip_id,
+        )
+
+    def preview_relink_clip(
+        self,
+        clip_id: str,
+        candidate_clip_id: str,
+    ) -> TimelineEditCandidate:
+        blocked = self._edit_preview_block("relink")
+        if blocked is not None:
+            return blocked
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._edit_service.relink(
+            self._timeline,
+            self._project,
+            clip_id,
+            candidate_clip_id,
+        )
+        self._remember_edit_preview(candidate)
+        return candidate
+
+    def unlink_clip(
+        self,
+        clip_id: str,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        return self.commit_edit_candidate(
+            self.preview_unlink_clip(clip_id),
+            now=now,
+        )
+
+    def relink_clip(
+        self,
+        clip_id: str,
+        candidate_clip_id: str,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        return self.commit_edit_candidate(
+            self.preview_relink_clip(
+                clip_id,
+                candidate_clip_id,
+            ),
+            now=now,
+        )
+
+    def preview_material_drop(
+        self,
+        material_id: str,
+        *,
+        has_video: bool,
+        has_audio: bool,
+        raw_start_us: int,
+        hovered_track_id: str | None,
+        playhead_us: int,
+        pixels_per_second: float,
+        transaction_id: str,
+        snap_enabled: bool = True,
+    ) -> TimelineDragCandidate:
+        reason = ""
+        code = ""
+        if self._pending_save is not None:
+            code = "save_pending"
+            reason = "a project save is pending"
+        elif not self.ready:
+            code = "timeline_unavailable"
+            reason = self.error or "timeline is unavailable"
+        elif self.read_only:
+            code = "read_only"
+            reason = self._read_only_error()
+        if reason:
+            return TimelineDragCandidate.invalid(
+                transaction_id=transaction_id,
+                material_id=material_id,
+                raw_start_us=max(0, int(raw_start_us)),
+                start_us=max(0, int(raw_start_us)),
+                conflict_code=code,
+                conflict_reason=reason,
+                has_video=has_video,
+                has_audio=has_audio,
+                hovered_track_id=str(hovered_track_id or ""),
+            )
+        assert self._timeline is not None
+        assert self._project is not None
+        candidate = self._drag_service.preview(
+            self._timeline,
+            self._project,
+            material_id=material_id,
+            has_video=has_video,
+            has_audio=has_audio,
+            raw_start_us=raw_start_us,
+            hovered_track_id=hovered_track_id,
+            playhead_us=playhead_us,
+            editing_fps=self.editing_fps,
+            pixels_per_second=pixels_per_second,
+            snap_enabled=snap_enabled,
+            transaction_id=transaction_id,
+        )
+        logger.info(
+            "timeline material drop previewed: project_id=%s valid=%s "
+            "snap=%s auto_tracks=%d conflict=%s",
+            self.project_id,
+            candidate.valid,
+            candidate.snap_source,
+            len(candidate.created_track_ids),
+            candidate.conflict_code or "none",
+        )
+        return candidate
+
+    def commit_material_drop(
+        self,
+        candidate: TimelineDragCandidate,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        command = "drop_material"
+        if self._pending_save is not None:
+            return self._pending_save_block(command)
+        if not self.ready:
+            return self._unavailable(command)
+        if self.read_only:
+            return self._failure(
+                command,
+                "read_only",
+                self._read_only_error(),
+            )
+        if not candidate.valid or candidate.timeline is None:
+            return self._failure(
+                command,
+                "invalid_candidate",
+                candidate.conflict_reason or "drop candidate is not valid",
+            )
+        assert self._timeline is not None
+        assert self._project is not None
+        if candidate.source_fingerprint != timeline_edit_fingerprint(
+            self._timeline,
+            self._project,
+        ):
+            return self._failure(
+                command,
+                "stale_candidate",
+                "timeline changed after the drop preview was created",
+            )
+        return self._execute_drag_candidate(candidate, now=now)
+
     def commit_edit_candidate(
         self,
         candidate: TimelineEditCandidate,
@@ -218,7 +451,10 @@ class TimelineCommandService:
         commands = {
             "trim": "trim_clip",
             "split": "split_clip",
+            "delete": "delete_clip",
             "ripple_delete": "ripple_delete_clip",
+            "unlink": "unlink_clips",
+            "relink": "relink_clips",
         }
         command = commands.get(candidate.operation)
         if command is None:
@@ -336,6 +572,9 @@ class TimelineCommandService:
                 else "none"
             ),
             "migration_result": self._last_migration_result,
+            "editing_fps": self.editing_fps,
+            "editing_fps_locked": self.editing_fps_locked,
+            "editing_profile_status": self.editing_profile_status,
         }
 
     @property
@@ -390,6 +629,23 @@ class TimelineCommandService:
             or timeline_result.read_only
             or not os.access(loaded.path, os.W_OK)
         )
+        if self._timeline is not None:
+            editing = resolve_project_editing_profile(
+                self._project,
+                self._timeline,
+            )
+            self._editing_profile = editing.profile
+            self._editing_profile_persisted = editing.persisted
+            self._editing_profile_status = editing.status
+            self._editing_profile_error = editing.error
+            if editing.read_only:
+                self._read_only = True
+                self.error = editing.error
+        else:
+            self._editing_profile = editing_profile_for_new_project(None)
+            self._editing_profile_persisted = False
+            self._editing_profile_status = "unavailable"
+            self._editing_profile_error = self.error
         logger.info(
             "timeline loaded: project_id=%s schema=%s tracks=%d clips=%d "
             "result=%s read_only=%s",
@@ -404,6 +660,82 @@ class TimelineCommandService:
             self.status,
             self.read_only,
         )
+
+    def set_editing_fps(
+        self,
+        editing_fps: int,
+        *,
+        now: str | None = None,
+    ) -> TimelineCommandResult:
+        command = "set_editing_fps"
+        if self._pending_save is not None:
+            return self._pending_save_block(command)
+        if not is_supported_editing_fps(editing_fps):
+            return self._failure(
+                command,
+                "validate",
+                "editing_fps must be 30, 60, or 120",
+            )
+        if not self.ready:
+            return self._unavailable(command)
+        if self.read_only:
+            return self._failure(
+                command,
+                "read_only",
+                self._read_only_error(),
+            )
+        assert self._timeline is not None
+        assert self._project is not None
+        if self._editing_profile.fps_locked or self._timeline.clips:
+            return self._failure(
+                command,
+                "locked",
+                "editing FPS cannot change after timeline content exists",
+            )
+        if (
+            self._editing_profile_persisted
+            and self._editing_profile.editing_fps == editing_fps
+        ):
+            return TimelineCommandResult(
+                True,
+                command,
+                "noop",
+                copy.deepcopy(self._timeline),
+                changed=False,
+                undo_depth=len(self._undo),
+                redo_depth=len(self._redo),
+            )
+        before = copy.deepcopy(self._timeline)
+        before_project = copy.deepcopy(self._project)
+        profile = replace(
+            self._editing_profile,
+            editing_fps=editing_fps,
+        )
+        candidate_project = with_project_editing_profile(
+            before_project,
+            profile,
+        )
+        candidate_timeline = copy.deepcopy(self._timeline)
+        save_revision = self._save_coordinator.begin_change(command)
+        pending = _PendingSave(
+            command,
+            before,
+            candidate_timeline,
+            before_project,
+            copy.deepcopy(candidate_project),
+            _Mutation(),
+            save_revision,
+        )
+        result = self._commit_project_snapshot(
+            command,
+            candidate_project,
+            candidate_timeline,
+            now=now,
+            save_revision=save_revision,
+        )
+        if not result.ok:
+            return self._remember_pending_failure(pending, result)
+        return self._complete_pending_save(pending, result)
 
     def add_material(
         self,
@@ -554,13 +886,10 @@ class TimelineCommandService:
                 affected_clip_ids=affected,
             )
 
-        def mutate(candidate: Timeline) -> _Mutation:
-            candidate.clips = [
-                item for item in candidate.clips if item.clip_id not in affected
-            ]
-            return _Mutation(affected_clip_ids=affected)
-
-        return self._execute("delete_clip", mutate, now=now)
+        return self.commit_edit_candidate(
+            self.preview_delete_clip(clip_id),
+            now=now,
+        )
 
     def material_clip_ids(self, material_id: str) -> tuple[str, ...]:
         """返回当前时间线中引用指定项目素材的片段。"""
@@ -1484,6 +1813,48 @@ class TimelineCommandService:
             return self._remember_pending_failure(pending, result)
         return self._complete_pending_save(pending, result)
 
+    def _execute_drag_candidate(
+        self,
+        drag_candidate: TimelineDragCandidate,
+        *,
+        now: str | None,
+    ) -> TimelineCommandResult:
+        command = "drop_material"
+        assert self._timeline is not None
+        assert self._project is not None
+        assert drag_candidate.timeline is not None
+        before = copy.deepcopy(self._timeline)
+        before_project = copy.deepcopy(self._project)
+        candidate = copy.deepcopy(drag_candidate.timeline)
+        try:
+            validate_timeline(candidate, self._project)
+        except Exception as exc:
+            return self._failure(command, "validate", str(exc))
+        candidate_project = with_project_timeline(before_project, candidate)
+        save_revision = self._save_coordinator.begin_change(command)
+        pending = _PendingSave(
+            command,
+            before,
+            copy.deepcopy(candidate),
+            before_project,
+            copy.deepcopy(candidate_project),
+            _Mutation(
+                affected_track_ids=drag_candidate.created_track_ids,
+                affected_clip_ids=drag_candidate.created_clip_ids,
+            ),
+            save_revision,
+        )
+        result = self._commit_project_snapshot(
+            command,
+            candidate_project,
+            candidate,
+            now=now,
+            save_revision=save_revision,
+        )
+        if not result.ok:
+            return self._remember_pending_failure(pending, result)
+        return self._complete_pending_save(pending, result)
+
     def _commit_timeline(
         self,
         command: str,
@@ -1524,6 +1895,10 @@ class TimelineCommandService:
                 "read_only",
                 self._read_only_error(),
             )
+        candidate_project = self._prepare_project_editing_profile(
+            candidate_project,
+            candidate_timeline,
+        )
         candidate_project = with_project_timeline(
             candidate_project,
             candidate_timeline,
@@ -1580,6 +1955,14 @@ class TimelineCommandService:
             )
         self._project = copy.deepcopy(committed.project)
         self._timeline = copy.deepcopy(candidate_timeline)
+        editing = resolve_project_editing_profile(
+            self._project,
+            self._timeline,
+        )
+        self._editing_profile = editing.profile
+        self._editing_profile_persisted = editing.persisted
+        self._editing_profile_status = editing.status
+        self._editing_profile_error = editing.error
         self._expected_modified_ns = committed.entry.file_modified_ns
         self.status = "ready"
         self.error = ""
@@ -1602,6 +1985,33 @@ class TimelineCommandService:
             saved=True,
             undo_depth=len(self._undo),
             redo_depth=len(self._redo),
+        )
+
+    def _prepare_project_editing_profile(
+        self,
+        candidate_project: ProjectFile,
+        candidate_timeline: Timeline,
+    ) -> ProjectFile:
+        if EDITING_EXTENSION_KEY in candidate_project.extensions:
+            resolved = resolve_project_editing_profile(
+                candidate_project,
+                candidate_timeline,
+            )
+            profile = (
+                resolved.profile
+                if not resolved.read_only
+                else self._editing_profile
+            )
+        else:
+            profile = self._editing_profile
+        locked = (
+            profile.fps_locked
+            or self._editing_profile.fps_locked
+            or bool(candidate_timeline.clips)
+        )
+        return with_project_editing_profile(
+            candidate_project,
+            replace(profile, fps_locked=locked),
         )
 
     def _push_history(self, entry: TimelineHistoryEntry) -> None:
@@ -1680,7 +2090,11 @@ class TimelineCommandService:
         if pending.command in {
             "trim_clip",
             "split_clip",
+            "delete_clip",
             "ripple_delete_clip",
+            "unlink_clips",
+            "relink_clips",
+            "drop_material",
         }:
             logger.info(
                 "timeline edit committed: project_id=%s command=%s "

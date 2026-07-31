@@ -11,6 +11,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from services.project_editing_profile import (
+    EDITING_EXTENSION_KEY,
+    editing_profile_for_new_project,
+)
 from utils.project_store import (
     ProjectFile,
     ProjectIndexEntry,
@@ -145,6 +149,7 @@ class ProjectLibraryService:
         description: str = "",
         project_id: str | None = None,
         now: str | None = None,
+        editing_fps: object = None,
     ) -> ProjectOperationResult:
         with self._lock:
             cleaned_name = str(name or "").strip()
@@ -161,6 +166,11 @@ class ProjectLibraryService:
                 description=str(description or ""),
                 created_at=timestamp,
                 updated_at=timestamp,
+                extensions={
+                    EDITING_EXTENSION_KEY: editing_profile_for_new_project(
+                        editing_fps
+                    ).to_dict()
+                },
             )
             try:
                 written = save_project(path, project)

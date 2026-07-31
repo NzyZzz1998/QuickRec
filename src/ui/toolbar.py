@@ -21,6 +21,7 @@ from ui.design_system import (
     refresh_style,
     set_button_icon,
 )
+from ui.toolbar_placement import calculate_toolbar_position
 
 
 class RecordingToolbar(QWidget):
@@ -47,8 +48,9 @@ class RecordingToolbar(QWidget):
 
     countdown_finished = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, target_screen=None):
         super().__init__(parent)
+        self._target_screen = target_screen
         self._recording = True
         self._paused = False
         self._elapsed_seconds = 0
@@ -158,20 +160,35 @@ class RecordingToolbar(QWidget):
         self._indicator.setProperty("state", state)
         refresh_style(self._indicator)
 
-    def _transition_to_content_width(self) -> None:
+    def _transition_to_content_width(
+        self,
+        *,
+        recenter_on_target_screen: bool = False,
+    ) -> None:
         layout = self.layout()
         if layout is not None:
             layout.activate()
         target_width = max(250, self.sizeHint().width())
         target_height = self.height()
         current = self.geometry()
+        target_position = (
+            self._target_position(target_width, target_height)
+            if recenter_on_target_screen
+            else None
+        )
         if not self.isVisible() or current.width() <= 0:
             self.resize(target_width, target_height)
+            if target_position is not None:
+                self.move(*target_position)
             return
-        center_x = current.center().x()
+        if target_position is None:
+            target_x = current.center().x() - target_width // 2
+            target_y = current.y()
+        else:
+            target_x, target_y = target_position
         target = QRect(
-            center_x - target_width // 2,
-            current.y(),
+            target_x,
+            target_y,
             target_width,
             target_height,
         )
@@ -185,12 +202,27 @@ class RecordingToolbar(QWidget):
         self._timer.timeout.connect(self._update_timer)
 
     def center_on_screen(self):
+        self.adjustSize()
+        position = self._target_position(self.width(), self.height())
+        if position is not None:
+            x, y = position
+            self.move(x, y)
+
+    def _target_position(
+        self,
+        width: int,
+        height: int,
+    ) -> tuple[int, int] | None:
         from PyQt5.QtWidgets import QApplication
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.geometry()
-            self.adjustSize()
-            self.move(geo.center().x() - self.width() // 2, geo.top() + 10)
+
+        screen = self._target_screen or QApplication.primaryScreen()
+        if screen is None:
+            return None
+        geo = screen.availableGeometry()
+        return calculate_toolbar_position(
+            (geo.x(), geo.y(), geo.width(), geo.height()),
+            (width, height),
+        )
 
     # --- 录制模式 ---
 
@@ -202,8 +234,7 @@ class RecordingToolbar(QWidget):
         self._show_recording_buttons()
         self._timer.start(1000)
         self._set_indicator_state("recording")
-        self._transition_to_content_width()
-        QTimer.singleShot(0, self.center_on_screen)
+        self._transition_to_content_width(recenter_on_target_screen=True)
 
     def stop_recording_timer(self):
         self._timer.stop()
@@ -231,8 +262,7 @@ class RecordingToolbar(QWidget):
         self._result_mode = False
         self._show_countdown_ui()
         self._countdown_timer.start()
-        self._transition_to_content_width()
-        QTimer.singleShot(0, self.center_on_screen)
+        self._transition_to_content_width(recenter_on_target_screen=True)
 
     def cancel_countdown(self):
         self._countdown_timer.stop()

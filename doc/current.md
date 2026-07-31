@@ -3,14 +3,64 @@
 ## 当前定位
 
 - 产品线：QuickRec Full。
-- 当前公开正式版本：v1.9.4。
+- 当前公开正式版本：v1.9.5。
+- 当前开发候选：无。
 - 当前发布分支：`master`。
-- 当前发布标签：`v1.9.4`。
+- 当前发布标签：`v1.9.5`。
 - 开发与集成分支：`test`。
 - 当前工作区：`E:\codex\QuickRec`。
 - QuickRec Lite：`E:\codex\QuickRec-Lite`，不属于本版范围。
-- 当前阶段：v1.9.4 已完成 D11 GUI、长样本与真实媒体验收并正式发布。
+- 当前阶段：v1.9.5 已完成自动化门禁、D9 `31/31` 验收和正式发布收口。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
+
+## v1.9.5 当前发布状态
+
+v1.9.5 在 v1.9.4 导出闭环上增强剪辑交互与轨道控制：
+
+- 统一时间线快捷键和焦点契约；
+- 支持关联音视频解绑、严格重新关联及解绑后的独立编辑；
+- 区分普通删除和全局波纹删除；
+- 支持帧级吸附、落点预览、类型校验和条件性自动建轨；
+- 使用项目级 30/60/120 FPS 编辑基准及 `HH:MM:SS:FF`；
+- 录制工具栏跟随实际录制屏幕并位于中上安全区；
+- 安全清理可精确归属的导出临时文件；
+- 保持最高视频轨覆盖、最多 8 路音频、timeline schema v2 和持久导出队列
+  的正式语义。
+
+正式发布资产：
+
+```text
+目录: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec
+GUI: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec\QuickRec.exe
+GUI SHA256: 705B227FE33F31D4EE650334D607CAAA919FC3D1B44C633CEA1E5B75B3B4A226
+CLI: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec\QuickRecCLI.exe
+CLI SHA256: 1133802A8BB999B7CE198BB9EBF3F4F9D7C8160C9C9798C0248E28F940F0E386
+FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
+FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
+ZIP: E:\QRtest\QuickRec-v1.9.5-win-x64.zip
+ZIP SHA256: 0B4F90B0202B2F0296B463BFF196B04E7C0BCA6709A245037E390AC1B7185D59
+状态: 正式发布；D9 通过（31/31）；ACC 通过（20/20）
+```
+
+> **跨版本编辑警告**
+>
+> v1.9.5 项目与 v1.9.4 及更早版本不保证向下编辑兼容。旧版本可能能够读取
+> 项目，但会忽略项目编辑帧率、帧级吸附、解绑/重新关联及新的删除交互。
+> 不要在多个版本间反复打开并保存同一生产项目；跨版本操作前请备份
+> `.qrproj` 和 `.bak`。
+
+当前 v1.9.5 文档：
+
+- PRD：[releases/v1.9.5/prd.md](releases/v1.9.5/prd.md)
+- 实施计划：[releases/v1.9.5/dev_plan.md](releases/v1.9.5/dev_plan.md)
+- 进度：[releases/v1.9.5/progress.md](releases/v1.9.5/progress.md)
+- 自动验证：[releases/v1.9.5/verification.md](releases/v1.9.5/verification.md)
+- GUI 验收：[releases/v1.9.5/manual-verification.md](releases/v1.9.5/manual-verification.md)
+- 验收追溯矩阵：[releases/v1.9.5/acceptance-matrix.md](releases/v1.9.5/acceptance-matrix.md)
+- 缺陷记录：[releases/v1.9.5/bugfix-log.md](releases/v1.9.5/bugfix-log.md)
+- 发布说明：[releases/v1.9.5/release-notes.md](releases/v1.9.5/release-notes.md)
+- 变更日志：[releases/v1.9.5/changelog.md](releases/v1.9.5/changelog.md)
+- 高保真原型：[releases/v1.9.5/prototype/index.html](releases/v1.9.5/prototype/index.html)
 
 ## v1.9.4 发布状态
 
@@ -280,7 +330,8 @@ D11 音画同步定向复验使用 r13；正式发布包在同一生产修复基
 
 ## 历史稳定点
 
-- v1.9.4：当前公开正式版。
+- v1.9.5：当前公开正式版。
+- v1.9.4：历史稳定版，也是 v1.9.5 的直接回滚点。
 - v1.9.3：历史稳定版，也是 v1.9.4 的直接回滚点。
 - v1.9.2：历史稳定版，也是 v1.9.3 的直接回滚点。
 - v1.9.1：历史稳定版，也是 v1.9.2 的直接回滚点。

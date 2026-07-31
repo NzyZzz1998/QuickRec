@@ -37,6 +37,11 @@ from exporting.queue_store import (
     IngestionStatus,
     QueueLoadResult,
 )
+from exporting.temp_cleanup import (
+    ExportTempArtifactOwner,
+    ExportTempCleanupReport,
+    cleanup_export_attempt,
+)
 from exporting.verifier import ExportVerifier
 from services.media_operation_guard import MediaOperationGuard
 from utils.recording_library_store import normalize_windows_path
@@ -256,6 +261,7 @@ class ExportQueueService:
         self._succeeded_listeners: list[SucceededListener] = []
         self._terminal_listeners: list[TerminalListener] = []
         self._interrupt_requested_job_id: str | None = None
+        self._temp_cleanup_reports: list[ExportTempCleanupReport] = []
 
     @property
     def state(self) -> ExportQueueState:
@@ -278,6 +284,10 @@ class ExportQueueService:
                 job.status == ExportStage.QUEUED
                 for job in self._state.jobs
             )
+
+    @property
+    def temp_cleanup_reports(self) -> tuple[ExportTempCleanupReport, ...]:
+        return tuple(self._temp_cleanup_reports)
 
     def initialize(self) -> QueueOperationResult:
         loaded = self._store.load()
@@ -302,6 +312,13 @@ class ExportQueueService:
         jobs = tuple(
             self._recover_job(job, recovered, now) for job in loaded.state.jobs
         )
+        for job in loaded.state.jobs:
+            for attempt in job.attempts:
+                if attempt.status in _ACTIVE_STAGES:
+                    self._cleanup_attempt_artifacts(
+                        job,
+                        attempt.attempt_id,
+                    )
         state = ExportQueueState(
             QUEUE_SCHEMA_VERSION,
             True,
@@ -690,6 +707,25 @@ class ExportQueueService:
                             message="export interrupted by application exit",
                         )
                         self._interrupt_requested_job_id = None
+                    if result.status in {
+                        ExportStage.SUCCEEDED,
+                        ExportStage.CANCELLED,
+                    }:
+                        cleanup = self._cleanup_attempt_artifacts(
+                            current,
+                            attempt.attempt_id,
+                        )
+                        if cleanup.failed:
+                            failure_names = ", ".join(
+                                kind for _, kind in cleanup.failed
+                            )
+                            result = replace(
+                                result,
+                                message=(
+                                    f"{result.message}; "
+                                    f"temporary cleanup failed: {failure_names}"
+                                ).strip("; "),
+                            )
                     finished = _finish_attempt(
                         current,
                         result,
@@ -978,6 +1014,21 @@ class ExportQueueService:
             and automatic_count == 0
             and len(job.attempts) < MAX_ATTEMPTS
         )
+
+    def _cleanup_attempt_artifacts(
+        self,
+        job: ExportJob,
+        attempt_id: str,
+    ) -> ExportTempCleanupReport:
+        report = cleanup_export_attempt(
+            ExportTempArtifactOwner(
+                job_id=job.job_id,
+                attempt_id=attempt_id,
+                output_directory=Path(job.plan.output.directory),
+            )
+        )
+        self._temp_cleanup_reports.append(report)
+        return report
 
     def _recover_transactions(
         self,

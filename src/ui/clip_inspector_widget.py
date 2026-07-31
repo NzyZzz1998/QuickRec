@@ -52,7 +52,7 @@ def format_timecode_us(value_us: int) -> str:
 
 
 class ClipInspectorWidget(QFrame):
-    """仅生成并展示精确裁剪候选，由窗口协调正式提交。"""
+    """只生成并展示精确裁剪候选，由窗口协调正式提交。"""
 
     preview_requested = pyqtSignal(int, int)
     apply_requested = pyqtSignal(object)
@@ -87,7 +87,8 @@ class ClipInspectorWidget(QFrame):
         title.setProperty("role", "sectionTitle")
         header.addWidget(title, 1)
         self._btn_close = QPushButton("关闭")
-        self._btn_close.setToolTip("关闭检查器并放弃尚未提交的候选")
+        self._btn_close.setAccessibleName("关闭片段属性")
+        self._btn_close.setToolTip("关闭检查器，并放弃尚未提交的裁剪候选")
         self._btn_close.clicked.connect(self._close_inspector)
         header.addWidget(self._btn_close)
         root.addLayout(header)
@@ -130,8 +131,8 @@ class ClipInspectorWidget(QFrame):
         self._frame_summary = QLabel("FPS 未知，按 100 毫秒下限校验")
         self._frame_summary.setWordWrap(True)
         form.addRow("帧归一化", self._frame_summary)
-        self._link_status = QLabel("独立片段")
-        form.addRow("关联编辑", self._link_status)
+        self._link_status = QLabel("未关联，可独立编辑")
+        form.addRow("音视频关联", self._link_status)
         content_layout.addLayout(form)
 
         self._validation_message = QLabel("修改源范围后将生成候选")
@@ -159,11 +160,15 @@ class ClipInspectorWidget(QFrame):
         footer.addStretch(1)
         self._btn_apply = QPushButton("应用")
         self._btn_apply.setProperty("role", "primary")
+        self._btn_apply.setAccessibleName("应用精确裁剪")
         self._btn_apply.setEnabled(False)
-        self._btn_apply.setToolTip("打开全局波纹影响确认，确认后原子保存")
+        self._btn_apply.setToolTip(
+            "打开全局波纹影响确认，确认后原子保存"
+        )
         self._btn_apply.clicked.connect(self._apply)
         footer.addWidget(self._btn_apply)
         self._btn_cancel = QPushButton("取消")
+        self._btn_cancel.setAccessibleName("取消精确裁剪")
         self._btn_cancel.setToolTip("放弃尚未提交的精确裁剪候选")
         self._btn_cancel.clicked.connect(self.cancel)
         footer.addWidget(self._btn_cancel)
@@ -200,9 +205,9 @@ class ClipInspectorWidget(QFrame):
             format_timecode_us(self._material_duration_us)
         )
         self._link_status.setText(
-            f"关联组共 {linked_clip_count} 个片段"
+            f"关联组，共 {linked_clip_count} 个片段"
             if linked_clip_count > 1
-            else "独立片段"
+            else "未关联，可独立编辑"
         )
         self._frame_summary.setText(
             f"{float(fps):g} FPS · 候选按帧边界归一化"
@@ -240,7 +245,7 @@ class ClipInspectorWidget(QFrame):
             self._validation_message.setText(
                 "已按媒体帧边界归一化为 "
                 f"{format_timecode_us(candidate.normalized_source_start_us)}"
-                " – "
+                " - "
                 f"{format_timecode_us(candidate.normalized_source_end_us)}"
             )
         impact = candidate.impact
@@ -280,7 +285,9 @@ class ClipInspectorWidget(QFrame):
         self._source_out.setText(format_timecode_us(end_us))
         self._suppress_preview = False
         self._effective_duration.setText(format_timecode_us(end_us - start_us))
-        self._validation_message.setText("已取消，正式时间线未改变")
+        self._validation_message.setText(
+            "已取消，正式时间线没有发生变化"
+        )
         self._impact_summary.setText("当前无变化")
         self._btn_apply.setEnabled(False)
         self.cancel_requested.emit()
@@ -317,7 +324,9 @@ class ClipInspectorWidget(QFrame):
             self._validation_message.setText("源范围没有变化")
             self._impact_summary.setText("当前无变化")
             return
-        self._validation_message.setText("正在计算帧归一化和全局波纹影响")
+        self._validation_message.setText(
+            "正在计算帧归一化和全局波纹影响"
+        )
         self.preview_requested.emit(start_us, end_us)
 
     def _apply(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from scripts.check_incremental_coverage import (
+    GROUPS,
     CoverageGroup,
     check_report,
     group_statement_coverage,
@@ -68,3 +69,22 @@ def test_group_statement_coverage_rejects_missing_file():
             _report(first_covered=10, second_covered=10),
             group,
         )
+
+
+def test_v195_new_modules_are_in_incremental_coverage_gates():
+    grouped_files = {
+        path
+        for group in GROUPS
+        for path in group.files
+    }
+
+    assert {
+        "src/exporting/temp_cleanup.py",
+        "src/services/project_editing_profile.py",
+        "src/services/timeline_drag_transaction.py",
+        "src/services/timeline_frame_time.py",
+        "src/services/timeline_snap.py",
+        "src/ui/timeline_drag_interaction.py",
+        "src/ui/timeline_shortcut_router.py",
+        "src/ui/toolbar_placement.py",
+    } <= grouped_files

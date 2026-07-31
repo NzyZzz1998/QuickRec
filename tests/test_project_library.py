@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from services.project_editing_profile import EDITING_EXTENSION_KEY
 from services.project_library import ProjectLibraryService
 from utils.project_store import (
     PROJECT_FILE_NAME,
@@ -15,6 +16,30 @@ from utils.project_store import (
 
 
 class TestProjectLibraryService(unittest.TestCase):
+    def test_create_project_persists_one_time_editing_fps_profile(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "projects"
+            service = ProjectLibraryService(Path(temp_dir) / "projects.json")
+
+            created = service.create_project(
+                name="120 帧项目",
+                root_path=root,
+                project_id="project-120",
+                editing_fps=120,
+            )
+            loaded = load_project(created.path)
+
+        self.assertTrue(created.ok)
+        self.assertTrue(loaded.ok)
+        self.assertEqual(
+            loaded.project.extensions[EDITING_EXTENSION_KEY],
+            {
+                "schema_version": 1,
+                "editing_fps": 120,
+                "fps_locked": False,
+            },
+        )
+
     def test_create_project_writes_file_and_central_index(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "项目 根目录"

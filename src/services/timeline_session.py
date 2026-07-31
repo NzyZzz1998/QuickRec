@@ -101,6 +101,26 @@ class TimelineSession:
         return self.commands.timeline
 
     @property
+    def editing_fps(self) -> int:
+        return self.commands.editing_fps
+
+    @property
+    def editing_fps_locked(self) -> bool:
+        return self.commands.editing_fps_locked
+
+    @property
+    def editing_profile_persisted(self) -> bool:
+        return self.commands.editing_profile_persisted
+
+    @property
+    def editing_profile_status(self) -> str:
+        return self.commands.editing_profile_status
+
+    @property
+    def editing_profile_error(self) -> str:
+        return self.commands.editing_profile_error
+
+    @property
     def view_state(self) -> TimelineViewState:
         return self._view_state
 
@@ -211,6 +231,9 @@ class TimelineSession:
 
     def refresh_project_snapshot(self) -> TimelineCommandResult:
         return self.commands.refresh_project_snapshot()
+
+    def set_editing_fps(self, editing_fps: int) -> TimelineCommandResult:
+        return self.commands.set_editing_fps(editing_fps)
 
     def attach_media(self, media: TimelinePlaybackRuntime) -> None:
         self._media_runtime.attach(media)
