@@ -88,3 +88,14 @@ def test_v195_new_modules_are_in_incremental_coverage_gates():
         "src/ui/timeline_shortcut_router.py",
         "src/ui/toolbar_placement.py",
     } <= grouped_files
+
+
+def test_v2_workbench_navigation_has_dedicated_coverage_gate():
+    group = next(
+        item
+        for item in GROUPS
+        if item.name == "v2-workbench-coordination"
+    )
+
+    assert group.files == ("src/services/workbench_navigation.py",)
+    assert group.minimum_percent == 90.0

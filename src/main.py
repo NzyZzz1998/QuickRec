@@ -64,6 +64,7 @@ from services.single_instance import FULL_PRODUCT_ID, SingleInstanceGuard
 from services.thumbnail_coordinator import ThumbnailCoordinator
 from services.thumbnail_service import ThumbnailService
 from services.timeline_session import TimelineSession, TimelineSessionRegistry
+from services.workbench_navigation import WorkbenchNavigationController
 from ui.area_selector import AreaSelector
 from ui.capture_self_test_dialog import CaptureSelfTestDialog
 from ui.click_highlighter import ClickHighlighter
@@ -231,6 +232,7 @@ class QuickRecApp:
         self._active_project_recording_id: str | None = None
         self._last_save_path = str(self._config.get("save_path", ""))
         self._workbench = WorkbenchCoordinator(self._create_workbench_window)
+        self._workbench_navigation = self._create_workbench_navigation()
         self._timeline_sessions = TimelineSessionRegistry(
             lambda project_id: TimelineSession(
                 self._project_service,
@@ -734,26 +736,48 @@ class QuickRecApp:
                 result.message,
             )
 
+    def _create_workbench_navigation(
+        self,
+    ) -> WorkbenchNavigationController[WorkbenchWindow]:
+        page_attributes = {
+            WorkbenchPage.RECORDING.value: "_recording_page",
+            WorkbenchPage.MATERIALS.value: "_material_library_dialog",
+            WorkbenchPage.PROJECTS.value: "_project_page",
+            WorkbenchPage.EXPORTS.value: "_export_page",
+            WorkbenchPage.SETTINGS.value: "_settings_page",
+            WorkbenchPage.DIAGNOSTICS.value: "_diagnostic_page",
+        }
+
+        def resolve_page(page_key: str) -> object | None:
+            attribute = page_attributes.get(page_key)
+            return getattr(self, attribute, None) if attribute else None
+
+        def open_window(page: object | None) -> WorkbenchWindow:
+            workbench = getattr(self, "_workbench", None)
+            if workbench is None:
+                raise RuntimeError("workbench coordinator is not initialized")
+            return workbench.open(page)
+
+        return WorkbenchNavigationController(
+            open_window=open_window,
+            resolve_page=resolve_page,
+            sync_runtime=self._sync_workbench_recording_state,
+            is_recording_active=lambda: (
+                self._workflow.get_state() != RecorderState.IDLE
+            ),
+        )
+
+    def _ensure_workbench_navigation(
+        self,
+    ) -> WorkbenchNavigationController[WorkbenchWindow]:
+        navigation = getattr(self, "_workbench_navigation", None)
+        if navigation is None:
+            navigation = self._create_workbench_navigation()
+            self._workbench_navigation = navigation
+        return navigation
+
     def _show_workbench(self, page: WorkbenchPage | None = None) -> WorkbenchWindow:
-        window = self._workbench.open(page)
-        self._sync_workbench_recording_state()
-        material_page = getattr(self, "_material_library_dialog", None)
-        material_reload = getattr(material_page, "reload", None)
-        if page == WorkbenchPage.MATERIALS and callable(material_reload):
-            material_reload()
-        project_page = getattr(self, "_project_page", None)
-        project_reload = getattr(project_page, "reload", None)
-        if page == WorkbenchPage.PROJECTS and callable(project_reload):
-            project_reload()
-        export_page = getattr(self, "_export_page", None)
-        export_refresh = getattr(export_page, "refresh", None)
-        if page == WorkbenchPage.EXPORTS and callable(export_refresh):
-            export_refresh()
-        recording_page = getattr(self, "_recording_page", None)
-        refresh_summary = getattr(recording_page, "refresh_summary", None)
-        if callable(refresh_summary):
-            refresh_summary()
-        return window
+        return self._ensure_workbench_navigation().open(page)
 
     def _poll_instance_activation(self) -> None:
         guard = getattr(self, "_instance_guard", None)
@@ -801,16 +825,7 @@ class QuickRecApp:
             self._timeline_editor.refresh_project(session.project_id)
 
     def _on_workbench_page_changed(self, page: WorkbenchPage) -> None:
-        if page == WorkbenchPage.MATERIALS and self._material_library_dialog is not None:
-            self._material_library_dialog.reload()
-        elif page == WorkbenchPage.PROJECTS and self._project_page is not None:
-            self._project_page.reload()
-        elif page == WorkbenchPage.RECORDING and self._recording_page is not None:
-            self._recording_page.refresh_summary()
-        elif page == WorkbenchPage.SETTINGS and self._settings_page is not None:
-            self._settings_page.set_recording_active(
-                self._workflow.get_state() != RecorderState.IDLE
-            )
+        self._ensure_workbench_navigation().page_changed(page)
 
     def _on_workbench_config_saved(self) -> None:
         current_save_path = str(self._config.get("save_path", ""))

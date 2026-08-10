@@ -7,6 +7,7 @@ pytestmark = pytest.mark.packaging
 
 SPEC_TEXT = Path("build_std.spec").read_text(encoding="utf-8")
 CI_TEXT = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+FFMPEG_STAGE_TEXT = Path("scripts/stage_ffmpeg.ps1").read_text(encoding="utf-8")
 
 
 def test_pyinstaller_spec_includes_ffmpeg_binary():
@@ -149,12 +150,12 @@ def test_ci_stages_real_ffmpeg_tools_before_pyinstaller_build():
     assert stage_marker in CI_TEXT
     assert build_marker in CI_TEXT
     assert CI_TEXT.index(stage_marker) < CI_TEXT.index(build_marker)
-    assert "choco install ffmpeg" in CI_TEXT
-    assert "ffmpeg\\ffmpeg.exe" in CI_TEXT
-    assert "ffmpeg\\ffprobe.exe" in CI_TEXT
-    assert "Get-Item -LiteralPath $path" in CI_TEXT
-    assert "& \"ffmpeg\\ffmpeg.exe\" -version" in CI_TEXT
-    assert "& \"ffmpeg\\ffprobe.exe\" -version" in CI_TEXT
+    assert CI_TEXT.count("pwsh -File scripts/stage_ffmpeg.ps1") == 2
+    assert 'choco install ffmpeg "--version=$Version"' in FFMPEG_STAGE_TEXT
+    assert '[string]$Version = "8.0.1"' in FFMPEG_STAGE_TEXT
+    assert 'Join-Path $candidate.DirectoryName "ffprobe.exe"' in FFMPEG_STAGE_TEXT
+    assert '"ffmpeg version $Version"' in FFMPEG_STAGE_TEXT
+    assert '"ffprobe version $Version"' in FFMPEG_STAGE_TEXT
 
 
 def test_ci_stages_real_ffmpeg_tools_before_baseline_pytest():
@@ -175,6 +176,14 @@ def test_ci_stages_real_ffmpeg_tools_before_packaging_tests():
     assert stage_marker in packaging_job
     assert pytest_marker in packaging_job
     assert packaging_job.index(stage_marker) < packaging_job.index(pytest_marker)
+
+
+def test_ci_verifies_staged_media_tool_hashes_in_both_jobs():
+    verify_command = (
+        "python scripts/check_repository_facts.py --verify-media-hashes"
+    )
+
+    assert CI_TEXT.count(verify_command) == 2
 
 
 def test_ci_verifies_pyav_runtime_files_in_package():

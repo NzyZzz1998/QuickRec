@@ -28,6 +28,9 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
 
+      - name: Repository facts
+        run: python scripts/check_repository_facts.py
+
       - name: Compile
         run: python -m compileall -q src tests scripts
 
@@ -39,38 +42,10 @@ jobs:
 
       - name: Stage FFmpeg tools
         shell: pwsh
-        run: |
-          choco install ffmpeg --no-progress -y
+        run: pwsh -File scripts/stage_ffmpeg.ps1
 
-          $packageRoot = Join-Path $env:ChocolateyInstall "lib\ffmpeg"
-          if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
-            throw "Chocolatey FFmpeg package directory was not found: $packageRoot"
-          }
-
-          $ffmpegSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffmpeg.exe" |
-            Where-Object { $_.Length -gt 1MB } |
-            Select-Object -First 1
-          $ffprobeSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffprobe.exe" |
-            Where-Object { $_.Length -gt 1MB } |
-            Select-Object -First 1
-
-          if ($null -eq $ffmpegSource -or $null -eq $ffprobeSource) {
-            throw "Real FFmpeg and FFprobe executables were not found in $packageRoot"
-          }
-
-          New-Item -ItemType Directory -Path "ffmpeg" -Force | Out-Null
-          Copy-Item -LiteralPath $ffmpegSource.FullName -Destination "ffmpeg\ffmpeg.exe"
-          Copy-Item -LiteralPath $ffprobeSource.FullName -Destination "ffmpeg\ffprobe.exe"
-
-          foreach ($path in @("ffmpeg\ffmpeg.exe", "ffmpeg\ffprobe.exe")) {
-            $file = Get-Item -LiteralPath $path
-            if ($file.Length -le 1MB) {
-              throw "Staged media tool is not a real executable: $path"
-            }
-          }
-
-          & "ffmpeg\ffmpeg.exe" -version
-          & "ffmpeg\ffprobe.exe" -version
+      - name: Verify FFmpeg identities
+        run: python scripts/check_repository_facts.py --verify-media-hashes
 
       - name: Pytest with coverage
         run: >-
@@ -100,38 +75,10 @@ jobs:
 
       - name: Stage FFmpeg tools
         shell: pwsh
-        run: |
-          choco install ffmpeg --no-progress -y
+        run: pwsh -File scripts/stage_ffmpeg.ps1
 
-          $packageRoot = Join-Path $env:ChocolateyInstall "lib\ffmpeg"
-          if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
-            throw "Chocolatey FFmpeg package directory was not found: $packageRoot"
-          }
-
-          $ffmpegSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffmpeg.exe" |
-            Where-Object { $_.Length -gt 1MB } |
-            Select-Object -First 1
-          $ffprobeSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffprobe.exe" |
-            Where-Object { $_.Length -gt 1MB } |
-            Select-Object -First 1
-
-          if ($null -eq $ffmpegSource -or $null -eq $ffprobeSource) {
-            throw "Real FFmpeg and FFprobe executables were not found in $packageRoot"
-          }
-
-          New-Item -ItemType Directory -Path "ffmpeg" -Force | Out-Null
-          Copy-Item -LiteralPath $ffmpegSource.FullName -Destination "ffmpeg\ffmpeg.exe"
-          Copy-Item -LiteralPath $ffprobeSource.FullName -Destination "ffmpeg\ffprobe.exe"
-
-          foreach ($path in @("ffmpeg\ffmpeg.exe", "ffmpeg\ffprobe.exe")) {
-            $file = Get-Item -LiteralPath $path
-            if ($file.Length -le 1MB) {
-              throw "Staged media tool is not a real executable: $path"
-            }
-          }
-
-          & "ffmpeg\ffmpeg.exe" -version
-          & "ffmpeg\ffprobe.exe" -version
+      - name: Verify FFmpeg identities
+        run: python scripts/check_repository_facts.py --verify-media-hashes
 
       - name: Packaging tests
         run: python -m pytest -m packaging -q

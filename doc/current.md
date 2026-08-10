@@ -30,10 +30,9 @@ v1.9.5 在 v1.9.4 导出闭环上增强剪辑交互与轨道控制：
 正式发布资产：
 
 ```text
-目录: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec
-GUI: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec\QuickRec.exe
+GitHub Release: https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.5
+本地解压目录: 发布后已清理，不作为长期事实源
 GUI SHA256: 705B227FE33F31D4EE650334D607CAAA919FC3D1B44C633CEA1E5B75B3B4A226
-CLI: E:\QRtest\QuickRec-v1.9.5-rc3-dist\QuickRec\QuickRecCLI.exe
 CLI SHA256: 1133802A8BB999B7CE198BB9EBF3F4F9D7C8160C9C9798C0248E28F940F0E386
 FFmpeg SHA256: 5AF82A0D4FE2B9EAE211B967332EA97EDFC51C6B328CA35B827E73EAC560DC0D
 FFprobe SHA256: 192A1D6899059765AC8C39764FC3148D4E6049955956DC2029F81F4BD6A8972D
@@ -41,6 +40,9 @@ ZIP: E:\QRtest\QuickRec-v1.9.5-win-x64.zip
 ZIP SHA256: 0B4F90B0202B2F0296B463BFF196B04E7C0BCA6709A245037E390AC1B7185D59
 状态: 正式发布；D9 通过（31/31）；ACC 通过（20/20）
 ```
+
+本地 ZIP 仅用于复核当前机器上的发布资产；对外下载和版本身份以 GitHub Release、
+`v1.9.5` tag 与上述 SHA256 为准。
 
 > **跨版本编辑警告**
 >
@@ -51,6 +53,7 @@ ZIP SHA256: 0B4F90B0202B2F0296B463BFF196B04E7C0BCA6709A245037E390AC1B7185D59
 
 当前 v1.9.5 文档：
 
+- 机器可读发布身份：[../release-manifest.json](../release-manifest.json)
 - PRD：[releases/v1.9.5/prd.md](releases/v1.9.5/prd.md)
 - 实施计划：[releases/v1.9.5/dev_plan.md](releases/v1.9.5/dev_plan.md)
 - 进度：[releases/v1.9.5/progress.md](releases/v1.9.5/progress.md)

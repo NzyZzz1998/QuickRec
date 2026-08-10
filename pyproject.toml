@@ -113,6 +113,7 @@ files = [
   "src/services/timeline_query.py",
   "src/services/timeline_session.py",
   "src/services/timeline_snap.py",
+  "src/services/workbench_navigation.py",
   "src/ui/design_system.py",
   "src/ui/clip_inspector_widget.py",
   "src/ui/export_dialogs.py",

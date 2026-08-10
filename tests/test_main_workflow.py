@@ -556,6 +556,45 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIs(result, app._workbench.result)
         self.assertEqual(app._workbench.pages, [main.WorkbenchPage.MATERIALS])
 
+    def test_show_workbench_delegates_to_navigation_controller(self):
+        class Navigation:
+            def __init__(self):
+                self.pages = []
+                self.result = object()
+
+            def open(self, page=None):
+                self.pages.append(page)
+                return self.result
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench_navigation = Navigation()
+
+        result = app._show_workbench(main.WorkbenchPage.EXPORTS)
+
+        self.assertIs(result, app._workbench_navigation.result)
+        self.assertEqual(
+            app._workbench_navigation.pages,
+            [main.WorkbenchPage.EXPORTS],
+        )
+
+    def test_workbench_page_change_delegates_to_navigation_controller(self):
+        class Navigation:
+            def __init__(self):
+                self.pages = []
+
+            def page_changed(self, page):
+                self.pages.append(page)
+
+        app = main.QuickRecApp.__new__(main.QuickRecApp)
+        app._workbench_navigation = Navigation()
+
+        app._on_workbench_page_changed(main.WorkbenchPage.PROJECTS)
+
+        self.assertEqual(
+            app._workbench_navigation.pages,
+            [main.WorkbenchPage.PROJECTS],
+        )
+
     def test_instance_activation_request_opens_existing_workbench(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         app._instance_guard = SimpleNamespace(

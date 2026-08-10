@@ -16,6 +16,11 @@ class CoverageGroup:
 
 GROUPS = (
     CoverageGroup(
+        "v2-workbench-coordination",
+        ("src/services/workbench_navigation.py",),
+        90.0,
+    ),
+    CoverageGroup(
         "timeline-editing-core",
         (
             "src/utils/timeline_model.py",
