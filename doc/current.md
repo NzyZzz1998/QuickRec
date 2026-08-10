@@ -13,6 +13,34 @@
 - 当前阶段：v1.9.5 已完成自动化门禁、D9 `31/31` 验收和正式发布收口。
 - 历史实施分支：`feature/v1.9-project-workspace`，仅保留在本地，不单独推送远端。
 
+## Full v2.0 发布前工程停靠点
+
+截至 2026-08-10，Full 已在 `test` 完成一轮发布前工程优化并形成可恢复停靠点：
+
+```text
+提交: e7b5ba6abf60874e0fcf5f506ea9995a6701fdf5
+分支: test / origin/test
+CI: https://github.com/NzyZzz1998/QuickRec/actions/runs/31405559049
+状态: Windows test baseline 与 Windows packaging smoke 均通过
+```
+
+本轮已经完成工作台导航协调器最小拆分、发布事实门禁、固定依赖、固定
+FFmpeg/FFprobe 8.0.1、媒体工具 SHA256 校验和增量覆盖率扩展。验证结果为：
+
+- 非硬件、非 Packaging 测试：`1441 passed, 33 deselected`；
+- Packaging 测试：`21 passed`；
+- 项目覆盖率：`84.16%`；
+- 新工作台协调器覆盖率：`97.50%`；
+- Ruff、Mypy、Compileall、文档事实与媒体哈希检查全部通过。
+
+当前尚未生成 v2.0 候选包，也未执行 GUI、真实录制、硬件或完整发布验收；
+`master`、`v1.9.5` tag 与正式 Release 均保持不变。Full 后续恢复工作时，应从
+[v2.0 发布前深度 Review](technical/QuickRec-Full-v2.0-发布前深度Review-2026-08-10.md)
+和该提交继续，不应继承 v1.9.5 候选包证据宣布 v2.0 可发布。
+
+当前阶段暂时停止 Full 功能推进，开发焦点切换到独立的 QuickRec Lite 产品线；
+两条产品线的代码、配置、发布产物和验收证据继续保持隔离。
+
 ## v1.9.5 当前发布状态
 
 v1.9.5 在 v1.9.4 导出闭环上增强剪辑交互与轨道控制：
