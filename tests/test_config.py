@@ -38,12 +38,13 @@ class TestConfigManager(unittest.TestCase):
         """测试默认值加载"""
         self.assertEqual(self.config.get("quality"), "native")
         self.assertEqual(self.config.get("fps"), 60)
-        self.assertEqual(self.config.get("shortcut_start"), "Ctrl+Shift+R")
-        self.assertEqual(self.config.get("shortcut_stop"), "Ctrl+Shift+S")
-        self.assertEqual(self.config.get("shortcut_pause"), "Ctrl+Shift+P")
-        self.assertEqual(self.config.get("show_countdown"), False)
-        self.assertEqual(self.config.get("countdown_seconds"), 3)
+        self.assertEqual(self.config.get("shortcut_start"), "Ctrl+Alt+R")
+        self.assertEqual(self.config.get("shortcut_stop"), "Ctrl+Alt+S")
+        self.assertEqual(self.config.get("shortcut_pause"), "Ctrl+Alt+P")
+        self.assertNotIn("show_countdown", self.config.snapshot())
+        self.assertNotIn("countdown_seconds", self.config.snapshot())
         self.assertTrue("Videos" in self.config.get("save_path"))
+        self.assertTrue(self.config.get("save_path").endswith("QuickRec Lite"))
 
     def test_get_with_default(self):
         """测试 get 方法的 default 参数"""

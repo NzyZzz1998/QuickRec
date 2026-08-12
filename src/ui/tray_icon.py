@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import QApplication
 import pystray
 from PIL import Image, ImageDraw
 
+from utils.product_identity import DISPLAY_NAME, NOTIFICATION_APP_ID, PRODUCT_ID
+
 logger = logging.getLogger("QuickRec")
 
 
@@ -26,8 +28,6 @@ class _SignalBridge(QObject):
     """将 pystray 线程的回调转发到 Qt 主线程"""
 
     start_fullscreen_requested = pyqtSignal()
-    start_region_requested = pyqtSignal()
-    start_window_requested = pyqtSignal()    # v1.2 新增（延期：窗口录制）
     pause_resume_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     settings_requested = pyqtSignal()
@@ -49,7 +49,6 @@ class TrayIcon:
             config: ConfigManager 实例
             callbacks: 回调函数映射
                 "start_fullscreen": func,  — 全屏录制
-                "start_region": func,      — 区域录制（v1.1 新增）
                 "pause_resume": func,      — 暂停/继续（v1.1 新增）
                 "stop": func,              — 停止录制（v1.1 新增）
                 "settings": func,
@@ -66,8 +65,6 @@ class TrayIcon:
         # 信号桥：将 pystray 线程回调转发到 Qt 主线程
         self._bridge = _SignalBridge()
         self._bridge.start_fullscreen_requested.connect(self._handle_start_fullscreen)
-        self._bridge.start_region_requested.connect(self._handle_start_region)
-        self._bridge.start_window_requested.connect(self._handle_start_window)  # 延期：窗口录制
         self._bridge.pause_resume_requested.connect(self._handle_pause_resume)
         self._bridge.stop_requested.connect(self._handle_stop)
         self._bridge.settings_requested.connect(self._handle_settings)
@@ -130,12 +127,6 @@ class TrayIcon:
     def _on_start_fullscreen(self, icon, item):
         self._bridge.start_fullscreen_requested.emit()
 
-    def _on_start_region(self, icon, item):
-        self._bridge.start_region_requested.emit()
-
-    def _on_start_window(self, icon, item):  # 延期：窗口录制
-        self._bridge.start_window_requested.emit()
-
     def _on_pause_resume(self, icon, item):
         self._bridge.pause_resume_requested.emit()
 
@@ -153,14 +144,6 @@ class TrayIcon:
     def _handle_start_fullscreen(self):
         if "start_fullscreen" in self._callbacks:
             self._callbacks["start_fullscreen"]()
-
-    def _handle_start_region(self):
-        if "start_region" in self._callbacks:
-            self._callbacks["start_region"]()
-
-    def _handle_start_window(self):  # 延期：窗口录制
-        if "start_window" in self._callbacks:
-            self._callbacks["start_window"]()
 
     def _handle_pause_resume(self):
         if "pause_resume" in self._callbacks:
@@ -201,9 +184,9 @@ class TrayIcon:
         """显示托盘图标"""
         if self._icon is None:
             self._icon = pystray.Icon(
-                name="QuickRec",
+                name=PRODUCT_ID,
                 icon=self._create_icon_image(),
-                title="QuickRec - 录屏工具",
+                title=f"{DISPLAY_NAME} - 录屏工具",
                 menu=self._build_idle_menu(),
             )
             self._icon.run_detached()
@@ -213,7 +196,7 @@ class TrayIcon:
         if self._icon:
             self._icon.visible = False
 
-    def show_notification(self, msg: str, title: str = "QuickRec"):
+    def show_notification(self, msg: str, title: str = DISPLAY_NAME):
         """弹出系统通知"""
         if self._icon:
             self._icon.notify(msg, title)
@@ -229,7 +212,7 @@ class TrayIcon:
         try:
             from winotify import Notification
             toast = Notification(
-                app_id="QuickRec",
+                app_id=NOTIFICATION_APP_ID,
                 title=title,
                 msg=msg,
             )

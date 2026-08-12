@@ -1,45 +1,27 @@
-"""
-QuickRec 主程序入口
-
-初始化所有模块，启动应用。
-
-v1.1 新增：
-- _AreaBridge 信号桥（区域选择器）
-- _HotkeyBridge.area_requested 信号（区域录制快捷键）
-- 区域录制流程
-- 托盘回调扩展（start_fullscreen / start_region / pause_resume / stop）
-- Toast 通知增强
-- 工具栏结果条
-
-v1.2 新增：
-- _WindowBridge / _WindowLostBridge 信号桥（窗口选择器、窗口丢失）
-- _HotkeyBridge.window_requested 信号（窗口录制快捷键）
-- 窗口录制流程
-- 倒计时流程
-- 鼠标高亮控制
-- 窗口边框高亮生命周期管理
-"""
+"""QuickRec Lite 主程序入口。"""
 
 import ctypes
 import logging
 import os
 import sys
+from collections.abc import Callable
+from typing import Any
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from config import ConfigManager
 from hotkey.hotkey_manager import HotkeyManager
 from recorder.recorder_manager import RecorderManager, RecorderState
 from recorder.workflow import RecordingWorkflow
-from ui.area_selector import AreaSelector
-from ui.click_highlighter import ClickHighlighter
+from ui.config_migration_dialog import ConfigMigrationDialog
 from ui.settings_dialog import SettingsDialog
 from ui.toolbar import RecordingToolbar
 from ui.tray_icon import TrayIcon
-from ui.window_highlighter import WindowHighlighter
-from ui.window_selector import WindowSelector
 from utils.disk_checker import DiskChecker, show_disk_warning
+from utils.config_migration import LiteConfigMigration
+from utils.product_identity import DISPLAY_NAME, PRODUCT_ID
+from utils.single_instance import SingleInstanceGuard
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +42,21 @@ def _enable_dpi_awareness():
         pass
 
 
+def ensure_initial_config(
+    config: ConfigManager,
+    *,
+    dialog_factory: Callable[..., Any] = ConfigMigrationDialog,
+) -> bool:
+    """完成首次白名单迁移；用户取消时阻止本次应用启动。"""
+    if not hasattr(config, "config_path"):
+        return True
+    migration = LiteConfigMigration(config)
+    if not migration.should_offer():
+        return True
+    dialog = dialog_factory(migration)
+    return int(dialog.exec_()) == 1
+
+
 class _SavedBridge(QObject):
     """将编码线程的回调安全转发到 Qt 主线程"""
     saved = pyqtSignal(str)
@@ -70,48 +67,29 @@ class _HotkeyBridge(QObject):
     start_requested = pyqtSignal()
     stop_requested = pyqtSignal()
     pause_requested = pyqtSignal()
-    area_requested = pyqtSignal()
-    window_requested = pyqtSignal()
-
-
-class _AreaBridge(QObject):
-    """区域选择器信号桥"""
-    region_selected = pyqtSignal(int, int, int, int)
-    cancelled = pyqtSignal()
-
-
-class _WindowBridge(QObject):
-    """窗口选择器信号桥"""
-    window_selected = pyqtSignal(int, str)  # (hwnd, title)
-    cancelled = pyqtSignal()
-
-
-class _WindowLostBridge(QObject):
-    """窗口丢失信号桥（录制线程 → Qt 主线程）"""
-    window_lost = pyqtSignal(str)  # "closed" / "minimized"
 
 
 class QuickRecApp:
     """QuickRec 应用主类"""
 
-    def __init__(self):
+    def __init__(self, instance_guard: SingleInstanceGuard | None = None):
         self._app = QApplication(sys.argv)
         self._app.setQuitOnLastWindowClosed(False)
         self._app.setStyle("Fusion")
 
         # 初始化模块
         self._config = ConfigManager()
+        self._startup_cancelled = not ensure_initial_config(self._config)
+        if self._startup_cancelled:
+            return
         self._recorder = RecorderManager(self._config, on_saved=self._on_saved)
         self._workflow = RecordingWorkflow(self._recorder)
         self._recorder.set_event_handler(self._workflow.handle_event)
         self._hotkey = HotkeyManager()
         self._toolbar = None
         self._config_saved_pending = False
-
-        # v1.2 新增模块
-        self._click_highlighter = ClickHighlighter()
-        self._window_highlighter = None
-        self._window_selector = None
+        self._instance_guard = instance_guard
+        self._activation_timer = None
 
         # 编码完成信号桥
         self._saved_bridge = _SavedBridge()
@@ -122,23 +100,6 @@ class QuickRecApp:
         self._hotkey_bridge.start_requested.connect(self._on_start_fullscreen)
         self._hotkey_bridge.stop_requested.connect(self._on_stop_recording)
         self._hotkey_bridge.pause_requested.connect(self._on_pause_resume)
-        self._hotkey_bridge.area_requested.connect(self._on_start_region)
-        self._hotkey_bridge.window_requested.connect(self._on_start_window)
-
-        # 区域选择器信号桥
-        self._area_bridge = _AreaBridge()
-        self._area_bridge.region_selected.connect(self._on_region_selected)
-        self._area_bridge.cancelled.connect(self._on_selection_cancelled)
-
-        # 窗口选择器信号桥
-        self._window_bridge = _WindowBridge()
-        self._window_bridge.window_selected.connect(self._on_window_selected)
-        self._window_bridge.cancelled.connect(self._on_window_cancelled)
-
-        # 窗口丢失信号桥
-        self._window_lost_bridge = _WindowLostBridge()
-        self._window_lost_bridge.window_lost.connect(self._on_window_lost)
-        self._recorder.connect_window_lost(self._window_lost_bridge.window_lost.emit)
 
         # 初始化托盘
         self._tray = TrayIcon(
@@ -156,21 +117,42 @@ class QuickRecApp:
         self._setup_hotkeys()
         self._hotkey.start_listening()
 
+        if self._instance_guard is not None:
+            self._activation_timer = QTimer()
+            self._activation_timer.timeout.connect(self._poll_activation_request)
+            self._activation_timer.start(250)
+
     def run(self):
         """启动应用"""
+        if self._startup_cancelled:
+            return 0
         self._tray.show()
-        logger.info("QuickRec 已启动")
+        logger.info("%s 已启动", DISPLAY_NAME)
         return self._app.exec_()
+
+    def _poll_activation_request(self):
+        if self._instance_guard and self._instance_guard.consume_activation_request():
+            self._tray.show_notification("应用已在运行，可从托盘继续操作。")
 
     def _setup_hotkeys(self):
         """绑定快捷键（通过信号桥转发到主线程）"""
-        shortcut_start = self._config.get("shortcut_start", "Ctrl+Shift+R")
-        shortcut_stop = self._config.get("shortcut_stop", "Ctrl+Shift+S")
-        shortcut_pause = self._config.get("shortcut_pause", "Ctrl+Shift+P")
+        shortcut_start = self._config.get("shortcut_start", "Ctrl+Alt+R")
+        shortcut_stop = self._config.get("shortcut_stop", "Ctrl+Alt+S")
+        shortcut_pause = self._config.get("shortcut_pause", "Ctrl+Alt+P")
 
-        self._hotkey.register(shortcut_start, self._hotkey_bridge.start_requested.emit)
-        self._hotkey.register(shortcut_stop, self._hotkey_bridge.stop_requested.emit)
-        self._hotkey.register(shortcut_pause, self._hotkey_bridge.pause_requested.emit)
+        bindings = [
+            (shortcut_start, self._hotkey_bridge.start_requested.emit),
+            (shortcut_stop, self._hotkey_bridge.stop_requested.emit),
+            (shortcut_pause, self._hotkey_bridge.pause_requested.emit),
+        ]
+        if hasattr(self._hotkey, "replace_bindings"):
+            if not self._hotkey.replace_bindings(bindings):
+                logger.error("快捷键候选集合冲突，保留原有效绑定")
+                return False
+        else:
+            for shortcut, callback in bindings:
+                self._hotkey.register(shortcut, callback)
+        return True
 
     # --- 全屏录制 ---
 
@@ -189,9 +171,6 @@ class QuickRecApp:
         """开始全屏录制"""
         if self._workflow.get_state() != RecorderState.IDLE:
             return
-        if self._toolbar and self._toolbar.is_countdown_mode():
-            self._on_countdown_esc()
-            return
         if not self._check_disk_space():
             return
 
@@ -199,8 +178,7 @@ class QuickRecApp:
         self._do_start_fullscreen()
 
     def _do_start_fullscreen(self):
-        """倒计时结束后的实际全屏录制启动"""
-        self._hotkey.set_esc_callback(None)  # 清除 ESC 回调
+        """实际启动全屏录制。"""
         if not self._workflow.start_fullscreen():
             logger.error("全屏录制启动失败")
             self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
@@ -209,160 +187,6 @@ class QuickRecApp:
         if self._toolbar:
             self._toolbar.start_recording_timer()
         self._tray.set_recording_state(True)
-        self._update_highlight_state()
-
-    # --- 区域录制 ---
-
-    def _on_start_region(self):
-        """区域录制：显示区域选择器"""
-        if self._workflow.get_state() != RecorderState.IDLE:
-            return
-        if self._toolbar and self._toolbar.is_countdown_mode():
-            self._on_countdown_esc()
-            return
-        if not self._check_disk_space():
-            return
-
-        self._area_selector = AreaSelector()
-        self._area_selector.region_selected.connect(
-            lambda x, y, w, h: self._area_bridge.region_selected.emit(x, y, w, h)
-        )
-        self._area_selector.cancelled.connect(self._area_bridge.cancelled.emit)
-        self._area_selector.show_fullscreen()
-
-    def _on_region_selected(self, x, y, w, h):
-        """区域选择完成：开始录制"""
-        self._area_selector = None
-        if self._config.get("show_countdown", False):
-            self._show_toolbar()
-            self._toolbar.start_countdown(
-                self._config.get("countdown_seconds", 3)
-            )
-            self._toolbar.countdown_finished.connect(
-                lambda: self._do_start_region(x, y, w, h)
-            )
-            self._hotkey.set_esc_callback(self._on_countdown_esc)
-        else:
-            self._show_toolbar()
-            self._do_start_region(x, y, w, h)
-
-    def _do_start_region(self, x, y, w, h):
-        """区域录制实际启动"""
-        self._hotkey.set_esc_callback(None)
-        if not self._workflow.start_region((x, y, w, h)):
-            logger.error("区域录制启动失败")
-            self._tray.show_notification("录制启动失败，请检查 FFmpeg 或录制环境")
-            self._hide_toolbar()
-            return
-        if self._toolbar:
-            self._toolbar.start_recording_timer()
-        self._tray.set_recording_state(True)
-        self._update_highlight_state()
-
-    def _on_selection_cancelled(self):
-        """区域选择取消"""
-        self._area_selector = None
-
-    def _on_countdown_esc(self):
-        """全局 ESC 回调：倒计时期间取消倒计时"""
-        if self._toolbar and self._toolbar.is_countdown_mode():
-            self._toolbar.cancel_countdown()
-            self._hide_toolbar()
-            self._hotkey.set_esc_callback(None)
-            # 窗口录制模式下取消倒计时需同时隐藏边框高亮
-            if self._window_highlighter:
-                self._window_highlighter.hide_highlight()
-                self._window_highlighter = None
-
-    # --- 窗口录制 ---
-
-    def _on_start_window(self):
-        """窗口录制：显示窗口选择器"""
-        if self._workflow.get_state() != RecorderState.IDLE:
-            return
-        if self._toolbar and self._toolbar.is_countdown_mode():
-            self._on_countdown_esc()
-            return
-        if not self._check_disk_space():
-            return
-        self._window_selector = WindowSelector()
-        self._window_selector.window_selected.connect(
-            lambda hwnd, title: self._window_bridge.window_selected.emit(hwnd, title)
-        )
-        self._window_selector.cancelled.connect(self._window_bridge.cancelled.emit)
-        self._window_selector.exec_()
-
-    def _on_window_selected(self, hwnd: int, title: str):
-        """窗口选择完成"""
-        self._window_selector = None
-        user32 = ctypes.windll.user32
-        # 恢复最小化窗口（同步一次，主线程不阻塞）
-        if user32.IsIconic(hwnd):
-            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-        # 绕过 Windows 前台锁定：模拟 Alt 键 + 置前台
-        user32.keybd_event(0x12, 0x38, 0, 0)         # VK_MENU down
-        user32.keybd_event(0x12, 0x38, 0x0002, 0)    # VK_MENU up
-        user32.SetForegroundWindow(hwnd)
-        user32.BringWindowToTop(hwnd)
-        # 用异步延迟等待窗口激活与绘制完成，避免主线程长阻塞导致 GUI 卡死/闪退
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(400, lambda: self._after_window_foreground(hwnd))
-
-    def _after_window_foreground(self, hwnd: int):
-        """窗口置前台后的异步续逻辑（主线程，已让出事件循环）"""
-        user32 = ctypes.windll.user32
-        if not user32.IsWindow(hwnd):
-            logger.warning("目标窗口已不存在，取消窗口录制")
-            self._tray.show_notification("目标窗口已关闭")
-            return
-        self._window_highlighter = WindowHighlighter(hwnd)
-        self._window_highlighter.show_highlight()
-        if self._config.get("show_countdown", False):
-            self._show_toolbar()
-            self._toolbar.start_countdown(self._config.get("countdown_seconds", 3))
-            self._toolbar.countdown_finished.connect(lambda: self._do_start_window(hwnd))
-            self._hotkey.set_esc_callback(self._on_countdown_esc)
-        else:
-            self._show_toolbar()
-            self._do_start_window(hwnd)
-
-    def _do_start_window(self, hwnd: int):
-        """窗口录制实际启动"""
-        self._hotkey.set_esc_callback(None)
-        if not self._workflow.start_window(hwnd):
-            logger.error("窗口录制启动失败")
-            self._hide_toolbar()
-            if self._window_highlighter:
-                self._window_highlighter.hide_highlight()
-                self._window_highlighter = None
-            # 告知用户失败原因（特殊窗口/最小化恢复未完成）
-            self._tray.show_notification("窗口录制启动失败：无法获取窗口区域")
-            return
-        if self._window_highlighter:
-            self._window_highlighter.hide_highlight()
-            self._window_highlighter = None
-        if self._toolbar:
-            self._toolbar.start_recording_timer()
-        self._tray.set_recording_state(True)
-        self._update_highlight_state()
-
-    def _on_window_cancelled(self):
-        self._window_selector = None
-
-    def _on_window_lost(self, reason: str):
-        """窗口丢失：简化处理（无 QMessageBox）"""
-        if self._window_highlighter:
-            self._window_highlighter.hide_highlight()
-            self._window_highlighter = None
-        if reason == "closed":
-            self._tray.show_notification("录制窗口已关闭，视频已保存")
-            self._on_stop_recording()
-        elif reason == "minimized":
-            self._workflow.pause()
-            if self._toolbar:
-                self._toolbar.set_paused(True)
-            self._tray.set_recording_state(True, paused=True)
-            self._tray.show_notification("录制窗口已最小化，录制已暂停。恢复窗口后点击\"继续\"继续录制。")
 
     # --- 录制控制 ---
 
@@ -376,8 +200,6 @@ class QuickRecApp:
         if self._toolbar:
             self._toolbar.show_saving()
 
-        # v1.2: 停止录制时立即停止鼠标高亮（不等编码完成）
-        self._click_highlighter.stop()
 
     def _on_pause_resume(self):
         """暂停/恢复录制"""
@@ -423,18 +245,7 @@ class QuickRecApp:
             self._workflow.stop(cancel=True)
         self._tray.show_notification("录制已取消")
         self._tray.set_recording_state(False)
-        if self._window_highlighter:
-            self._window_highlighter.hide_highlight()
-            self._window_highlighter = None
-        self._click_highlighter.stop()
         self._hide_toolbar()
-
-    # --- 鼠标高亮控制（Lite v0 停用） ---
-
-    def _update_highlight_state(self):
-        """Lite v0 固定停用鼠标点击高亮，即使旧配置开启也不启动。"""
-        if self._click_highlighter.is_running():
-            self._click_highlighter.stop()
 
     # --- 结果条回调 ---
 
@@ -492,10 +303,6 @@ class QuickRecApp:
             self._hide_toolbar()
 
         self._tray.set_recording_state(False)
-        if self._window_highlighter:
-            self._window_highlighter.hide_highlight()
-            self._window_highlighter = None
-        self._click_highlighter.stop()
 
     # --- 设置 ---
 
@@ -511,8 +318,11 @@ class QuickRecApp:
         # 对话框关闭后，统一重绑定并重新启动快捷键监听
         if self._config_saved_pending:
             # 配置已保存，用新配置重绑定
-            self._hotkey.unregister_all()
-            self._setup_hotkeys()
+            if hasattr(self._hotkey, "replace_bindings"):
+                self._setup_hotkeys()
+            else:
+                self._hotkey.unregister_all()
+                self._setup_hotkeys()
         self._hotkey.start_listening()
 
     def _on_config_saved_pend(self):
@@ -533,16 +343,27 @@ class QuickRecApp:
         # 确保处理完所有编码完成信号
         from PyQt5.QtCore import QCoreApplication
         QCoreApplication.processEvents()
-        if self._window_highlighter:
-            self._window_highlighter.hide_highlight()
-            self._window_highlighter = None
-        self._click_highlighter.stop()
-
         self._hide_toolbar()
         self._hotkey.stop_listening()
         self._tray.hide()
         self._app.quit()
         logger.info("QuickRec 已退出")
+
+
+def run_lite_app(
+    *,
+    guard: SingleInstanceGuard | None = None,
+    app_factory: Callable[..., Any] = QuickRecApp,
+) -> int:
+    """在 Lite 产品身份下运行应用，并保证内核句柄可靠释放。"""
+    active_guard = guard or SingleInstanceGuard(PRODUCT_ID)
+    try:
+        if not active_guard.acquire():
+            return 0
+        app = app_factory(instance_guard=active_guard)
+        return int(app.run())
+    finally:
+        active_guard.close()
 
 
 def main():
@@ -551,8 +372,7 @@ def main():
         _enable_dpi_awareness()
         QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-        app = QuickRecApp()
-        sys.exit(app.run())
+        sys.exit(run_lite_app())
     except Exception as e:
         logger.exception(f"QuickRec 异常退出: {e}")
         sys.exit(1)

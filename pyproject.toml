@@ -15,7 +15,9 @@ branch = true
 omit = [
   "src/main.py",
   "src/rthook_dllpath.py",
-  "src/ui/*",
+  "src/ui/settings_dialog.py",
+  "src/ui/toolbar.py",
+  "src/ui/tray_icon.py",
   "src/recorder/audio_capturer.py",
   "src/recorder/screen_capturer.py",
 ]
@@ -28,19 +30,17 @@ skip_covered = false
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-src = ["src", "tests"]
+src = ["src", "scripts", "tests"]
 extend-exclude = [
   "src/main.py",
   "src/ui",
   "src/recorder/audio_capturer.py",
-  "tests/test_area_selector.py",
   "tests/test_config.py",
   "tests/test_disk_checker.py",
   "tests/test_file_namer.py",
   "tests/test_settings_dialog.py",
   "tests/test_toolbar.py",
   "tests/test_tray_icon.py",
-  "tests/test_v1_2.py",
 ]
 
 [tool.ruff.lint]
@@ -68,4 +68,13 @@ files = [
   "src/recorder/timer_resolution.py",
   "src/recorder/video_encoder.py",
   "src/recorder/workflow.py",
+  "src/recorder/frame_schedule.py",
+  "src/recorder/recorder_manager.py",
+  "src/hotkey/hotkey_manager.py",
+  "src/utils/config_migration.py",
+  "src/utils/product_identity.py",
+  "src/utils/single_instance.py",
+  "src/version.py",
+  "scripts/stage_ffmpeg.py",
+  "scripts/release_manifest.py",
 ]

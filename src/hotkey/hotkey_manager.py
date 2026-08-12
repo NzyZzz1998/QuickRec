@@ -38,7 +38,6 @@ class HotkeyManager:
         self._current_keys = set()  # 当前按下的键标识符集合
         self._started = False
         self._triggered = set()     # 已触发的快捷键（防按键按住时重复触发）
-        self._on_esc = None         # ESC 单键全局回调
 
     @staticmethod
     def parse_shortcut(shortcut: str) -> list:
@@ -59,7 +58,7 @@ class HotkeyManager:
         parts = shortcut.split("+")
         return "+".join(p.strip().lower() for p in parts)
 
-    def _key_to_id(self, key) -> str:
+    def _key_to_id(self, key) -> str | None:
         """将 pynput 键对象转换为标准化字符串标识符
 
         解决 pynput 在修饰键按下时 KeyCode 与 from_char 创建的对象不一致的问题：
@@ -114,13 +113,28 @@ class HotkeyManager:
         self._registered[key] = callback
         return True
 
-    def set_esc_callback(self, callback):
-        """设置 ESC 单键全局回调（用于倒计时取消等场景）
-
-        与组合键快捷键不同，ESC 是单键监听，无需修饰键。
-        设为 None 可禁用。
-        """
-        self._on_esc = callback
+    def replace_bindings(self, bindings: list[tuple[str, object]]) -> bool:
+        """校验完整候选集合后一次性替换，失败时保留原绑定。"""
+        registered: dict[str, object] = {}
+        parsed: dict[str, frozenset[str]] = {}
+        modifiers = {"ctrl", "shift", "alt"}
+        for shortcut, callback in bindings:
+            normalized = self._normalize(shortcut)
+            parts = [part for part in self.parse_shortcut(shortcut) if part]
+            if (
+                normalized in registered
+                or len(parts) < 2
+                or not any(part in modifiers for part in parts[:-1])
+                or parts[-1] in modifiers
+            ):
+                return False
+            registered[normalized] = callback
+            parsed[normalized] = frozenset(parts)
+        self._registered = registered
+        self._parsed = parsed
+        self._current_keys.clear()
+        self._triggered.clear()
+        return True
 
     def unregister(self, shortcut: str) -> bool:
         """取消注册快捷键"""
@@ -142,13 +156,6 @@ class HotkeyManager:
         key_id = self._key_to_id(key)
         if key_id is None:
             return
-
-        # ESC 单键回调（倒计时取消等）
-        if key_id == 'esc' and self._on_esc:
-            try:
-                self._on_esc()
-            except Exception as e:
-                logger.error(f"ESC 回调异常: {e}")
 
         self._current_keys.add(key_id)
         logger.debug(f"按键按下: {key_id}, 当前按键集合: {self._current_keys}")

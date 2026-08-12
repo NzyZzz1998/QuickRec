@@ -10,10 +10,12 @@ import os
 import sys
 import winreg
 
+from utils.product_identity import AUTOSTART_NAME
+
 logger = logging.getLogger(__name__)
 
 AUTO_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-AUTO_RUN_NAME = "QuickRec"
+AUTO_RUN_NAME = AUTOSTART_NAME
 
 
 def is_autostart_enabled() -> bool:

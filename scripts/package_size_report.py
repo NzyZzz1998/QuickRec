@@ -127,15 +127,19 @@ def _find_matching_dirs(path: str, names: set[str]) -> list[str]:
     return matches
 
 
-def check_package_constraints(path: str, max_size_mb: int = 300) -> PackageConstraintResult:
+def check_package_constraints(path: str, max_size_mb: int | None = None) -> PackageConstraintResult:
     absolute_path = os.path.abspath(path)
     if not os.path.isdir(absolute_path):
         return PackageConstraintResult(False, f"dist directory missing: {absolute_path}")
 
     total_size = tree_size(absolute_path)
-    max_size = max_size_mb * 1024 * 1024
-    if total_size > max_size:
+    max_size = max_size_mb * 1024 * 1024 if max_size_mb is not None else None
+    if max_size is not None and total_size > max_size:
         return PackageConstraintResult(False, f"package too large: {format_size(total_size)} > {max_size_mb} MB")
+
+    executable = os.path.join(absolute_path, "QuickRec-Lite.exe")
+    if not os.path.isfile(executable):
+        return PackageConstraintResult(False, "QuickRec-Lite.exe missing")
 
     ffmpeg_matches = _find_matching_files(absolute_path, "ffmpeg/ffmpeg.exe")
     if not ffmpeg_matches:
@@ -179,10 +183,10 @@ def build_report(path: str, top_limit: int = 20) -> str:
     constraints = check_package_constraints(absolute_path)
     return "\n\n".join(
         [
-            "# QuickRec 打包体积分析",
+            "# QuickRec Lite 打包体积分析",
             f"- 分析目录：`{absolute_path}`",
             f"- 总体积：{format_size(total)}",
-            f"- v1.4 稳定性约束：{'通过' if constraints.ok else '失败'}，{constraints.message}",
+            f"- Lite 包结构约束：{'通过' if constraints.ok else '失败'}，{constraints.message}",
             f"## Top {top_limit} 大文件\n{_table(top_files(absolute_path, top_limit))}",
             f"## Top {top_limit} 大目录\n{_table(top_dirs(absolute_path, top_limit))}",
             f"## 组件体积\n{_component_table(collect_component_sizes(absolute_path))}",
@@ -192,10 +196,10 @@ def build_report(path: str, top_limit: int = 20) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Report QuickRec PyInstaller package size.")
-    parser.add_argument("--dist", default=os.path.join("dist", "QuickRec"), help="PyInstaller output directory.")
+    parser.add_argument("--dist", default=os.path.join("dist", "QuickRec-Lite"), help="PyInstaller output directory.")
     parser.add_argument("--top", type=int, default=20, help="Number of top files and directories to show.")
     parser.add_argument("--output", default="", help="Optional markdown report path.")
-    parser.add_argument("--check", action="store_true", help="Fail if v1.4 package constraints are not met.")
+    parser.add_argument("--check", action="store_true", help="Fail if Lite package structure constraints are not met.")
     return parser.parse_args()
 
 

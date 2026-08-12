@@ -169,25 +169,29 @@ class SettingsDialog(QDialog):
         form.addRow("选项:", options_layout)
 
         # 快捷键（可点击录制）
-        self._shortcut_start = _ShortcutRecorder("Ctrl+Shift+R")
+        self._shortcut_start = _ShortcutRecorder("Ctrl+Alt+R")
         self._shortcut_start.shortcut_changed.connect(
             lambda s: self._shortcut_start.setText(s)
         )
         form.addRow("开始快捷键:", self._shortcut_start)
 
-        self._shortcut_stop = _ShortcutRecorder("Ctrl+Shift+S")
+        self._shortcut_stop = _ShortcutRecorder("Ctrl+Alt+S")
         self._shortcut_stop.shortcut_changed.connect(
             lambda s: self._shortcut_stop.setText(s)
         )
         form.addRow("停止快捷键:", self._shortcut_stop)
 
-        self._shortcut_pause = _ShortcutRecorder("Ctrl+Shift+P")
+        self._shortcut_pause = _ShortcutRecorder("Ctrl+Alt+P")
         self._shortcut_pause.shortcut_changed.connect(
             lambda s: self._shortcut_pause.setText(s)
         )
         form.addRow("暂停快捷键:", self._shortcut_pause)
 
         layout.addLayout(form)
+
+        self._status_label = QLabel("")
+        self._status_label.setWordWrap(True)
+        layout.addWidget(self._status_label)
 
         # 按钮
         btn_layout = QHBoxLayout()
@@ -210,13 +214,13 @@ class SettingsDialog(QDialog):
         self._edit_save_path.setText(self._config.get("save_path"))
 
         self._shortcut_start.setText(
-            str(self._config.get("shortcut_start", "Ctrl+Shift+R"))
+            str(self._config.get("shortcut_start", "Ctrl+Alt+R"))
         )
         self._shortcut_stop.setText(
-            str(self._config.get("shortcut_stop", "Ctrl+Shift+S"))
+            str(self._config.get("shortcut_stop", "Ctrl+Alt+S"))
         )
         self._shortcut_pause.setText(
-            str(self._config.get("shortcut_pause", "Ctrl+Shift+P"))
+            str(self._config.get("shortcut_pause", "Ctrl+Alt+P"))
         )
         # 音频源加载
         audio_source = self._config.get("audio_source", "none")
@@ -233,28 +237,75 @@ class SettingsDialog(QDialog):
 
     def _save_config(self):
         """从控件读取值，写入 ConfigManager"""
-        self._config.set("save_path", self._edit_save_path.text())
-        self._config.set("quality", "native")
-        self._config.set("fps", 60)
-        self._config.set("shortcut_start", self._shortcut_start.text())
-        self._config.set("shortcut_stop", self._shortcut_stop.text())
-        self._config.set("shortcut_pause", self._shortcut_pause.text())
-        self._config.set("audio_source", self._combo_audio_source.currentData())
-        self._config.set("show_countdown", False)
-        self._config.set("countdown_seconds", 3)
-        self._config.set("mouse_highlight", False)
+        shortcuts = (
+            self._shortcut_start.text().strip(),
+            self._shortcut_stop.text().strip(),
+            self._shortcut_pause.text().strip(),
+        )
+        validation_error = self._validate_shortcuts(shortcuts)
+        if validation_error:
+            self._show_error(validation_error)
+            return
 
-        # 开机自启：同时操作注册表
-        auto_start = self._cb_auto_start.isChecked()
-        self._config.set("auto_start", auto_start)
-        if auto_start:
-            enable_autostart()
-        else:
-            disable_autostart()
+        candidate = self._config.snapshot()
+        candidate.update(
+            {
+                "save_path": self._edit_save_path.text(),
+                "quality": "native",
+                "fps": 60,
+                "shortcut_start": shortcuts[0],
+                "shortcut_stop": shortcuts[1],
+                "shortcut_pause": shortcuts[2],
+                "audio_source": self._combo_audio_source.currentData(),
+                "auto_start": self._cb_auto_start.isChecked(),
+            }
+        )
 
-        self._config.save()
+        original_autostart = is_autostart_enabled()
+        requested_autostart = bool(candidate["auto_start"])
+        registry_changed = requested_autostart != original_autostart
+        if registry_changed:
+            registry_ok = (
+                enable_autostart() if requested_autostart else disable_autostart()
+            )
+            if not registry_ok:
+                self._show_error("开机启动设置失败，原配置未改变。")
+                return
+
+        result = self._config.save_candidate(candidate)
+        if not result.ok:
+            if registry_changed:
+                if original_autostart:
+                    enable_autostart()
+                else:
+                    disable_autostart()
+            self._show_error(
+                f"配置保存失败（{result.stage}）：{result.message or '请检查目录权限后重试。'}"
+            )
+            return
+
+        self._status_label.setText("")
         self.config_saved.emit()
         self.accept()
+
+    @staticmethod
+    def _validate_shortcuts(shortcuts: tuple[str, str, str]) -> str:
+        normalized = [value.casefold() for value in shortcuts]
+        if any(not value for value in normalized):
+            return "快捷键不能为空。"
+        if len(set(normalized)) != len(normalized):
+            return "开始、停止和暂停快捷键不能重复。"
+        for value in shortcuts:
+            parts = [part.strip() for part in value.split("+") if part.strip()]
+            if len(parts) < 2 or not any(
+                part.casefold() in {"ctrl", "alt", "shift"} for part in parts[:-1]
+            ):
+                return f"快捷键 {value} 必须包含修饰键和普通按键。"
+        return ""
+
+    def _show_error(self, message: str) -> None:
+        self._status_label.setText(message)
+        self._status_label.setStyleSheet("color: #b42318;")
 
     def _browse_save_path(self):
         """打开文件夹选择对话框"""

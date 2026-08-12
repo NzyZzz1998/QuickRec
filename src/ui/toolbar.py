@@ -4,7 +4,6 @@
 录制中的悬浮控制窗口，显示录制状态和提供控制按钮。
 
 v1.1 新增：编码完成后结果条模式，支持打开文件夹和自动关闭。
-v1.2 新增：录制倒计时模式，在计时器位置显示 3→2→1。
 """
 
 import os
@@ -20,13 +19,9 @@ from PyQt5.QtWidgets import (
 class RecordingToolbar(QWidget):
     """录制工具栏
 
-    三种模式共享同一布局：
+    两种模式共享同一布局：
     - 录制模式：指示灯 + 计时器 + 暂停/停止/取消
-    - 倒计时模式：指示灯 + 倒计时数字 + 暂停/停止/取消
     - 结果条模式：✓ + 文件信息 + 已保存/打开/关闭
-
-    倒计时和录制模式布局完全一致，仅计时器文本内容不同。
-    ESC 取消由 pynput 全局监听处理，不依赖窗口键盘焦点。
     """
 
     paused = pyqtSignal()
@@ -36,8 +31,6 @@ class RecordingToolbar(QWidget):
 
     open_folder_requested = pyqtSignal()
     open_file_requested = pyqtSignal()
-
-    countdown_finished = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,12 +43,6 @@ class RecordingToolbar(QWidget):
         self._auto_close_timer = QTimer(self)
         self._auto_close_timer.setSingleShot(True)
         self._auto_close_timer.timeout.connect(self._on_auto_close)
-
-        self._countdown_mode = False
-        self._countdown_value = 0
-        self._countdown_timer = QTimer(self)
-        self._countdown_timer.setInterval(1000)
-        self._countdown_timer.timeout.connect(self._countdown_tick)
 
         self._init_ui()
         self._init_timer()
@@ -80,7 +67,7 @@ class RecordingToolbar(QWidget):
         self._indicator.setStyleSheet("color: #e74c3c; font-size: 16px;")
         layout.addWidget(self._indicator)
 
-        # 计时器 / 倒计时数字（共用位置）
+        # 录制计时器
         self._label_timer = QLabel("00:00")
         self._label_timer.setFont(QFont("Consolas", 11))
         self._label_timer.setStyleSheet("color: #ecf0f1;")
@@ -176,51 +163,6 @@ class RecordingToolbar(QWidget):
             self._btn_pause.setText("⏸ 暂停")
             self._indicator.setStyleSheet("color: #e74c3c; font-size: 16px;")
 
-    # --- 倒计时模式 ---
-
-    def start_countdown(self, seconds: int = 3):
-        self._countdown_mode = True
-        self._countdown_value = seconds
-        self._recording = False
-        self._result_mode = False
-        self._show_countdown_ui()
-        self._countdown_timer.start()
-        QTimer.singleShot(0, self.center_on_screen)
-
-    def cancel_countdown(self):
-        self._countdown_timer.stop()
-        self._countdown_mode = False
-        self._countdown_value = 0
-        self.close()
-
-    def is_countdown_mode(self) -> bool:
-        return self._countdown_mode
-
-    def _countdown_tick(self):
-        self._countdown_value -= 1
-        if self._countdown_value <= 0:
-            self._countdown_timer.stop()
-            self._countdown_mode = False
-            self._show_recording_ui()
-            self.countdown_finished.emit()
-        else:
-            self._label_timer.setText(str(self._countdown_value))
-
-    def _show_countdown_ui(self):
-        """倒计时：同一位置显示数字，布局不变"""
-        self._label_timer.setText(str(self._countdown_value))
-        self._label_timer.setFont(QFont("Arial", 16, QFont.Bold))
-        self._label_timer.setStyleSheet("color: #ffffff;")
-        self._indicator.setStyleSheet("color: #f39c12; font-size: 16px;")
-        self._show_recording_buttons()
-
-    def _show_recording_ui(self):
-        """从倒计时恢复为录制显示"""
-        self._label_timer.setText("00:00")
-        self._label_timer.setFont(QFont("Consolas", 11))
-        self._label_timer.setStyleSheet("color: #ecf0f1;")
-        self._indicator.setStyleSheet("color: #e74c3c; font-size: 16px;")
-
     # --- 结果条模式 ---
 
     def show_saving(self):
@@ -313,14 +255,6 @@ class RecordingToolbar(QWidget):
 
     def _on_auto_close(self):
         self.close()
-
-    # --- 键盘事件（辅助，主要靠 pynput 全局 ESC） ---
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape and self._countdown_mode:
-            self.cancel_countdown()
-            return
-        super().keyPressEvent(event)
 
     # --- 拖拽 ---
 

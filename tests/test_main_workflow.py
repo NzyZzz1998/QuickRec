@@ -42,15 +42,9 @@ class FakeRecorder:
         self.on_saved = on_saved
         self.on_event = on_event
         self.event_handler = None
-        self.window_lost_callback = None
-        self.window_lost_connected = False
 
     def set_event_handler(self, callback):
         self.event_handler = callback
-
-    def connect_window_lost(self, callback):
-        self.window_lost_callback = callback
-        self.window_lost_connected = True
 
 
 class FakeSignal:
@@ -63,11 +57,6 @@ class FakeSignal:
     def emit(self, *args):
         for callback in self.connected:
             callback(*args)
-
-
-class FakeWindowLostBridge:
-    def __init__(self):
-        self.window_lost = FakeSignal()
 
 
 class FakeHotkey:
@@ -86,9 +75,6 @@ class FakeHotkey:
     def stop_listening(self):
         self.stopped = True
 
-    def set_esc_callback(self, _callback):
-        pass
-
 
 class FakeTray:
     def __init__(self, config, callbacks):
@@ -104,32 +90,6 @@ class FakeTray:
         self.notifications.append(args)
 
     def hide(self):
-        self.hidden = True
-
-
-class FakeClickHighlighter:
-    def __init__(self):
-        self.started = False
-        self.stopped = False
-        self.running = False
-
-    def start(self):
-        self.started = True
-        self.running = True
-
-    def stop(self):
-        self.stopped = True
-        self.running = False
-
-    def is_running(self):
-        return self.running
-
-
-class FakeWindowHighlighter:
-    def __init__(self):
-        self.hidden = False
-
-    def hide_highlight(self):
         self.hidden = True
 
 
@@ -150,14 +110,6 @@ class FakeWorkflow:
         self.start_fullscreen_called = True
         self.calls.append(("start_fullscreen",))
         return self.start_fullscreen_result
-
-    def start_region(self, region):
-        self.calls.append(("start_region", region))
-        return True
-
-    def start_window(self, hwnd):
-        self.calls.append(("start_window", hwnd))
-        return True
 
     def pause(self):
         self.calls.append(("pause",))
@@ -214,20 +166,17 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
                 patch("main.RecorderManager", FakeRecorder), \
                 patch("main.RecordingWorkflow", FakeWorkflow), \
                 patch("main.HotkeyManager", FakeHotkey), \
-                patch("main.ClickHighlighter", FakeClickHighlighter), \
                 patch("main.TrayIcon", FakeTray):
             app = main.QuickRecApp()
 
         self.assertIs(app._workflow.manager, app._recorder)
         self.assertIs(app._recorder.event_handler.__self__, app._workflow)
         self.assertIs(app._recorder.event_handler.__func__, app._workflow.handle_event.__func__)
-        self.assertTrue(app._recorder.window_lost_connected)
-        self.assertTrue(callable(app._recorder.window_lost_callback))
         self.assertTrue(app._hotkey.started)
         self.assertEqual(len(app._hotkey.registered), 3)
         self.assertEqual(
             [item[0] for item in app._hotkey.registered],
-            ["Ctrl+Shift+R", "Ctrl+Shift+S", "Ctrl+Shift+P"],
+            ["Ctrl+Alt+R", "Ctrl+Alt+S", "Ctrl+Alt+P"],
         )
         self.assertNotIn("start_region", app._tray.callbacks)
         self.assertNotIn("start_window", app._tray.callbacks)
@@ -238,7 +187,6 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         app._workflow = FakeWorkflow(manager=None)
         app._toolbar = FakeToolbar()
         app._tray = FakeTray(config=None, callbacks={})
-        app._update_highlight_state = lambda: None
 
         app._do_start_fullscreen()
 
@@ -260,107 +208,11 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         self.assertIsNone(app._toolbar)
         self.assertEqual(app._tray.notifications, [("录制启动失败，请检查 FFmpeg 或录制环境",)])
 
-    def test_region_and_window_start_use_workflow(self):
-        app = main.QuickRecApp.__new__(main.QuickRecApp)
-        app._hotkey = FakeHotkey()
-        app._workflow = FakeWorkflow(manager=None)
-        app._toolbar = FakeToolbar()
-        app._tray = FakeTray(config=None, callbacks={})
-        app._window_highlighter = None
-        app._update_highlight_state = lambda: None
-
-        app._do_start_region(1, 2, 300, 200)
-        app._do_start_window(42)
-
-        self.assertEqual(
-            app._workflow.calls,
-            [("start_region", (1, 2, 300, 200)), ("start_window", 42)],
-        )
-        self.assertEqual(app._tray.recording_states, [((True,), {}), ((True,), {})])
-
-    def test_window_highlighter_is_hidden_after_window_recording_starts(self):
-        app = main.QuickRecApp.__new__(main.QuickRecApp)
-        app._hotkey = FakeHotkey()
-        app._workflow = FakeWorkflow(manager=None)
-        app._toolbar = FakeToolbar()
-        app._tray = FakeTray(config=None, callbacks={})
-        highlighter = FakeWindowHighlighter()
-        app._window_highlighter = highlighter
-        app._update_highlight_state = lambda: None
-
-        app._do_start_window(42)
-
-        self.assertTrue(highlighter.hidden)
-        self.assertIsNone(app._window_highlighter)
-
-    def test_window_resume_does_not_recreate_highlighter_during_recording(self):
-        app = main.QuickRecApp.__new__(main.QuickRecApp)
-        app._workflow = FakeWorkflow(manager=None)
-        app._workflow.state = main.RecorderState.PAUSED
-        app._toolbar = FakeToolbar()
-        app._tray = FakeTray(config=None, callbacks={})
-        app._click_highlighter = FakeClickHighlighter()
-        app._window_highlighter = None
-        app._recorder = type(
-            "RecorderReadModel",
-            (),
-            {"get_mode": lambda self: "window", "get_window_hwnd": lambda self: 42},
-        )()
-
-        with patch("main.WindowHighlighter", side_effect=AssertionError("must not recreate highlighter")):
-            app._on_pause_resume()
-
-        self.assertIsNone(app._window_highlighter)
-
-    def test_window_recording_disables_click_highlighter_overlay(self):
-        app = main.QuickRecApp.__new__(main.QuickRecApp)
-        app._config = FakeConfig({"mouse_highlight": True})
-        app._workflow = FakeWorkflow(manager=None)
-        app._workflow.state = main.RecorderState.RECORDING
-        app._click_highlighter = FakeClickHighlighter()
-        app._click_highlighter.running = True
-        app._recorder = type(
-            "RecorderReadModel",
-            (),
-            {"get_mode": lambda self: "window"},
-        )()
-
-        app._update_highlight_state()
-
-        self.assertFalse(app._click_highlighter.started)
-        self.assertTrue(app._click_highlighter.stopped)
-        self.assertFalse(app._click_highlighter.is_running())
-
-    def test_lite_disables_click_highlighter_overlay_even_for_old_config(self):
-        app = main.QuickRecApp.__new__(main.QuickRecApp)
-        app._config = FakeConfig({"mouse_highlight": True})
-        app._workflow = FakeWorkflow(manager=None)
-        app._workflow.state = main.RecorderState.RECORDING
-        app._click_highlighter = FakeClickHighlighter()
-        app._recorder = type(
-            "RecorderReadModel",
-            (),
-            {"get_mode": lambda self: None},
-        )()
-
-        app._update_highlight_state()
-
-        self.assertFalse(app._click_highlighter.started)
-        self.assertFalse(app._click_highlighter.stopped)
-        self.assertFalse(app._click_highlighter.is_running())
-
     def test_stop_pause_resume_and_cancel_use_workflow(self):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         app._workflow = FakeWorkflow(manager=None)
         app._toolbar = FakeToolbar()
         app._tray = FakeTray(config=None, callbacks={})
-        app._click_highlighter = FakeClickHighlighter()
-        app._window_highlighter = None
-        app._recorder = type(
-            "RecorderReadModel",
-            (),
-            {"get_mode": lambda self: None, "get_window_hwnd": lambda self: None},
-        )()
         toolbar = app._toolbar
 
         app._workflow.state = main.RecorderState.RECORDING
@@ -380,8 +232,6 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         app = main.QuickRecApp.__new__(main.QuickRecApp)
         app._workflow = FakeWorkflow(manager=None)
         app._workflow.state = main.RecorderState.RECORDING
-        app._window_highlighter = None
-        app._click_highlighter = FakeClickHighlighter()
         app._toolbar = FakeToolbar()
         app._hotkey = FakeHotkey()
         app._tray = FakeTray(config=None, callbacks={})
@@ -396,6 +246,25 @@ class TestQuickRecAppWorkflow(unittest.TestCase):
         )
         self.assertTrue(app._hotkey.stopped)
         self.assertTrue(app._app.quit_called)
+
+    def test_main_sets_dpi_attributes_and_exits_with_app_result(self):
+        attributes = []
+
+        class EntryApplication:
+            @staticmethod
+            def setAttribute(attribute, enabled):
+                attributes.append((attribute, enabled))
+
+        with patch.object(main, "QApplication", EntryApplication), patch.object(
+            main,
+            "_enable_dpi_awareness",
+        ), patch.object(main, "run_lite_app", return_value=0):
+            with self.assertRaises(SystemExit) as exit_info:
+                main.main()
+
+        self.assertEqual(exit_info.exception.code, 0)
+        self.assertEqual(len(attributes), 2)
+        self.assertTrue(all(enabled for _, enabled in attributes))
 
 
 if __name__ == "__main__":

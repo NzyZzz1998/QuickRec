@@ -15,6 +15,12 @@ BITRATE = {
     "low": 2_000_000,      # 2000 kbps
 }
 
+FPS_SIZE_MULTIPLIER = {
+    30: 1.0,
+    60: 1.5,
+    120: 2.25,
+}
+
 BYTES_PER_MB = 1024 * 1024
 
 # v1.3 新增：录制前预警阈值
@@ -33,15 +39,33 @@ class DiskChecker:
         return free
 
     @staticmethod
-    def estimate_size_per_minute(quality: str, fps: int = 30) -> int:
+    def estimate_size_per_minute(
+        quality: str,
+        fps: int = 30,
+        encoder: str = "libx264-superfast",
+    ) -> int:
         bitrate = BITRATE.get(quality, BITRATE["medium"])
+        normalized_fps = min(FPS_SIZE_MULTIPLIER, key=lambda value: abs(value - fps))
+        fps_multiplier = FPS_SIZE_MULTIPLIER[normalized_fps]
+        encoder_multiplier = 1.0 if encoder == "libx264-superfast" else 1.15
         bytes_per_sec = bitrate / 8
-        bytes_per_min = bytes_per_sec * 60
+        bytes_per_min = bytes_per_sec * 60 * fps_multiplier * encoder_multiplier
         return int(bytes_per_min / BYTES_PER_MB)
 
     @staticmethod
-    def is_low_space(path: str, quality: str = "medium", buffer_minutes: int = 5) -> bool:
-        size_per_min = DiskChecker.estimate_size_per_minute(quality)
+    def is_low_space(
+        path: str,
+        quality: str = "medium",
+        buffer_minutes: int = 5,
+        *,
+        fps: int = 30,
+        encoder: str = "libx264-superfast",
+    ) -> bool:
+        size_per_min = DiskChecker.estimate_size_per_minute(
+            quality,
+            fps=fps,
+            encoder=encoder,
+        )
         threshold = size_per_min * buffer_minutes
         free = DiskChecker.get_free_space(path)
         return free < threshold * BYTES_PER_MB

@@ -108,21 +108,43 @@ class TestPackageSizeReport(unittest.TestCase):
 
         self.assertEqual(sorted(components, reverse=True)[0].name, "large")
 
-    def test_check_package_constraints_accepts_stable_v1_4_package_shape(self):
+    def test_check_package_constraints_accepts_lite_package_shape(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_file(os.path.join(temp_dir, "_internal", "ffmpeg", "ffmpeg.exe"), 50)
+            write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 10)
+
+            result = check_package_constraints(temp_dir)
+
+        self.assertTrue(result.ok)
+
+    def test_check_package_constraints_records_but_does_not_block_large_package_by_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            write_file(os.path.join(temp_dir, "_internal", "ffmpeg", "ffmpeg.exe"), 50)
+            write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 2 * 1024 * 1024)
+
+            result = check_package_constraints(temp_dir)
+
+        self.assertTrue(result.ok)
+
+    def test_check_package_constraints_rejects_wrong_executable_name(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_file(os.path.join(temp_dir, "_internal", "ffmpeg", "ffmpeg.exe"), 50)
             write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
             write_file(os.path.join(temp_dir, "QuickRec.exe"), 10)
 
-            result = check_package_constraints(temp_dir, max_size_mb=1)
+            result = check_package_constraints(temp_dir)
 
-        self.assertTrue(result.ok)
+        self.assertFalse(result.ok)
+        self.assertIn("QuickRec-Lite.exe", result.message)
 
     def test_check_package_constraints_rejects_missing_bundled_ffmpeg(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
 
-            result = check_package_constraints(temp_dir, max_size_mb=1)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 10)
+            result = check_package_constraints(temp_dir)
 
         self.assertFalse(result.ok)
         self.assertIn("ffmpeg", result.message)
@@ -131,7 +153,8 @@ class TestPackageSizeReport(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             write_file(os.path.join(temp_dir, "_internal", "ffmpeg", "ffmpeg.exe"), 50)
 
-            result = check_package_constraints(temp_dir, max_size_mb=1)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 10)
+            result = check_package_constraints(temp_dir)
 
         self.assertFalse(result.ok)
         self.assertIn("cv2", result.message)
@@ -142,7 +165,8 @@ class TestPackageSizeReport(unittest.TestCase):
             write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
             write_file(os.path.join(temp_dir, "_internal", "opencv_videoio_ffmpeg4130_64.dll"), 30)
 
-            result = check_package_constraints(temp_dir, max_size_mb=1)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 10)
+            result = check_package_constraints(temp_dir)
 
         self.assertFalse(result.ok)
         self.assertIn("opencv_videoio_ffmpeg", result.message)
@@ -153,7 +177,8 @@ class TestPackageSizeReport(unittest.TestCase):
             write_file(os.path.join(temp_dir, "_internal", "cv2", "cv2.pyd"), 40)
             write_file(os.path.join(temp_dir, "_internal", "tests", "test_app.py"), 10)
 
-            result = check_package_constraints(temp_dir, max_size_mb=1)
+            write_file(os.path.join(temp_dir, "QuickRec-Lite.exe"), 10)
+            result = check_package_constraints(temp_dir)
 
         self.assertFalse(result.ok)
         self.assertIn("test resources", result.message)

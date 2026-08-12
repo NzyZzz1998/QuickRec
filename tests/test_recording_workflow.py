@@ -20,16 +20,6 @@ class FakeManager:
         self.state = RecordingState.RECORDING
         return True
 
-    def start_region(self, region):
-        self.calls.append(("start_region", region))
-        self.state = RecordingState.RECORDING
-        return True
-
-    def start_window(self, hwnd):
-        self.calls.append(("start_window", hwnd))
-        self.state = RecordingState.RECORDING
-        return True
-
     def pause(self):
         self.calls.append(("pause",))
         self.state = RecordingState.PAUSED
@@ -56,22 +46,12 @@ class FakeManager:
 
 
 class TestRecordingWorkflow(unittest.TestCase):
-    def test_start_routes_to_manager_by_mode(self):
+    def test_start_fullscreen_delegates_to_manager(self):
         manager = FakeManager()
         workflow = RecordingWorkflow(manager)
 
         self.assertTrue(workflow.start_fullscreen())
-        self.assertTrue(workflow.start_region((1, 2, 300, 200)))
-        self.assertTrue(workflow.start_window(12345))
-
-        self.assertEqual(
-            manager.calls,
-            [
-                ("start_fullscreen",),
-                ("start_region", (1, 2, 300, 200)),
-                ("start_window", 12345),
-            ],
-        )
+        self.assertEqual(manager.calls, [("start_fullscreen",)])
 
     def test_pause_resume_and_stop_delegate_to_manager(self):
         manager = FakeManager()

@@ -14,18 +14,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from config import ConfigManager
 from recorder.events import RecordingEventType
-from recorder.recorder_manager import RecorderManager, RecorderState, RecordMode
+from recorder.recorder_manager import RecorderManager, RecorderState
 from recorder.state_machine import RecordingStateMachine
-from recorder.window_diagnostics import WindowFailureReason
 
 
 class FakeScreenCapturer:
     instances = []
 
-    def __init__(self, region=None):
+    def __init__(self, region=None, target_fps=60):
         self.region = region
+        self.target_fps = target_fps
         self._started = False
         self.update_calls = []
+        self.request_stop_calls = 0
         FakeScreenCapturer.instances.append(self)
 
     def start(self):
@@ -46,6 +47,10 @@ class FakeScreenCapturer:
 
     def close(self):
         self._started = False
+
+    def request_stop(self):
+        self.request_stop_calls += 1
+        return True
 
 
 class FailingStartScreenCapturer(FakeScreenCapturer):
@@ -173,15 +178,6 @@ class TestRecorderManager(unittest.TestCase):
 
         self.assertEqual(events[-1].type, RecordingEventType.FAILED)
 
-    def test_public_window_lost_connection_forwards_reason(self):
-        reasons = []
-        manager = RecorderManager(self.config)
-        manager.connect_window_lost(reasons.append)
-
-        manager._window_lost_bridge.window_lost.emit("closed")
-
-        self.assertEqual(reasons, ["closed"])
-
     def test_start_fullscreen_changes_state(self):
         with self._patch_runtime(), patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"):
             manager = RecorderManager(self.config)
@@ -233,6 +229,35 @@ class TestRecorderManager(unittest.TestCase):
         manager = RecorderManager(self.config)
         self.assertEqual(manager.stop(), "")
 
+    def test_stop_requests_non_blocking_capture_shutdown(self):
+        with self._patch_runtime(), patch.object(
+            RecorderManager,
+            "_get_ffmpeg_path",
+            return_value="ffmpeg.exe",
+        ):
+            manager = RecorderManager(self.config)
+            self.assertTrue(manager.start_fullscreen())
+            capturer = FakeScreenCapturer.instances[-1]
+
+            manager.stop()
+            manager.wait_until_idle(timeout=2)
+
+        self.assertEqual(capturer.request_stop_calls, 1)
+
+    def test_lite_recording_uses_fixed_60_fps_for_capture_and_disk_guard(self):
+        with self._patch_runtime(), patch.object(
+            RecorderManager,
+            "_get_ffmpeg_path",
+            return_value="ffmpeg.exe",
+        ), patch("recorder.recorder_manager.DiskChecker.is_low_space", return_value=False) as low_space:
+            manager = RecorderManager(self.config)
+            self.assertTrue(manager.start_fullscreen())
+            manager.stop()
+            manager.wait_until_idle(timeout=2)
+
+        self.assertEqual(FakeScreenCapturer.instances[-1].target_fps, 60)
+        self.assertTrue(any(call.kwargs.get("fps") == 60 for call in low_space.call_args_list))
+
     def test_wait_until_idle_returns_true_when_already_idle(self):
         manager = RecorderManager(self.config)
 
@@ -270,17 +295,6 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(len(saved_paths), 3)
         self.assertTrue(all(path.endswith(".mp4") for path in saved_paths))
         self.assertTrue(all(os.path.exists(path) for path in saved_paths))
-
-    def test_start_region_sets_region_mode_and_uses_region_size(self):
-        with self._patch_runtime(), patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"):
-            manager = RecorderManager(self.config)
-            try:
-                self.assertTrue(manager.start_region((10, 20, 320, 240)))
-                self.assertEqual(manager.get_mode(), RecordMode.REGION)
-                self.assertEqual(manager._capturer.region, (10, 20, 320, 240))
-            finally:
-                manager.stop()
-                manager.wait_until_idle(timeout=2)
 
     def test_start_returns_false_when_already_recording(self):
         with self._patch_runtime(), patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"):
@@ -405,118 +419,13 @@ class TestRecorderManager(unittest.TestCase):
             self.assertEqual(manager._probe_audio_sources("system"), (False, False))
             self.assertEqual(manager._probe_audio_sources("microphone"), (False, True))
 
-    def test_get_target_size_preserves_region_aspect_ratio(self):
-        manager = RecorderManager(self.config)
-        manager._mode = RecordMode.REGION
-        manager._frame_size = (1000, 500)
-        self.config._config["quality"] = "medium"
-
-        self.assertEqual(manager._get_target_size(), (1280, 640))
-
-    def test_get_target_size_preserves_window_native_size_for_high_quality(self):
-        manager = RecorderManager(self.config)
-        manager._mode = RecordMode.WINDOW
-        manager._frame_size = (3000, 1800)
-        self.config._config["quality"] = "high"
-
-        self.assertIsNone(manager._get_target_size())
-
-    def test_get_target_size_scales_window_with_aspect_ratio_for_medium_quality(self):
-        manager = RecorderManager(self.config)
-        manager._mode = RecordMode.WINDOW
-        manager._frame_size = (3000, 1800)
-        self.config._config["quality"] = "medium"
-
-        self.assertEqual(manager._get_target_size(), (1200, 720))
-
-    def test_get_target_size_returns_none_for_native_quality(self):
-        manager = RecorderManager(self.config)
-        self.config._config["quality"] = "native"
-
-        self.assertIsNone(manager._get_target_size())
-
-    def test_window_mode_uses_window_region_capture_and_window_frame_size(self):
-        with self._patch_runtime(), \
-                patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"), \
-                patch.object(RecorderManager, "_get_window_rect") as get_rect:
-            get_rect.return_value = type(
-                "Rect",
-                (),
-                {
-                    "left": lambda self: 40,
-                    "top": lambda self: 50,
-                    "width": lambda self: 100,
-                    "height": lambda self: 80,
-                },
-            )()
-
-            class FakeUser32:
-                def IsWindow(self, hwnd):
-                    return True
-
-                def GetWindowTextLengthW(self, hwnd):
-                    return 0
-
-            import recorder.recorder_manager as recorder_manager
-            original_user32 = recorder_manager.ctypes.windll.user32
-            recorder_manager.ctypes.windll.user32 = FakeUser32()
-            manager = RecorderManager(self.config)
-            try:
-                self.assertTrue(manager.start_window(123))
-                self.assertEqual(manager._capturer.region, (40, 50, 100, 80))
-                self.assertEqual(manager._frame_size, (100, 80))
-            finally:
-                if manager.get_state() != RecorderState.IDLE:
-                    manager.stop()
-                    manager.wait_until_idle(timeout=2)
-                recorder_manager.ctypes.windll.user32 = original_user32
-
-    def test_window_region_change_freezes_until_region_is_stable(self):
-        manager = RecorderManager(self.config)
-        manager._mode = RecordMode.WINDOW
-        manager._capturer = FakeScreenCapturer(region=(10, 20, 100, 80))
-        manager._window_region = (10, 20, 100, 80)
-
-        self.assertTrue(manager._update_window_capture_region((30, 40, 100, 80), now=1.0))
-        self.assertEqual(manager._capturer.update_calls, [])
-        self.assertEqual(manager._pending_window_region, (30, 40, 100, 80))
-
-        self.assertTrue(manager._update_window_capture_region((30, 40, 100, 80), now=1.3))
-        self.assertEqual(manager._capturer.update_calls, [])
-
-        self.assertFalse(manager._update_window_capture_region((30, 40, 100, 80), now=1.5))
-        self.assertEqual(manager._capturer.update_calls, [(30, 40, 100, 80)])
-        self.assertEqual(manager._window_region, (30, 40, 100, 80))
-        self.assertIsNone(manager._pending_window_region)
-
-    def test_window_recording_checks_window_position_every_frame(self):
-        import recorder.recorder_manager as recorder_manager
-
-        self.assertEqual(recorder_manager._WINDOW_CAPTURE_UPDATE_INTERVAL, 0.0)
-
-    def test_window_frame_is_resized_without_cursor_overlay(self):
+    def test_fullscreen_keeps_cursor_overlay(self):
         import recorder.recorder_manager as recorder_manager
 
         manager = RecorderManager(self.config)
-        manager._mode = RecordMode.WINDOW
-        manager._frame_size = (200, 100)
-        manager._encode_size = (200, 100)
-        manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
-        frame = np.zeros((50, 100, 3), dtype=np.uint8)
-
-        with patch.object(recorder_manager, "draw_cursor", side_effect=AssertionError("window mode must not overlay cursor")):
-            result = manager._prepare_frame_for_encoding(frame)
-
-        self.assertEqual(result.shape, (100, 200, 3))
-
-    def test_region_mode_keeps_cursor_overlay(self):
-        import recorder.recorder_manager as recorder_manager
-
-        manager = RecorderManager(self.config)
-        manager._mode = RecordMode.REGION
         manager._frame_size = (100, 50)
         manager._encode_size = (100, 50)
-        manager._capturer = FakeScreenCapturer(region=(0, 0, 100, 50))
+        manager._capturer = FakeScreenCapturer()
         frame = np.zeros((50, 100, 3), dtype=np.uint8)
         multipliers = []
 
@@ -543,7 +452,7 @@ class TestRecorderManager(unittest.TestCase):
         self.assertIn("-shortest", cmd)
         self.assertNotIn("-filter_complex", cmd)
 
-    def test_mix_audio_builds_two_audio_amerge_command(self):
+    def test_mix_audio_builds_two_audio_stereo_amix_command(self):
         manager = RecorderManager(self.config)
         manager._session_dir = self.temp_dir
         manager._ffmpeg_path = "ffmpeg.exe"
@@ -556,7 +465,62 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(result, os.path.join(self.temp_dir, "mixed.mp4"))
         cmd = run.call_args.args[0]
         self.assertIn("-filter_complex", cmd)
-        self.assertIn("[1:a][2:a]amerge=inputs=2[a]", cmd)
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("aformat=sample_rates=48000:channel_layouts=stereo", filter_graph)
+        self.assertIn("amix=inputs=2", filter_graph)
+        self.assertNotIn("amerge", filter_graph)
+
+    def test_mix_audio_trims_track_started_before_first_video_frame(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.125
+        audio_path = self._write_wav("early-audio.wav")
+        manager._audio_track_start_times = {audio_path: 10.0}
+        manager._audio_track_latency_seconds = {audio_path: 0.05}
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            manager._mix_audio("video.mp4", [audio_path])
+
+        cmd = run.call_args.args[0]
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("atrim=start=0.075000", filter_graph)
+        self.assertIn("asetpts=PTS-STARTPTS", filter_graph)
+
+    def test_mix_audio_delays_track_started_after_first_video_frame(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.0
+        audio_path = self._write_wav("late-audio.wav")
+        manager._audio_track_start_times = {audio_path: 10.08}
+        manager._audio_track_latency_seconds = {audio_path: 0.0}
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            manager._mix_audio("video.mp4", [audio_path])
+
+        cmd = run.call_args.args[0]
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("adelay=80:all=1", filter_graph)
+
+    def test_mix_audio_aligns_system_and_microphone_tracks_independently(self):
+        manager = RecorderManager(self.config)
+        manager._session_dir = self.temp_dir
+        manager._ffmpeg_path = "ffmpeg.exe"
+        manager._video_started_at = 10.1
+        system_path = self._write_wav("system.wav")
+        microphone_path = self._write_wav("microphone.wav")
+        manager._audio_track_start_times = {system_path: 9.98, microphone_path: 10.14}
+        manager._audio_track_latency_seconds = {system_path: 0.05, microphone_path: 0.0}
+
+        with patch("recorder.recorder_manager.subprocess.run") as run:
+            manager._mix_audio("video.mp4", [system_path, microphone_path])
+
+        cmd = run.call_args.args[0]
+        filter_graph = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("[1:a]atrim=start=0.070000", filter_graph)
+        self.assertIn("[2:a]adelay=40:all=1", filter_graph)
+        self.assertIn("[aligned1][aligned2]amix=inputs=2", filter_graph)
 
     def test_mix_audio_returns_empty_on_ffmpeg_failure(self):
         manager = RecorderManager(self.config)
@@ -648,49 +612,6 @@ class TestRecorderManager(unittest.TestCase):
         self.assertEqual(timer.begin_calls, 1)
         self.assertEqual(timer.end_calls, 1)
 
-    def test_window_capture_start_failure_records_backend_diagnostic(self):
-        class FakeUser32:
-            def IsWindow(self, hwnd):
-                return True
-
-            def GetWindowTextLengthW(self, hwnd):
-                return 0
-
-        rect = type(
-            "Rect",
-            (),
-            {
-                "left": lambda self: 40,
-                "top": lambda self: 50,
-                "width": lambda self: 100,
-                "height": lambda self: 80,
-            },
-        )()
-
-        import recorder.recorder_manager as recorder_manager
-        original_user32 = recorder_manager.ctypes.windll.user32
-        recorder_manager.ctypes.windll.user32 = FakeUser32()
-        try:
-            with patch.multiple(
-                    "recorder.recorder_manager",
-                    ScreenCapturer=FailingStartScreenCapturer,
-                    VideoEncoder=FakeVideoEncoder), \
-                    patch.object(RecorderManager, "_get_ffmpeg_path", return_value="ffmpeg.exe"), \
-                    patch.object(RecorderManager, "_get_window_rect", return_value=rect):
-                manager = RecorderManager(self.config)
-
-                self.assertTrue(manager.start_window(123))
-                manager.wait_until_idle(timeout=2)
-
-            diagnostic = manager.get_last_window_diagnostic()
-            self.assertEqual(diagnostic.reason, WindowFailureReason.CAPTURE_BACKEND_FAILED)
-            self.assertEqual(diagnostic.hwnd, 123)
-            self.assertEqual(diagnostic.mode, "window")
-            self.assertEqual(diagnostic.stage, "capture_start")
-            self.assertEqual(diagnostic.rect, (40, 50, 100, 80))
-        finally:
-            recorder_manager.ctypes.windll.user32 = original_user32
-
     def test_runtime_low_disk_reports_failed_event_and_resets_state(self):
         saved_paths = []
         events = []
@@ -775,107 +696,6 @@ class TestRecorderManager(unittest.TestCase):
         with patch("recorder.recorder_manager.os.path.isfile", return_value=False), \
                 patch("shutil.which", return_value="C:/bin/ffmpeg.exe"):
             self.assertEqual(RecorderManager._get_ffmpeg_path(), "C:/bin/ffmpeg.exe")
-
-    def test_start_window_rejects_invalid_window(self):
-        class FakeUser32:
-            def IsWindow(self, hwnd):
-                return False
-
-        import recorder.recorder_manager as recorder_manager
-        original_user32 = recorder_manager.ctypes.windll.user32
-        recorder_manager.ctypes.windll.user32 = FakeUser32()
-        try:
-            manager = RecorderManager(self.config)
-            self.assertFalse(manager.start_window(123))
-            diagnostic = manager.get_last_window_diagnostic()
-            self.assertEqual(diagnostic.reason, WindowFailureReason.UNSUPPORTED_WINDOW)
-            self.assertEqual(diagnostic.hwnd, 123)
-            self.assertEqual(diagnostic.mode, "window")
-            self.assertEqual(diagnostic.stage, "is_window")
-        finally:
-            recorder_manager.ctypes.windll.user32 = original_user32
-
-    def test_start_window_rejects_window_without_rect(self):
-        class FakeUser32:
-            def IsWindow(self, hwnd):
-                return True
-
-            def GetWindowTextLengthW(self, hwnd):
-                return 0
-
-        import recorder.recorder_manager as recorder_manager
-        original_user32 = recorder_manager.ctypes.windll.user32
-        recorder_manager.ctypes.windll.user32 = FakeUser32()
-        try:
-            manager = RecorderManager(self.config)
-            with patch.object(RecorderManager, "_get_window_rect", return_value=None):
-                self.assertFalse(manager.start_window(123))
-                self.assertEqual(manager.get_window_hwnd(), 123)
-                diagnostic = manager.get_last_window_diagnostic()
-                self.assertEqual(diagnostic.reason, WindowFailureReason.RECT_UNAVAILABLE)
-                self.assertEqual(diagnostic.hwnd, 123)
-                self.assertEqual(diagnostic.title, "")
-                self.assertEqual(diagnostic.mode, "window")
-                self.assertEqual(diagnostic.stage, "get_window_rect")
-                self.assertIsNone(diagnostic.rect)
-                self.assertEqual(diagnostic.foreground_result, "not_attempted")
-        finally:
-            recorder_manager.ctypes.windll.user32 = original_user32
-
-    def test_get_window_rect_returns_none_for_tiny_client_area(self):
-        class RectUser32:
-            def IsWindow(self, hwnd):
-                return True
-
-            def IsWindowVisible(self, hwnd):
-                return True
-
-            def IsIconic(self, hwnd):
-                return False
-
-            def GetClientRect(self, hwnd, rect_ref):
-                rect_ref._obj.right = 5
-                rect_ref._obj.bottom = 5
-                return True
-
-        import utils.window_geometry as window_geometry
-        original_user32 = window_geometry.ctypes.windll.user32
-        window_geometry.ctypes.windll.user32 = RectUser32()
-        try:
-            self.assertIsNone(RecorderManager._get_window_rect(123))
-        finally:
-            window_geometry.ctypes.windll.user32 = original_user32
-
-    def test_get_window_rect_normalizes_odd_client_size(self):
-        class RectUser32:
-            def IsWindow(self, hwnd):
-                return True
-
-            def IsWindowVisible(self, hwnd):
-                return True
-
-            def IsIconic(self, hwnd):
-                return False
-
-            def GetClientRect(self, hwnd, rect_ref):
-                rect_ref._obj.right = 321
-                rect_ref._obj.bottom = 241
-                return True
-
-            def ClientToScreen(self, hwnd, point_ref):
-                point_ref._obj.x = 10
-                point_ref._obj.y = 20
-                return True
-
-        import utils.window_geometry as window_geometry
-        original_user32 = window_geometry.ctypes.windll.user32
-        window_geometry.ctypes.windll.user32 = RectUser32()
-        try:
-            rect = RecorderManager._get_window_rect(123)
-            self.assertEqual((rect.left(), rect.top(), rect.width(), rect.height()), (10, 20, 320, 240))
-        finally:
-            window_geometry.ctypes.windll.user32 = original_user32
-
 
 if __name__ == "__main__":
     unittest.main()

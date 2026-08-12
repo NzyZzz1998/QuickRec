@@ -15,12 +15,15 @@ import os
 import shutil
 import tempfile
 import time
+from pathlib import Path
+
+from utils.product_identity import lite_temp_dir
 
 logger = logging.getLogger("QuickRec")
 
 
 class TempCleaner:
-    BASE_DIR = os.path.join(tempfile.gettempdir(), "QuickRec")
+    BASE_DIR = str(lite_temp_dir(Path(tempfile.gettempdir())))
 
     @classmethod
     def create_session_dir(cls) -> str:

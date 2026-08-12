@@ -8,8 +8,23 @@
 import ctypes
 import json
 import os
+import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from utils.product_identity import default_save_path, lite_appdata_dir
+
+
+@dataclass(frozen=True)
+class ConfigSaveResult:
+    """配置持久化的结构化结果。"""
+
+    ok: bool
+    stage: str
+    message: str = ""
+    path: str = ""
 
 
 class ConfigManager:
@@ -17,18 +32,13 @@ class ConfigManager:
 
     # 默认配置值
     defaults = {
-        "save_path": str(Path.home() / "Videos" / "QuickRec"),
+        "save_path": str(default_save_path(Path.home())),
         "quality": "native",  # QuickRec Lite v0: fixed native output
         "fps": 60,  # QuickRec Lite v0: fixed 60fps output
-        "shortcut_start": "Ctrl+Shift+R",
-        "shortcut_stop": "Ctrl+Shift+S",
-        "shortcut_pause": "Ctrl+Shift+P",
-        "shortcut_area": "Ctrl+Shift+A",
-        "shortcut_window": "Ctrl+Shift+W",
-        "show_countdown": False,
-        "countdown_seconds": 3,
+        "shortcut_start": "Ctrl+Alt+R",
+        "shortcut_stop": "Ctrl+Alt+S",
+        "shortcut_pause": "Ctrl+Alt+P",
         "audio_source": "none",  # none / system / microphone / both
-        "mouse_highlight": False,
         "auto_start": False,
     }
 
@@ -54,8 +64,9 @@ class ConfigManager:
         if not appdata:
             # 回退方案：使用当前目录
             appdata = Path.home()
-        self.config_path = Path(appdata) / "QuickRec" / "config.json"
+        self.config_path = lite_appdata_dir(Path(appdata)) / "config.json"
         self._config = self.defaults.copy()
+        self._persisted_config = self.defaults.copy()
         self.load()
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -81,36 +92,103 @@ class ConfigManager:
         """
         self._config[key] = value
 
-    def save(self) -> None:
-        """将配置持久化到 JSON 文件"""
+    def snapshot(self) -> dict[str, Any]:
+        """返回与当前有效配置隔离的候选副本。"""
+        return self._config.copy()
+
+    def save_candidate(self, candidate: Mapping[str, Any]) -> ConfigSaveResult:
+        """原子保存候选配置，成功后才更新内存状态。"""
+        normalized = {
+            key: candidate.get(key, default)
+            for key, default in self.defaults.items()
+        }
+        temp_path: Path | None = None
         try:
-            # 确保目录存在
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[ConfigManager] 保存配置失败: {e}")
+        except Exception as exc:
+            return ConfigSaveResult(
+                False,
+                "prepare_directory",
+                str(exc),
+                str(self.config_path),
+            )
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.config_path.parent,
+                prefix=f".{self.config_path.stem}-",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+                json.dump(normalized, temp_file, indent=2, ensure_ascii=False)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+        except Exception as exc:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            return ConfigSaveResult(
+                False,
+                "write_temp",
+                str(exc),
+                str(self.config_path),
+            )
+
+        try:
+            os.replace(temp_path, self.config_path)
+        except Exception as exc:
+            temp_path.unlink(missing_ok=True)
+            return ConfigSaveResult(
+                False,
+                "replace",
+                str(exc),
+                str(self.config_path),
+            )
+
+        self._config = normalized.copy()
+        self._persisted_config = normalized.copy()
+        return ConfigSaveResult(True, "complete", path=str(self.config_path))
+
+    def save(self) -> ConfigSaveResult:
+        """保存当前候选状态；失败时恢复最后一次持久化状态。"""
+        result = self.save_candidate(self._config)
+        if not result.ok:
+            self._config = getattr(
+                self,
+                "_persisted_config",
+                self.defaults,
+            ).copy()
+            print(f"[ConfigManager] 保存配置失败 ({result.stage}): {result.message}")
+        return result
 
     def load(self) -> None:
         """从 JSON 文件加载配置"""
         if not self.config_path.exists():
             # 文件不存在，使用默认值
             self._config = self.defaults.copy()
+            self._persisted_config = self._config.copy()
             return
 
         try:
-            with open(self.config_path, encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8-sig") as f:
                 loaded = json.load(f)
-                # 合并加载的配置和默认配置
-                self._config = {**self.defaults, **loaded}
+                if not isinstance(loaded, dict):
+                    raise ValueError("配置根节点必须是对象")
+                self._config = {
+                    key: loaded.get(key, default)
+                    for key, default in self.defaults.items()
+                }
+                self._persisted_config = self._config.copy()
         except (json.JSONDecodeError, Exception) as e:
             print(f"[ConfigManager] 加载配置失败，使用默认值: {e}")
             self._config = self.defaults.copy()
+            self._persisted_config = self._config.copy()
 
-    def reset(self) -> None:
+    def reset(self) -> ConfigSaveResult:
         """恢复默认配置"""
-        self._config = self.defaults.copy()
-        self.save()
+        return self.save_candidate(self.defaults.copy())
 
     @staticmethod
     def get_native_resolution() -> tuple[int, int]:

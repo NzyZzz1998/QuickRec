@@ -33,6 +33,21 @@ class TestDiskChecker(unittest.TestCase):
         expected = DiskChecker.estimate_size_per_minute("medium")
         self.assertEqual(result, expected)
 
+    def test_estimate_size_accounts_for_fixed_60_fps(self):
+        at_30 = DiskChecker.estimate_size_per_minute("high", fps=30)
+        at_60 = DiskChecker.estimate_size_per_minute("high", fps=60)
+
+        self.assertGreater(at_60, at_30)
+
+    def test_is_low_space_forwards_fps_to_estimator(self):
+        from unittest.mock import patch
+
+        with patch.object(DiskChecker, "estimate_size_per_minute", return_value=100) as estimate, \
+                patch.object(DiskChecker, "get_free_space", return_value=10**12):
+            DiskChecker.is_low_space("C:/", "high", fps=60)
+
+        estimate.assert_called_once_with("high", fps=60, encoder="libx264-superfast")
+
     def test_get_free_space(self):
         """测试获取磁盘可用空间"""
         # 使用当前系统目录

@@ -6,8 +6,7 @@ dxcam 的创建和销毁都在调用线程中执行，避免跨线程问题。
 """
 
 import logging
-
-from utils.window_geometry import normalize_capture_region
+import threading
 
 logger = logging.getLogger("QuickRec")
 
@@ -15,37 +14,40 @@ logger = logging.getLogger("QuickRec")
 class ScreenCapturer:
     """屏幕捕获器（基于 dxcam）"""
 
-    def __init__(self, region: tuple = None):
+    def __init__(
+        self,
+        target_fps: int = 60,
+    ):
         """
         初始化屏幕捕获器
 
         Args:
-            region: 捕获区域 (left, top, width, height)
-                   None 表示全屏捕获
+            target_fps: Lite 全屏捕获目标帧率
         """
-        self._region = normalize_capture_region(region) if region else None
-        if region and self._region is None:
-            raise ValueError(f"invalid capture region: {region}")
         self._camera = None
         self._started = False
-        self._last_dxcam_region = None  # 上一次 dxcam 使用的 region，避免重复重启
-
-        if self._region:
-            left, top, width, height = self._region
-            # dxcam 用 region=(left, top, right, bottom)
-            self._dxcam_region = (left, top, left + width, top + height)
-        else:
-            self._dxcam_region = None
+        self._target_fps = max(int(target_fps), 1)
+        self._fallback_frame = None
+        self._release_thread: threading.Thread | None = None
+        self._release_timeout_seconds = 1.0
 
     def start(self):
         """启动捕获（延迟初始化，应在录制线程中调用）"""
         import dxcam
         self._camera = dxcam.create(output_idx=0, output_color="BGR")
-        if self._dxcam_region:
-            logger.info(f"ScreenCapturer region: {self._dxcam_region}")
-        self._camera.start(target_fps=60, region=self._dxcam_region)
-        self._last_dxcam_region = self._dxcam_region
+        self._fallback_frame = self._grab_initial_frame()
+        self._start_camera()
         self._started = True
+
+    def _start_camera(self) -> None:
+        camera = self._camera
+        if camera is None:
+            raise RuntimeError("DXCamera is not initialized")
+        camera.start(
+            target_fps=self._target_fps,
+            region=None,
+            video_mode=True,
+        )
 
     def capture_frame(self):
         """
@@ -56,51 +58,49 @@ class ScreenCapturer:
         """
         if not self._started:
             return None
-        frame = self._camera.get_latest_frame()
+        # get_latest_frame() 在静态桌面上可能无限等待新帧；grab() 只读取
+        # 当前缓冲区，因此停止和取消始终能及时返回。
+        frame = self._camera.grab()
         if frame is None:
             # 首帧可能为 None，短暂等待后重试
             import time
             time.sleep(0.01)
-            frame = self._camera.get_latest_frame()
+            frame = self._camera.grab()
+        if frame is not None:
+            self._fallback_frame = frame
+        elif self._fallback_frame is not None:
+            frame = self._fallback_frame
         return frame
 
-    def update_region(self, region: tuple):
-        """动态更新捕获区域（用于窗口录制跟踪窗口位置）
+    def _grab_initial_frame(self):
+        camera = self._camera
+        if camera is None:
+            return None
+        try:
+            frame = camera.grab(region=None, new_frame_only=False)
+        except TypeError:
+            frame = camera.grab()
+        if frame is not None:
+            return frame
+        return self._grab_desktop_fallback()
 
-        Args:
-            region: (left, top, width, height) 新的捕获区域
-        """
-        normalized = normalize_capture_region(region)
-        if normalized is None:
-            raise ValueError(f"invalid capture region: {region}")
-        self._region = normalized
-        left, top, width, height = normalized
-        new_dxcam_region = (left, top, left + width, top + height)
+    def _grab_desktop_fallback(self):
+        """在 DXCam 暂无首帧时准备一张静态桌面回退帧。"""
+        try:
+            import numpy as np
+            from PIL import ImageGrab
 
-        # 与上次相同则跳过重启，避免每帧都重建 dxcam
-        if self._last_dxcam_region == new_dxcam_region:
-            return
-
-        self._dxcam_region = new_dxcam_region
-        self._last_dxcam_region = new_dxcam_region
-
-        if self._camera and self._started:
-            try:
-                self._camera.stop()
-                self._camera.release()
-                import dxcam
-                self._camera = dxcam.create(output_idx=0, output_color="BGR")
-                self._camera.start(target_fps=60, region=self._dxcam_region)
-            except Exception as e:
-                logger.error(f"更新捕获区域失败: {e}")
-                # 重建失败时确保状态干净，避免后续 capture_frame 在坏状态上调用
-                try:
-                    if self._camera:
-                        self._camera.release()
-                except Exception:
-                    pass
-                self._camera = None
-                self._started = False
+            image = ImageGrab.grab(
+                bbox=None,
+                all_screens=False,
+            ).convert("RGB")
+            return np.asarray(image, dtype=np.uint8)[:, :, ::-1].copy()
+        except Exception as exc:
+            logger.warning(
+                "static desktop fallback capture failed: error_type=%s",
+                type(exc).__name__,
+            )
+            return None
 
     def get_monitor_size(self) -> tuple:
         """
@@ -109,25 +109,53 @@ class ScreenCapturer:
         Returns:
             (width, height)
         """
-        if self._dxcam_region:
-            left, top, right, bottom = self._dxcam_region
-            return (right - left, bottom - top)
-        else:
-            # 全屏：从系统获取
-            import ctypes
-            user32 = ctypes.windll.user32
-            return (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
+        import ctypes
+        user32 = ctypes.windll.user32
+        return (user32.GetSystemMetrics(0), user32.GetSystemMetrics(1))
 
-    def get_capture_region(self) -> tuple | None:
-        return self._region
+    def request_stop(self) -> bool:
+        """唤醒并请求 DXCam 捕获线程退出，不在调用线程等待释放。"""
+        camera = self._camera
+        if camera is None:
+            return False
+        stop_event = getattr(camera, "_DXCamera__stop_capture", None)
+        frame_available = getattr(camera, "_DXCamera__frame_available", None)
+        if not hasattr(stop_event, "set"):
+            logger.info("DXCamera asynchronous stop is unavailable")
+            return False
+        stop_event.set()
+        if hasattr(frame_available, "set"):
+            frame_available.set()
+        logger.info("DXCamera asynchronous stop requested")
+        return True
 
     def close(self):
         """释放资源"""
-        if self._camera:
-            self._camera.stop()
-            self._camera.release()
-            self._camera = None
+        camera = self._camera
+        self._camera = None
         self._started = False
+        self._fallback_frame = None
+        if camera is None:
+            return
+
+        def release_camera() -> None:
+            try:
+                camera.release()
+            except Exception as exc:
+                logger.warning("DXCamera release failed: %s", exc)
+
+        self._release_thread = threading.Thread(
+            target=release_camera,
+            name="QuickRecLiteDXCameraRelease",
+            daemon=True,
+        )
+        self._release_thread.start()
+        self._release_thread.join(timeout=self._release_timeout_seconds)
+        if self._release_thread.is_alive():
+            logger.warning(
+                "DXCamera release exceeded %.2fs; recording finalization continues",
+                self._release_timeout_seconds,
+            )
 
     def __del__(self):
         try:

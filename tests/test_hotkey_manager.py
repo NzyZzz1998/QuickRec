@@ -133,17 +133,6 @@ class TestHotkeyManager(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
-    def test_esc_callback_is_called_and_can_be_disabled(self):
-        manager = HotkeyManager()
-        calls = []
-        manager.set_esc_callback(lambda: calls.append("esc"))
-
-        manager._on_press(keyboard.Key.esc)
-        manager.set_esc_callback(None)
-        manager._on_press(keyboard.Key.esc)
-
-        self.assertEqual(calls, ["esc"])
-
     def test_start_and_stop_listening_manage_listener_lifecycle(self):
         class FakeListener:
             started = False

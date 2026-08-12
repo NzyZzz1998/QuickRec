@@ -8,10 +8,6 @@ from recorder.state_machine import RecordingState
 class RecordingManagerLike(Protocol):
     def start_fullscreen(self) -> bool: ...
 
-    def start_region(self, region: tuple[int, int, int, int]) -> bool: ...
-
-    def start_window(self, hwnd: int) -> bool: ...
-
     def pause(self) -> bool: ...
 
     def resume(self) -> bool: ...
@@ -33,12 +29,6 @@ class RecordingWorkflow:
 
     def start_fullscreen(self) -> bool:
         return self._manager.start_fullscreen()
-
-    def start_region(self, region: tuple[int, int, int, int]) -> bool:
-        return self._manager.start_region(region)
-
-    def start_window(self, hwnd: int) -> bool:
-        return self._manager.start_window(hwnd)
 
     def pause(self) -> bool:
         return self._manager.pause()

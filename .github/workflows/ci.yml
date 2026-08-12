@@ -32,13 +32,25 @@ jobs:
         run: python -m compileall -q src tests
 
       - name: Ruff
-        run: python -m ruff check src tests
+        run: python -m ruff check src scripts tests
 
       - name: Mypy
         run: python -m mypy
 
       - name: Pytest with coverage
         run: python -m pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+      - name: Core module coverage
+        run: >-
+          python -m coverage report
+          --include="src/config.py,src/utils/config_migration.py,src/utils/product_identity.py,src/utils/single_instance.py,src/recorder/frame_schedule.py"
+          --fail-under=85
+
+      - name: Coordination module coverage
+        run: >-
+          python -m coverage report
+          --include="src/ui/config_migration_dialog.py,src/hotkey/hotkey_manager.py,src/recorder/recorder_manager.py,src/recorder/workflow.py"
+          --fail-under=80
 
   packaging:
     name: Lite Windows packaging smoke
@@ -58,35 +70,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
 
+      - name: Stage locked FFmpeg
+        run: python scripts/stage_ffmpeg.py --output ffmpeg/ffmpeg.exe
+
       - name: Packaging tests
         run: python -m pytest -m packaging -q
-
-      - name: Stage FFmpeg
-        shell: pwsh
-        run: |
-          choco install ffmpeg --no-progress -y
-
-          $packageRoot = Join-Path $env:ChocolateyInstall "lib\ffmpeg"
-          if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
-            throw "Chocolatey FFmpeg package directory was not found: $packageRoot"
-          }
-
-          $ffmpegSource = Get-ChildItem -LiteralPath $packageRoot -Recurse -File -Filter "ffmpeg.exe" |
-            Where-Object { $_.Length -gt 1MB } |
-            Select-Object -First 1
-
-          if ($null -eq $ffmpegSource) {
-            throw "A real FFmpeg executable was not found in $packageRoot"
-          }
-
-          New-Item -ItemType Directory -Path "ffmpeg" -Force | Out-Null
-          Copy-Item -LiteralPath $ffmpegSource.FullName -Destination "ffmpeg\ffmpeg.exe"
-
-          $file = Get-Item -LiteralPath "ffmpeg\ffmpeg.exe"
-          if ($file.Length -le 1MB) {
-            throw "Staged FFmpeg is not a real executable"
-          }
-          & "ffmpeg\ffmpeg.exe" -version
 
       - name: Build Lite onedir package
         run: >-
@@ -97,12 +85,30 @@ jobs:
         shell: pwsh
         run: |
           $required = @(
-            "ci-dist\QuickRec\QuickRec.exe",
-            "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe"
+            "ci-dist\QuickRec-Lite\QuickRec-Lite.exe",
+            "ci-dist\QuickRec-Lite\_internal\ffmpeg\ffmpeg.exe"
           )
           foreach ($path in $required) {
             if (-not (Test-Path -LiteralPath $path)) {
               throw "Missing Lite packaging artifact: $path"
             }
           }
-          & "ci-dist\QuickRec\_internal\ffmpeg\ffmpeg.exe" -version
+          python scripts/stage_ffmpeg.py --verify-only --output "ci-dist\QuickRec-Lite\_internal\ffmpeg\ffmpeg.exe"
+
+      - name: Create release ZIP and manifest
+        shell: pwsh
+        run: |
+          Compress-Archive -LiteralPath "ci-dist\QuickRec-Lite" -DestinationPath "ci-dist\QuickRec-Lite-v0.1-win-x64.zip"
+          python scripts/release_manifest.py `
+            --package-dir "ci-dist\QuickRec-Lite" `
+            --zip "ci-dist\QuickRec-Lite-v0.1-win-x64.zip" `
+            --output "ci-dist\release-manifest.json" `
+            --version "v0.1"
+
+      - name: Upload Lite package evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickRec-Lite-v0.1-${{ github.sha }}
+          path: |
+            ci-dist/QuickRec-Lite-v0.1-win-x64.zip
+            ci-dist/release-manifest.json
