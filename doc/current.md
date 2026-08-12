@@ -10,11 +10,11 @@
 - 当前工作区：`E:\codex\QuickRec-Lite`
 - 当前发布包：`E:\QRtest\QuickRec-Lite-v0.1-rc2-dist\QuickRec-Lite-v0.1-win-x64.zip`
 
-历史 `lite-v0` tag 固定指向 `c15940e feat: prepare QuickRec Lite v0`，v0.1 发布没有移动、覆盖或重写该标签。
+历史 `lite-v0` tag 固定指向 `c15940e feat: prepare QuickRec Lite v0`，v0.1 发布没有移动、覆盖或重写该标签。当前 `lite-v0.1` tag 固定指向 `408c376 feat(lite-v0.1): isolate product identity and harden recording`；分支后续的发布状态文档不改变该发布点。
 
 ## v0.1 当前状态
 
-QuickRec Lite v0.1 的产品主线是 **Full/Lite 运行身份隔离与稳定性收口**。开发、自动化、打包和真实候选包验收已经完成，RC2 结论为“通过”，正式发布收口已获授权。
+QuickRec Lite v0.1 的产品主线是 **Full/Lite 运行身份隔离与稳定性收口**。开发、自动化、打包和真实候选包验收已经完成，RC2 结论为“通过”，正式版本已发布。
 
 已完成：
 
@@ -60,4 +60,4 @@ Full 历史和当前资料由 `E:\codex\QuickRec` 维护，Lite 不保存其副�
 
 ## 当前发布状态
 
-Lite v0.1 以 `lite-v0.1` tag 和同名 GitHub Release 作为正式发布事实源。后续维护从 `lite-test` 集成并在验证后快进 `lite-master`，不得移动既有发布 tag。
+Lite v0.1 以 `lite-v0.1` tag 和 [GitHub Release](https://github.com/NzyZzz1998/QuickRec/releases/tag/lite-v0.1) 作为正式发布事实源。两个 Lite 分支已同步，tag CI 的测试与 Packaging 均通过。后续维护从 `lite-test` 集成并在验证后快进 `lite-master`，不得移动既有发布 tag。

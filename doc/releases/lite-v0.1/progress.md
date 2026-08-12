@@ -5,14 +5,17 @@
 ## 当前状态
 
 - 版本：QuickRec Lite v0.1
-- 当前阶段：正式发布收口
-- 总体状态：RC2 候选包验收通过，正式发布已授权
+- 当前阶段：正式发布完成
+- 总体状态：Lite v0.1 已发布
 - 开发分支：`lite-test`
 - 稳定版本：`lite-v0.1`
 - 进入开发授权：已获得
 - Full 影响：禁止修改
 - 最近验证：231 passed；总体 coverage 81.14%，核心模块 90%，协调模块 88%；Packaging 7 passed；Ruff/Mypy/Compileall 与硬件 smoke 通过
 - 发布阻塞：无
+- 发布提交：`408c376`
+- 发布标签：`lite-v0.1`
+- Release：`https://github.com/NzyZzz1998/QuickRec/releases/tag/lite-v0.1`
 
 ## 里程碑总览
 
@@ -162,7 +165,10 @@
 - [x] D8.18 更新 README、current、release notes 和 package report。
 - [x] D8.19 所有发布阻塞项关闭。
 - [x] D8.20 获得正式发布授权，进入提交、分支、tag 与 Release 收口。
+- [x] D8.21 `lite-test` 与 `lite-master` 同步发布提交。
+- [x] D8.22 创建并推送 annotated tag `lite-v0.1`，发布 ZIP 与 manifest。
+- [x] D8.23 tag CI 的测试与 Packaging 通过。
 
 ## 当前下一步
 
-完成提交、同步 `lite-test` / `lite-master`、创建 `lite-v0.1` tag 和 GitHub Release，并复核远端发布身份。
+Lite v0.1 本次迭代已完成。下一阶段只能从发布后观察、Bugfix 或经确认的新版本需求进入，不回写或移动 `lite-v0.1`。

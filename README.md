@@ -8,13 +8,13 @@ QuickRec Lite 是 QuickRec 的轻量化产品线工作区。当前正式版本�
 >
 > 集成分支：`lite-test`
 >
-> 当前标签：`lite-v0.1`
+> 当前标签：`lite-v0.1`（`408c376`）
 >
 > 当前文档入口：`doc/current.md`
 >
 > 当前版本目录：`doc/releases/lite-v0.1/`
 
-历史 `lite-v0` tag 继续固定指向 Lite v0 版本点 `c15940e feat: prepare QuickRec Lite v0`，本次发布没有移动或重写该标签。
+历史 `lite-v0` tag 继续固定指向 Lite v0 版本点 `c15940e feat: prepare QuickRec Lite v0`，本次发布没有移动或重写该标签。`lite-v0.1` 固定指向发布提交 `408c376`；稳定/集成分支后续可以包含发布状态文档，不代表移动发布 tag。
 
 ## Lite v0.1 范围
 
@@ -114,4 +114,4 @@ python -m PyInstaller build_std.spec --clean --noconfirm
 dist/QuickRec-Lite/QuickRec-Lite.exe
 ```
 
-正式发布包为 `QuickRec-Lite-v0.1-win-x64.zip`，SHA256 为 `AA307EC1B7B95CBB4F516DECABFD420DD58A3E97B9624C6445F6086C6DCBDD34`。完整身份和验收状态见 [v0.1 验证报告](doc/releases/lite-v0.1/verification.md)。
+正式发布包为 `QuickRec-Lite-v0.1-win-x64.zip`，SHA256 为 `AA307EC1B7B95CBB4F516DECABFD420DD58A3E97B9624C6445F6086C6DCBDD34`。完整身份和验收状态见 [v0.1 验证报告](doc/releases/lite-v0.1/verification.md)，发布页见 [QuickRec Lite v0.1](https://github.com/NzyZzz1998/QuickRec/releases/tag/lite-v0.1)。
