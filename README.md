@@ -3,14 +3,15 @@
 > 面向 Windows 的本地录屏与创作工具。把屏幕录制、素材管理、项目编排、
 > 多轨剪辑和 MP4 导出放进同一个桌面工作流。
 
-[![Release](https://img.shields.io/badge/release-v1.9.4-16A34A)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.4)
-![Candidate](https://img.shields.io/badge/candidate-v1.9.5_RC3-F59E0B)
+[![Release](https://img.shields.io/badge/release-v1.9.5-16A34A)](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.5)
 ![Platform](https://img.shields.io/badge/platform-Windows-111827)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB)
 ![Tests](https://img.shields.io/badge/tests-1425_passed-16A34A)
 ![Coverage](https://img.shields.io/badge/coverage-84.14%25-2563EB)
 
-[下载正式版](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.4)
+[下载 Full v1.9.5（Windows x64）](https://github.com/NzyZzz1998/QuickRec/releases/download/v1.9.5/QuickRec-v1.9.5-win-x64.zip)
+· [发布说明](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.5)
+· [快速开始](#快速开始)
 · [当前事实源](doc/current.md)
 · [v1.9.5 验收结果](doc/releases/v1.9.5/manual-verification.md)
 · [版本文档](doc/releases/)
@@ -23,7 +24,7 @@
 | 30、60、120 FPS | 搜索、筛选、重新定位 | 播放、裁剪、分割、波纹 | H.264/AAC MP4 |
 | 四类音频模式 | 首帧预览与恢复 | 8 条视频轨 + 8 条音频轨 | 校验、取消、重试、恢复 |
 
-下图为 v1.9.5 剪辑工作台高保真交互原型，用于页面实现与验收对照。实际候选包的
+下图为 v1.9.5 剪辑工作台高保真交互原型，用于页面实现与验收对照。正式发布包的
 GUI、真实媒体和 DPI 证据见
 [D9 手动验收记录](doc/releases/v1.9.5/manual-verification.md)。
 
@@ -55,7 +56,7 @@ v1.9.5 已完成自动化门禁与 D9 验收：`31/31` 项全部通过，当前�
 > v1.9.5 项目与 v1.9.4 及更早版本不保证向下编辑兼容。跨版本操作前请备份
 > `.qrproj` 和 `.bak`，不要在多个版本间反复打开并保存同一生产项目。
 
-候选版本的 [PRD](doc/releases/v1.9.5/prd.md)、
+v1.9.5 的 [PRD](doc/releases/v1.9.5/prd.md)、
 [进度看板](doc/releases/v1.9.5/progress.md)、
 [自动验证](doc/releases/v1.9.5/verification.md) 和
 [验收追溯矩阵](doc/releases/v1.9.5/acceptance-matrix.md) 均可直接查阅。
@@ -132,13 +133,17 @@ flowchart LR
 
 ### 使用正式发布包
 
-1. 从 [QuickRec Full v1.9.4 Release](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.4)
-   下载 `QuickRec-v1.9.4-win-x64.zip`。
+1. 下载 [QuickRec-v1.9.5-win-x64.zip](https://github.com/NzyZzz1998/QuickRec/releases/download/v1.9.5/QuickRec-v1.9.5-win-x64.zip)
+   （[Full v1.9.5 发布说明](https://github.com/NzyZzz1998/QuickRec/releases/tag/v1.9.5)）。
 2. 解压到可写目录。
 3. 运行 `QuickRec.exe`。
 4. 应用默认驻留系统托盘；双击托盘图标或选择“打开工作台”进入主界面。
 
-发布包已包含运行所需的 FFmpeg 和 FFprobe，不需要单独安装 Python。
+发布包适用于 Windows x64，已包含运行所需的 FFmpeg 和 FFprobe，不需要单独安装 Python。
+请下载上述 ZIP 发布包，而不是 Release 页的 `Source code` 源码包。
+
+从旧版升级前，请先备份 `.qrproj` 和 `.bak`。v1.9.5 项目不保证能在 v1.9.4 及更早版本中
+继续编辑，详见[数据安全与回滚](#数据安全与回滚)。
 
 ### 从源码运行
 
